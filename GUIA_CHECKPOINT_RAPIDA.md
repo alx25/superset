@@ -1,78 +1,112 @@
-# 🚀 Guía Rápida: Checkpoint Personalización de Columnas
+# 🚀 Guía Rápida: Checkpoints de Personalización
 
-## ✅ ¿Qué se creó?
+## ✅ Checkpoints Disponibles
 
-**Tu checkpoint está listo y guardado como:** `checkpoint-personalizacion-columnas-v1.0`
+### 📍 **CHECKPOINT V2.0** (ACTUAL - RECOMENDADO)
+- **Tag**: `checkpoint-jinja-dinamicos-v2.0`
+- **Commit Hash**: `ad7958ee38`
+- **Estado**: ✅ 100% FUNCIONAL CON PLANTILLAS JINJA
 
-### 📍 Punto de Control Creado:
-- **Commit Hash**: `82f01f4032` 
+#### Funcionalidad V2.0:
+- ✅ **Todo lo de V1.0** (personalización básica)
+- ✅ **Plantillas Jinja dinámicas**: `"Ventas del {{MAX(anio_id)}}"` → `"Ventas del 2025"`
+- ✅ **Control "Jinja Fields"** en interfaz Query
+- ✅ **Motor de resolución automática** con datos reales
+- ✅ **Campos ocultos** (solo para templates)
+- ✅ **Compilación perfecta**: 6.84s sin errores
+
+### 📍 **Checkpoint V1.0** (Base)
 - **Tag**: `checkpoint-personalizacion-columnas-v1.0`
-- **Archivos Guardados**: 55 archivos (8,190 adiciones)
-- **Estado**: ✅ 100% FUNCIONAL
+- **Commit Hash**: `82f01f4032` 
+- **Estado**: ✅ Funcionalidad básica personalización
 
-### 🎯 Funcionalidad Protegida:
+#### Funcionalidad V1.0:
 - ✅ Plugin Table V3 con personalización de columnas
 - ✅ Campo "Nombre personalizado" en UI
 - ✅ Sin errores React Error #130 
 - ✅ Compilación TypeScript limpia
-- ✅ Persistencia de configuración
 
 ---
 
 ## 🔒 Comandos de Restauración
 
-### Para volver exactamente a este punto:
+### **Para usar V2.0 (RECOMENDADO - Con Plantillas Jinja):**
 ```bash
-# Opción 1: Usar el tag (RECOMENDADO)
-git checkout checkpoint-personalizacion-columnas-v1.0
+# Restaurar al checkpoint más avanzado
+git checkout checkpoint-jinja-dinamicos-v2.0
 
-# Opción 2: Usar el hash del commit  
-git checkout 82f01f4032
-
-# Después de cualquier opción:
+# Recompilar plugins
 cd superset-frontend
 npm run plugins:build
 ```
 
-### Para crear una nueva rama desde este checkpoint:
+### **Para usar V1.0 (Solo personalización básica):**
 ```bash
-git checkout -b nueva-funcionalidad checkpoint-personalizacion-columnas-v1.0
+# Restaurar al checkpoint básico
+git checkout checkpoint-personalizacion-columnas-v1.0
+
+# Recompilar plugins
+cd superset-frontend
+npm run plugins:build
+```
+
+### **Para crear nueva rama desde V2.0:**
+```bash
+git checkout -b nueva-funcionalidad checkpoint-jinja-dinamicos-v2.0
 ```
 
 ---
 
 ## 🛡️ Verificación Rápida
 
-### Si algo no funciona, verifica:
+### **Para V2.0 (Plantillas Jinja):**
 ```bash
-# 1. ¿Estás en el commit correcto?
+# 1. ¿Estás en V2.0?
 git log --oneline -1
-# Debe mostrar: 82f01f4032 ✨ CHECKPOINT: Personalización...
+# Debe mostrar: ad7958ee38 🎉 CHECKPOINT: Funcionalidad Jinja Dinámicas Implementadas
 
 # 2. ¿Compilaron los plugins?
 cd superset-frontend && npm run plugins:build
-# Debe mostrar: @superset-ui/plugin-chart-table-v3 (exitoso)
+# Debe mostrar: @superset-ui/plugin-chart-table-v3 (exitoso en ~6.84s)
 
-# 3. ¿El plugin está registrado?
-grep -n "table_v3" src/visualizations/presets/MainPreset.js
-# Debe mostrar la línea con el registro
+# 3. ¿Tienes el control Jinja?
+grep -n "jinja_fields" superset-frontend/plugins/plugin-chart-tableV3/src/controlPanel.tsx
+# Debe mostrar líneas con jinja_fields
+```
+
+### **Para V1.0 (Básico):**
+```bash
+# 1. ¿Estás en V1.0?
+git log --oneline -1
+# Debe mostrar: 82f01f4032 ✨ CHECKPOINT: Personalización...
+
+# 2. ¿El plugin básico compila?
+cd superset-frontend && npm run plugins:build
 ```
 
 ---
 
-## 📋 Estado Actual vs Checkpoint
+## 📋 Estado Actual vs Checkpoints
 
-### Lo que tienes AHORA:
+### **Lo que tienes AHORA (V2.0):**
 - Branch: `personalizaciones` 
-- Última modificación: Personalización de columnas
-- Archivos: Todos los cambios committeados
-- Documentación: 3 archivos `.md` creados
+- Funcionalidad: **Plantillas Jinja dinámicas completas**
+- Última modificación: Sistema `{{expresión}}` implementado
+- Documentación: 4 archivos `.md` completos
 
-### Lo que puedes hacer SEGURO:
-- ✅ Experimentar con nuevas funcionalidades
-- ✅ Crear nuevas ramas
-- ✅ Modificar archivos sin miedo
-- ✅ Volver al punto funcional cuando quieras
+### **Diferencias entre Versiones:**
+
+#### **V1.0 - Base**: 
+- ✅ Personalización básica nombres columnas
+- ✅ Campo "Nombre personalizado" estático
+- ❌ Sin plantillas dinámicas
+
+#### **V2.0 - Avanzado** (ACTUAL):
+- ✅ **Todo lo de V1.0** +  
+- ✅ **Plantillas Jinja**: `"Ventas {{MAX(anio)}}"` → `"Ventas 2025"`
+- ✅ **Control "Jinja Fields"** en Query
+- ✅ **Motor resolución automática**
+- ✅ **Campos ocultos** para templates
 
 ---
 
@@ -107,12 +141,23 @@ git merge experimental-features  # Solo si todo funciona bien
 3. **Recompila**: `npm run plugins:build`
 4. **Verifica** que Table V3 aparezca en la lista de gráficos
 
-### Documentación Completa:
-- `CHECKPOINT_PERSONALIZACION_COLUMNAS.md` - Guía técnica completa
+### **Documentación Completa:**
+- `CHECKPOINT_JINJA_DINAMICOS_V2.md` - **Guía técnica V2.0 (NUEVA)**
+- `CHECKPOINT_PERSONALIZACION_COLUMNAS.md` - Guía técnica V1.0
 - `DOCUMENTACION_PERSONALIZACION_COLUMNAS.md` - Manual de implementación
-- Este archivo - Guía rápida de uso
+- Este archivo - Guía rápida de ambos checkpoints
+
+### **Ejemplo de Uso V2.0:**
+```
+1. En Table V3 → Query → "Jinja Fields": Agregar MAX(anio_id)
+2. En Personalizar → Display Name: "Ventas del {{MAX(anio_id)}}"
+3. Resultado: "Ventas del 2025" (dinámico con datos reales)
+```
 
 ---
 
-**🎉 ¡Tu trabajo está 100% protegido!** 
-Puedes experimentar con tranquilidad sabiendo que siempre puedes volver a este estado funcional.
+**🎉 ¡Tienes 2 checkpoints de protección total!** 
+- **V1.0**: Funcionalidad básica sólida
+- **V2.0**: Sistema avanzado con plantillas Jinja dinámicas
+
+Puedes experimentar con máxima tranquilidad sabiendo que siempre puedes volver a cualquier estado funcional.
