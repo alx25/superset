@@ -31,6 +31,7 @@ export type SharedColumnConfigProp =
   | 'alignPositiveNegative'
   | 'colorPositiveNegative'
   | 'columnWidth'
+  | 'displayName'
   | 'fractionDigits'
   | 'd3NumberFormat'
   | 'd3SmallNumberFormat'
@@ -77,6 +78,16 @@ const fractionDigits: ControlFormItemSpec<'Slider'> = {
   step: 1,
   max: 100,
   defaultValue: 100,
+};
+
+const displayName: ControlFormItemSpec<'Input'> = {
+  controlType: 'Input',
+  label: t('Display name'),
+  description: t(
+    'Custom display name for the column header. Leave empty to use the original column name.',
+  ),
+  placeholder: t('Enter custom name...'),
+  debounceDelay: 500,
 };
 
 const columnWidth: ControlFormItemSpec<'InputNumber'> = {
@@ -156,6 +167,7 @@ const currencyFormat: ControlFormItemSpec<'CurrencyControl'> = {
  * All configurable column formatting properties.
  */
 export const SHARED_COLUMN_CONFIG_PROPS = {
+  displayName,
   d3NumberFormat,
   d3SmallNumberFormat: {
     ...d3NumberFormat,
@@ -178,6 +190,7 @@ export const SHARED_COLUMN_CONFIG_PROPS = {
 
 export const DEFAULT_CONFIG_FORM_LAYOUT: ColumnConfigFormLayout = {
   [GenericDataType.String]: [
+    ['displayName'],
     [
       'columnWidth',
       { name: 'horizontalAlign', override: { defaultValue: 'left' } },
@@ -188,6 +201,7 @@ export const DEFAULT_CONFIG_FORM_LAYOUT: ColumnConfigFormLayout = {
     {
       tab: t('Display'),
       children: [
+        ['displayName'],
         [
           'columnWidth',
           { name: 'horizontalAlign', override: { defaultValue: 'right' } },
@@ -207,6 +221,7 @@ export const DEFAULT_CONFIG_FORM_LAYOUT: ColumnConfigFormLayout = {
     },
   ],
   [GenericDataType.Temporal]: [
+    ['displayName'],
     [
       'columnWidth',
       { name: 'horizontalAlign', override: { defaultValue: 'left' } },
@@ -214,6 +229,7 @@ export const DEFAULT_CONFIG_FORM_LAYOUT: ColumnConfigFormLayout = {
     ['d3TimeFormat'],
   ],
   [GenericDataType.Boolean]: [
+    ['displayName'],
     [
       'columnWidth',
       { name: 'horizontalAlign', override: { defaultValue: 'left' } },
