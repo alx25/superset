@@ -58,6 +58,79 @@ import {
 const { PERCENT_3_POINT } = NumberFormats;
 const { DATABASE_DATETIME } = TimeFormats;
 
+/**
+ * Resolve Jinja template expressions in display names
+ * @param template - String that may contain {{expression}} patterns
+ * @param jinjaValues - Object with resolved values from jinja fields
+ * @returns Resolved string with {{expressions}} replaced by actual values
+ */
+function resolveJinjaTemplate(
+  template: string,
+  jinjaValues: Record<string, any>,
+): string {
+  if (!template || typeof template !== 'string') {
+    return template;
+  }
+
+  // Find all {{expression}} patterns
+  const jinjaPattern = /\{\{([^}]+)\}\}/g;
+
+  return template.replace(jinjaPattern, (match, expression) => {
+    const trimmedExpression = expression.trim();
+
+    // Look for the value in jinjaValues
+    if (jinjaValues.hasOwnProperty(trimmedExpression)) {
+      const value = jinjaValues[trimmedExpression];
+      // Format the value appropriately
+      if (value === null || value === undefined) {
+        return 'NULL';
+      }
+      if (typeof value === 'number') {
+        // Format numbers nicely
+        return value.toLocaleString();
+      }
+      return String(value);
+    }
+
+    // If expression not found, return original match unchanged
+    return match;
+  });
+}
+
+/**
+ * Extract resolved values from jinja fields in the data
+ * @param records - Data records from query
+ * @param jinjaFieldLabels - Array of jinja field labels to extract
+ * @returns Object with field labels as keys and resolved values
+ */
+function extractJinjaValues(
+  records: DataRecord[],
+  jinjaFieldLabels: string[],
+): Record<string, any> {
+  const jinjaValues: Record<string, any> = {};
+
+  if (
+    !records ||
+    records.length === 0 ||
+    !jinjaFieldLabels ||
+    jinjaFieldLabels.length === 0
+  ) {
+    return jinjaValues;
+  }
+
+  // For aggregation functions like MAX(), MIN(), COUNT() etc,
+  // the value should be the same in all records, so we take the first record
+  const firstRecord = records[0];
+
+  jinjaFieldLabels.forEach(fieldLabel => {
+    if (firstRecord.hasOwnProperty(fieldLabel)) {
+      jinjaValues[fieldLabel] = firstRecord[fieldLabel];
+    }
+  });
+
+  return jinjaValues;
+}
+
 function isNumeric(key: string, data: DataRecord[] = []) {
   return data.every(
     x => x[key] === null || x[key] === undefined || typeof x[key] === 'number',
@@ -197,6 +270,7 @@ const processColumns = memoizeOne(function processColumns(
       table_timestamp_format: tableTimestampFormat,
       metrics: metrics_,
       percent_metrics: percentMetrics_,
+      jinja_fields: jinjaFields_,
       column_config: columnConfig = {},
     },
     queriesData,
@@ -206,17 +280,23 @@ const processColumns = memoizeOne(function processColumns(
   // convert `metrics` and `percentMetrics` to the key names in `data.records`
   const metrics = (metrics_ ?? []).map(getMetricLabel);
   const rawPercentMetrics = (percentMetrics_ ?? []).map(getMetricLabel);
+  // Extract jinja field labels and their resolved values
+  const jinjaFields = (jinjaFields_ ?? []).map(getMetricLabel);
+  const jinjaValues = extractJinjaValues(records || [], jinjaFields);
   // column names for percent metrics always starts with a '%' sign.
   const percentMetrics = rawPercentMetrics.map((x: string) => `%${x}`);
   const metricsSet = new Set(metrics);
   const percentMetricsSet = new Set(percentMetrics);
   const rawPercentMetricsSet = new Set(rawPercentMetrics);
+  const jinjaFieldsSet = new Set(jinjaFields);
 
   const columns: DataColumnMeta[] = (colnames || [])
     .filter(
       key =>
         // if a metric was only added to percent_metrics, they should not show up in the table.
-        !(rawPercentMetricsSet.has(key) && !metricsSet.has(key)),
+        !(rawPercentMetricsSet.has(key) && !metricsSet.has(key)) &&
+        // jinja fields should not show up in the table either
+        !jinjaFieldsSet.has(key),
     )
     .map((key: string, i) => {
       const dataType = coltypes[i];
@@ -225,11 +305,16 @@ const processColumns = memoizeOne(function processColumns(
       // because users can also add things like `MAX(str_col)` as a metric.
       const isMetric = metricsSet.has(key) && isNumeric(key, records);
       const isPercentMetric = percentMetricsSet.has(key);
-      const label =
+      const baseLabel =
         config.displayName ||
         (isPercentMetric && verboseMap?.hasOwnProperty(key.replace('%', ''))
           ? `%${verboseMap[key.replace('%', '')]}`
           : verboseMap?.[key] || key);
+
+      // Apply Jinja template resolution if displayName contains {{expressions}}
+      const label = config.displayName
+        ? resolveJinjaTemplate(config.displayName, jinjaValues)
+        : baseLabel;
       const isTime = dataType === GenericDataType.Temporal;
       const isNumber = dataType === GenericDataType.Numeric;
       const savedFormat = columnFormats?.[key];

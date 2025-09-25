@@ -285,6 +285,34 @@ const config: ControlPanelConfig = {
             config: percentMetricsControl,
           },
         ],
+        [
+          {
+            name: 'jinja_fields',
+            config: {
+              type: 'DndMetricSelect',
+              label: t('Jinja Fields'),
+              description: t(
+                'Select metrics/columns that will be available for use in display name templates ' +
+                  '(e.g., {{MAX(year)}}). These fields will not be displayed in the table but ' +
+                  'their values can be used in column display names.',
+              ),
+              multi: true,
+              default: [],
+              visibility: isAggMode,
+              resetOnHide: false,
+              mapStateToProps: ({ datasource, controls }, controlState) => ({
+                columns: datasource?.columns || [],
+                savedMetrics: defineSavedMetrics(datasource),
+                datasource,
+                datasourceType: datasource?.type,
+                queryMode: getQueryMode(controls),
+                // No validation errors for jinja fields as they are optional
+                externalValidationErrors: [],
+              }),
+              validators: [],
+            },
+          },
+        ],
         ['adhoc_filters'],
         [
           {
