@@ -486,6 +486,20 @@ const config: ControlPanelConfig = {
         ],
         [
           {
+            name: 'show_row_numbers',
+            config: {
+              type: 'CheckboxControl',
+              label: t('Show row numbers'),
+              renderTrigger: true,
+              default: false,
+              description: t(
+                'Add a column with row numbers to help identify and reference specific rows in the table.',
+              ),
+            },
+          },
+        ],
+        [
+          {
             name: 'column_config',
             config: {
               type: 'ColumnConfigControl',

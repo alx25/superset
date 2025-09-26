@@ -272,6 +272,7 @@ const processColumns = memoizeOne(function processColumns(
       percent_metrics: percentMetrics_,
       jinja_fields: jinjaFields_,
       column_config: columnConfig = {},
+      show_row_numbers = false,
     },
     queriesData,
   } = props;
@@ -372,10 +373,27 @@ const processColumns = memoizeOne(function processColumns(
         config,
       };
     });
-  return [metrics, percentMetrics, columns] as [
+
+  // Add row numbers column if enabled
+  let finalColumns = columns;
+  if (show_row_numbers) {
+    const rowNumberColumn: DataColumnMeta = {
+      key: '#',
+      label: '#',
+      dataType: GenericDataType.Numeric,
+      isNumeric: true,
+      isMetric: false,
+      isPercentMetric: false,
+      formatter: (value: any) => String(value),
+      config: {},
+    };
+    finalColumns = [rowNumberColumn, ...columns];
+  }
+
+  return [metrics, percentMetrics, finalColumns] as [
     typeof metrics,
     typeof percentMetrics,
-    typeof columns,
+    typeof finalColumns,
   ];
 }, isEqualColumns);
 
@@ -666,6 +684,11 @@ const transformProps = (
     rowCount = baseQuery?.rowcount ?? 0;
   }
   const data = processDataRecords(baseQuery?.data, columns);
+
+  // Add row numbers to data if enabled
+  const finalData = formData.show_row_numbers
+    ? data.map((row, index) => ({ '#': index + 1, ...row }))
+    : data;
   const comparisonData = processComparisonDataRecords(
     baseQuery?.data,
     columns,
@@ -678,7 +701,7 @@ const transformProps = (
         : totalQuery?.data[0]
       : undefined;
 
-  const passedData = isUsingTimeComparison ? comparisonData || [] : data;
+  const passedData = isUsingTimeComparison ? comparisonData || [] : finalData;
   const passedColumns = isUsingTimeComparison ? comparisonColumns : columns;
 
   const basicColorFormatters =
@@ -716,7 +739,7 @@ const transformProps = (
     rowCount,
     pageSize: serverPagination
       ? serverPageLength
-      : getPageSize(pageLength, data.length, columns.length),
+      : getPageSize(pageLength, finalData.length, columns.length),
     filters: filterState.filters,
     emitCrossFilters,
     onChangeFilter,

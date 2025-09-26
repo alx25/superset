@@ -41,6 +41,10 @@ export default function isEqualColumns(
     JSON.stringify(a.formData.extraFormData || null) ===
       JSON.stringify(b.formData.extraFormData || null) &&
     JSON.stringify(a.rawFormData.column_config || null) ===
-      JSON.stringify(b.rawFormData.column_config || null)
+      JSON.stringify(b.rawFormData.column_config || null) &&
+    // Compare show_row_numbers for reactive row numbering
+    a.rawFormData.show_row_numbers === b.rawFormData.show_row_numbers &&
+    // Compare jinja_fields for reactive template resolution
+    isEqualArray(a.rawFormData.jinja_fields, b.rawFormData.jinja_fields)
   );
 }

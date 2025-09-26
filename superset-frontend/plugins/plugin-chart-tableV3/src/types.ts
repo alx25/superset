@@ -89,6 +89,7 @@ export type TableChartFormData = QueryFormData & {
   all_columns?: QueryFormMetric[] | null;
   order_desc?: boolean;
   show_cell_bars?: boolean;
+  show_row_numbers?: boolean;
   table_timestamp_format?: string;
   time_grain_sqla?: TimeGranularity;
   column_config?: Record<string, TableColumnConfig>;
