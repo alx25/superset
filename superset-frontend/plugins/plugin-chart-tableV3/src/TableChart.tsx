@@ -678,7 +678,6 @@ export default function TableChart<D extends DataRecord = DataRecord>(
       const {
         key,
         label,
-        isNumeric,
         dataType,
         isMetric,
         isPercentMetric,
@@ -703,7 +702,6 @@ export default function TableChart<D extends DataRecord = DataRecord>(
       const { truncateLongCells } = config;
 
       const hasColumnColorFormatters =
-        isNumeric &&
         Array.isArray(columnColorFormatters) &&
         columnColorFormatters.length > 0;
 
@@ -763,8 +761,8 @@ export default function TableChart<D extends DataRecord = DataRecord>(
               .filter(formatter => formatter.column === column.key)
               .forEach(formatter => {
                 const formatterResult =
-                  value || value === 0
-                    ? formatter.getColorFromValue(value as number)
+                  value !== null && value !== undefined
+                    ? formatter.getColorFromValue(value)
                     : false;
                 if (formatterResult) {
                   backgroundColor = formatterResult;

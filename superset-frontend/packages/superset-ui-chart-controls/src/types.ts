@@ -438,6 +438,7 @@ export enum Comparator {
   GreaterOrEqual = '≥',
   LessOrEqual = '≤',
   Equal = '=',
+  Like = 'LIKE',
   NotEqual = '≠',
   Between = '< x <',
   BetweenOrEqual = '≤ x ≤',
@@ -454,16 +455,17 @@ export const MultipleValueComparators = [
 
 export type ConditionalFormattingConfig = {
   operator?: Comparator;
-  targetValue?: number;
-  targetValueLeft?: number;
-  targetValueRight?: number;
+  targetValue?: number | string;
+  targetValueLeft?: number | string;
+  targetValueRight?: number | string;
   column?: string;
   colorScheme?: string;
 };
 
 export type ColorFormatters = {
   column: string;
-  getColorFromValue: (value: number) => string | undefined;
+  // value can be number or string depending on column
+  getColorFromValue: (value: any) => string | undefined;
 }[];
 
 export default {};

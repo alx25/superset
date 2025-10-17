@@ -149,7 +149,7 @@ const percentMetricsControl: typeof sharedControls.metrics = {
 // Tipos auxiliares seguros
 // ------------------------------
 
-type OptionLV = { label: string; value: string };
+type OptionLV = { label: string; value: string; type?: number };
 
 type VerboseMap = Record<string, string>;
 
@@ -718,7 +718,7 @@ const config: ControlPanelConfig = {
                 },
               ],
               description: t(
-                'Apply conditional color formatting to numeric columns',
+                'Apply conditional color formatting to numeric and dimension (string) columns',
               ),
               shouldMapStateToProps() {
                 return true;
@@ -735,24 +735,40 @@ const config: ControlPanelConfig = {
                 const numericColumns: OptionLV[] =
                   Array.isArray(colnames) && Array.isArray(coltypes)
                     ? colnames
-                        .filter(
-                          (colname: string, index: number) =>
-                            coltypes[index] === GenericDataType.Numeric,
-                        )
-                        .map((colname: string) => ({
+                        .map((colname: string, index: number) => ({
                           value: colname,
                           label: vm[colname] ?? colname,
+                          // attach type metadata so the popover can decide which operators to show
+                          type: coltypes[index],
                         }))
+                        .filter((c: any) => c.type === GenericDataType.Numeric)
                     : [];
+
+                // also expose string (dimension) columns so conditional formatting can target them
+                const stringColumns: OptionLV[] =
+                  Array.isArray(colnames) && Array.isArray(coltypes)
+                    ? colnames
+                        .map((colname: string, index: number) => ({
+                          value: colname,
+                          label: vm[colname] ?? colname,
+                          type: coltypes[index],
+                        }))
+                        .filter((c: any) => c.type === GenericDataType.String)
+                    : [];
+
+                // Merge numeric and string columns. When using time_compare, only numeric columns
+                // are relevant for comparison; otherwise allow both numeric and string columns.
+                const baseColumns = [...numericColumns, ...stringColumns];
 
                 const columnOptions = explore?.controls?.time_compare?.value
                   ? processComparisonColumns(
+                      // comparisons only make sense for numeric columns
                       numericColumns || [],
                       ensureIsArray(
                         explore?.controls?.time_compare?.value,
                       )[0]?.toString() || '',
                     )
-                  : numericColumns;
+                  : baseColumns;
 
                 return {
                   removeIrrelevantConditions: chartStatus === 'success',
