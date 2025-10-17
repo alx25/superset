@@ -145,7 +145,35 @@ const percentMetricsControl: typeof sharedControls.metrics = {
   validators: [],
 };
 
-const processComparisonColumns = (columns: any[], suffix: string) =>
+// ------------------------------
+// Tipos auxiliares seguros
+// ------------------------------
+
+type OptionLV = { label: string; value: string };
+
+type VerboseMap = Record<string, string>;
+
+const toVerboseMap = (ds?: Dataset): VerboseMap => {
+  // Si el datasource ya trae verbose_map, úsalo
+  const vm = (ds as any)?.verbose_map as unknown;
+  if (vm && typeof vm === 'object' && !Array.isArray(vm)) {
+    return vm as VerboseMap;
+  }
+  // Construir desde columnas si no existe verbose_map
+  const cols = (ds?.columns ?? []) as ColumnMeta[];
+  return cols.reduce<VerboseMap>((acc, c) => {
+    const key = (c as any).column_name ?? String(c);
+    const label =
+      (c as any).verbose_name ?? (c as any).column_name ?? String(c);
+    acc[key] = label;
+    return acc;
+  }, {});
+};
+
+const processComparisonColumns = (
+  columns: OptionLV[],
+  suffix: string,
+): OptionLV[] =>
   columns
     .map(col => {
       if (!col.label.includes(suffix)) {
@@ -154,21 +182,12 @@ const processComparisonColumns = (columns: any[], suffix: string) =>
             label: `${t('Main')} ${col.label}`,
             value: `${t('Main')} ${col.value}`,
           },
-          {
-            label: `# ${col.label}`,
-            value: `# ${col.value}`,
-          },
-          {
-            label: `△ ${col.label}`,
-            value: `△ ${col.value}`,
-          },
-          {
-            label: `% ${col.label}`,
-            value: `% ${col.value}`,
-          },
-        ];
+          { label: `# ${col.label}`, value: `# ${col.value}` },
+          { label: `△ ${col.label}`, value: `△ ${col.value}` },
+          { label: `% ${col.label}`, value: `% ${col.value}` },
+        ] as OptionLV[];
       }
-      return [];
+      return [] as OptionLV[];
     })
     .flat();
 
@@ -220,10 +239,11 @@ const config: ControlPanelConfig = {
             config: {
               ...sharedControls.time_grain_sqla,
               visibility: ({ controls }) => {
-                const dttmLookup = Object.fromEntries(
-                  ensureIsArray(controls?.groupby?.options).map(option => [
+                const options = ensureIsArray(controls?.groupby?.options);
+                const dttmLookup: Record<string, boolean> = Object.fromEntries(
+                  options.map((option: any) => [
                     option.column_name,
-                    option.is_dttm,
+                    !!option.is_dttm,
                   ]),
                 );
 
@@ -233,7 +253,7 @@ const config: ControlPanelConfig = {
                       return true;
                     }
                     if (isPhysicalColumn(selection)) {
-                      return !!dttmLookup[selection];
+                      return Boolean(dttmLookup[selection]);
                     }
                     return false;
                   })
@@ -253,24 +273,33 @@ const config: ControlPanelConfig = {
               mapStateToProps: (
                 { controls, datasource, form_data }: ControlPanelState,
                 controlState: ControlState,
-              ) => ({
-                columns: datasource?.columns[0]?.hasOwnProperty('filterable')
-                  ? (datasource as Dataset)?.columns?.filter(
-                      (c: ColumnMeta) => c.filterable,
-                    )
-                  : datasource?.columns,
-                savedMetrics: defineSavedMetrics(datasource),
-                // current active adhoc metrics
-                selectedMetrics:
-                  form_data.metrics ||
-                  (form_data.metric ? [form_data.metric] : []),
-                datasource,
-                externalValidationErrors: validateAggControlValues(controls, [
-                  controls.groupby?.value,
-                  controls.percent_metrics?.value,
-                  controlState.value,
-                ]),
-              }),
+              ) => {
+                // Evita acceso inseguro a columns[0]
+                const cols = Array.isArray((datasource as Dataset)?.columns)
+                  ? ((datasource as Dataset).columns as ColumnMeta[])
+                  : [];
+                const supportsFilterable =
+                  cols.length > 0 && 'filterable' in cols[0];
+
+                return {
+                  columns: supportsFilterable
+                    ? cols.filter((c: any) => c.filterable)
+                    : cols,
+                  savedMetrics: defineSavedMetrics(datasource),
+                  // current active adhoc metrics
+                  selectedMetrics:
+                    (form_data as any).metrics ||
+                    ((form_data as any).metric
+                      ? [(form_data as any).metric]
+                      : []),
+                  datasource,
+                  externalValidationErrors: validateAggControlValues(controls, [
+                    controls.groupby?.value,
+                    controls.percent_metrics?.value,
+                    controlState.value,
+                  ]),
+                };
+              },
               rerender: ['groupby', 'percent_metrics'],
             },
           },
@@ -300,7 +329,7 @@ const config: ControlPanelConfig = {
               default: [],
               visibility: isAggMode,
               resetOnHide: false,
-              mapStateToProps: ({ datasource, controls }, controlState) => ({
+              mapStateToProps: ({ datasource, controls }) => ({
                 columns: datasource?.columns || [],
                 savedMetrics: defineSavedMetrics(datasource),
                 datasource,
@@ -331,9 +360,9 @@ const config: ControlPanelConfig = {
               multi: true,
               default: [],
               mapStateToProps: ({ datasource }) => ({
-                choices: datasource?.hasOwnProperty('order_by_choices')
+                choices: (datasource as any)?.hasOwnProperty('order_by_choices')
                   ? (datasource as Dataset)?.order_by_choices
-                  : datasource?.columns || [],
+                  : (datasource as Dataset)?.columns || [],
               }),
               visibility: isRawMode,
               resetOnHide: false,
@@ -500,6 +529,68 @@ const config: ControlPanelConfig = {
         ],
         [
           {
+            name: 'show_top',
+            config: {
+              type: 'CheckboxControl',
+              label: t('Enable Top N'),
+              renderTrigger: true,
+              default: false,
+              description: t(
+                'Show only top N rows and group remaining data as "Others" with aggregated values.',
+              ),
+            },
+          },
+        ],
+        [
+          {
+            name: 'top_metric',
+            config: {
+              type: 'MetricsControl',
+              label: t('Top N Metric'),
+              renderTrigger: true,
+              default: null,
+              multi: false,
+              description: t(
+                'Select the metric to use for Top N ranking (highest values first).',
+              ),
+              visibility: ({ controls }) => Boolean(controls?.show_top?.value),
+              resetOnHide: false,
+              mapStateToProps: ({ datasource, controls }) => ({
+                columns: datasource?.columns || [],
+                savedMetrics: defineSavedMetrics(datasource),
+                datasource,
+                datasourceType: datasource?.type,
+                queryMode: getQueryMode(controls),
+                externalValidationErrors: [],
+              }),
+            },
+          },
+        ],
+        [
+          {
+            name: 'top_count',
+            config: {
+              type: 'SelectControl',
+              label: t('Top N Count'),
+              renderTrigger: true,
+              default: 10,
+              choices: [
+                [5, '5'],
+                [10, '10'],
+                [20, '20'],
+                [50, '50'],
+                [100, '100'],
+                [0, t('All (no limit)')],
+              ],
+              description: t(
+                'Number of top rows to display. Remaining rows will be grouped as "Others".',
+              ),
+              visibility: ({ controls }) => Boolean(controls?.show_top?.value),
+            },
+          },
+        ],
+        [
+          {
             name: 'column_config',
             config: {
               type: 'ColumnConfigControl',
@@ -532,7 +623,7 @@ const config: ControlPanelConfig = {
             name: 'show_cell_bars',
             config: {
               type: 'CheckboxControl',
-              label: t('Show Cell bars'),
+              label: t('Show cell bars'),
               renderTrigger: true,
               default: true,
               description: t(
@@ -560,7 +651,7 @@ const config: ControlPanelConfig = {
             name: 'color_pn',
             config: {
               type: 'CheckboxControl',
-              label: t('add colors to cell bars for +/-'),
+              label: t('Add colors to cell bars for +/-'),
               renderTrigger: true,
               default: true,
               description: t(
@@ -574,7 +665,7 @@ const config: ControlPanelConfig = {
             name: 'comparison_color_enabled',
             config: {
               type: 'CheckboxControl',
-              label: t('basic conditional formatting'),
+              label: t('Basic conditional formatting'),
               renderTrigger: true,
               visibility: ({ controls }) =>
                 !isEmpty(controls?.time_compare?.value),
@@ -592,7 +683,7 @@ const config: ControlPanelConfig = {
             name: 'comparison_color_scheme',
             config: {
               type: 'SelectControl',
-              label: t('color type'),
+              label: t('Color type'),
               default: ColorSchemeEnum.Green,
               renderTrigger: true,
               choices: [
@@ -633,26 +724,27 @@ const config: ControlPanelConfig = {
                 return true;
               },
               mapStateToProps(explore, _, chart) {
-                const verboseMap = explore?.datasource?.hasOwnProperty(
-                  'verbose_map',
-                )
-                  ? (explore?.datasource as Dataset)?.verbose_map
-                  : explore?.datasource?.columns ?? {};
+                // Construir SIEMPRE un diccionario seguro (Record<string,string>)
+                const vm: VerboseMap = toVerboseMap(
+                  explore?.datasource as Dataset | undefined,
+                );
+
                 const chartStatus = chart?.chartStatus;
                 const { colnames, coltypes } =
                   chart?.queriesResponse?.[0] ?? {};
-                const numericColumns =
+                const numericColumns: OptionLV[] =
                   Array.isArray(colnames) && Array.isArray(coltypes)
                     ? colnames
                         .filter(
                           (colname: string, index: number) =>
                             coltypes[index] === GenericDataType.Numeric,
                         )
-                        .map(colname => ({
+                        .map((colname: string) => ({
                           value: colname,
-                          label: verboseMap[colname] ?? colname,
+                          label: vm[colname] ?? colname,
                         }))
                     : [];
+
                 const columnOptions = explore?.controls?.time_compare?.value
                   ? processComparisonColumns(
                       numericColumns || [],
@@ -665,8 +757,8 @@ const config: ControlPanelConfig = {
                 return {
                   removeIrrelevantConditions: chartStatus === 'success',
                   columnOptions,
-                  verboseMap,
-                };
+                  verboseMap: vm,
+                } as any;
               },
             },
           },

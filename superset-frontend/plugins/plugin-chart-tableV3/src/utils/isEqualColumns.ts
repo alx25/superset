@@ -45,6 +45,11 @@ export default function isEqualColumns(
     // Compare show_row_numbers for reactive row numbering
     a.rawFormData.show_row_numbers === b.rawFormData.show_row_numbers &&
     // Compare jinja_fields for reactive template resolution
-    isEqualArray(a.rawFormData.jinja_fields, b.rawFormData.jinja_fields)
+    isEqualArray(a.rawFormData.jinja_fields, b.rawFormData.jinja_fields) &&
+    // Compare Top N settings for reactive top processing
+    a.rawFormData.show_top === b.rawFormData.show_top &&
+    JSON.stringify(a.rawFormData.top_metric || null) ===
+      JSON.stringify(b.rawFormData.top_metric || null) &&
+    a.rawFormData.top_count === b.rawFormData.top_count
   );
 }

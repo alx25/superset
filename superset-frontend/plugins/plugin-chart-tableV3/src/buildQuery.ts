@@ -62,6 +62,7 @@ const buildQuery: BuildQuery<TableChartFormData> = (
   const {
     percent_metrics: percentMetrics,
     jinja_fields: jinjaFields,
+    top_metric: topMetric,
     order_desc: orderDesc = false,
     extra_form_data,
   } = formData;
@@ -135,6 +136,14 @@ const buildQuery: BuildQuery<TableChartFormData> = (
       // Add jinja fields to metrics for query (they won't be displayed)
       if (jinjaFields && jinjaFields.length > 0) {
         metrics = removeDuplicates(metrics.concat(jinjaFields), getMetricLabel);
+      }
+
+      // Add top metric to metrics for query if it's not already included
+      if (
+        topMetric &&
+        !metrics.some(m => getMetricLabel(m) === getMetricLabel(topMetric))
+      ) {
+        metrics = removeDuplicates(metrics.concat([topMetric]), getMetricLabel);
       }
 
       // override orderby with timeseries metric when in aggregation mode

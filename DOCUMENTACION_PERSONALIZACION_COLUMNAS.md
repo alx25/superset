@@ -108,6 +108,27 @@ Agregar un nuevo campo **"displayName"** o **"columnLabel"** a `SHARED_COLUMN_CO
   - Permite debugging visual del problema
 **Ejemplo**: `"{{CAMPO_NO_EXISTE}}"` → permanece como `"{{CAMPO_NO_EXISTE}}"`
 
+### Error 7: Top N Metric Control Runtime (SOLUCIONADO ✅)
+**Descripción**: `TypeError: Cannot read properties of undefined (reading 'type')` al usar Top N Metric
+**Causa**: Control `MetricsControl` sin configuración `mapStateToProps` requerida
+**Síntomas**: 
+  - Error aparece al activar "Enable Top N" e intentar seleccionar métrica
+  - Control visible pero no permite seleccionar opciones
+  - Stack trace complejo con componentes React anidados
+**Solución**: Agregar `mapStateToProps` completo al control `top_metric`
+  ```typescript
+  mapStateToProps: ({ datasource, controls }) => ({
+    columns: datasource?.columns || [],
+    savedMetrics: defineSavedMetrics(datasource),
+    datasource,
+    datasourceType: datasource?.type,
+    queryMode: getQueryMode(controls),
+    externalValidationErrors: [],
+  })
+  ```
+**Resultado**: ✅ Control funciona correctamente, permite seleccionar métricas
+**Prevención**: Siempre incluir `mapStateToProps` en controles de tipo `MetricsControl`
+
 ---
 
 ## Mejores Prácticas y Recomendaciones
@@ -146,6 +167,22 @@ Agregar un nuevo campo **"displayName"** o **"columnLabel"** a `SHARED_COLUMN_CO
 - **Validar tipos TypeScript**: Asegurarse de que los tipos están correctamente definidos
 - **Imports correctos**: Verificar que todos los imports están disponibles
 - **Sintaxis de controles**: Usar la sintaxis correcta para cada tipo de control
+- **MetricsControl requiere mapStateToProps**: Siempre incluir configuración completa
+  ```typescript
+  // ✅ Configuración correcta para MetricsControl
+  config: {
+    type: 'MetricsControl',
+    // ... otras propiedades
+    mapStateToProps: ({ datasource, controls }) => ({
+      columns: datasource?.columns || [],
+      savedMetrics: defineSavedMetrics(datasource),
+      datasource,
+      datasourceType: datasource?.type,
+      queryMode: getQueryMode(controls),
+      externalValidationErrors: [],
+    }),
+  }
+  ```
 
 #### **2. Conflictos de Funcionalidades**
 - **Nombres de columnas únicos**: Evitar conflictos entre nombres personalizados y columnas del sistema
@@ -189,6 +226,10 @@ console.log('Column Labels:', columnLabels);
 
 // Verificar orden de columnas
 console.log('Ordered Columns:', orderedColumnKeys);
+
+// Testing específico de Top N Metric Control
+console.log('Top Metric Control Config:', controls.top_metric);
+console.log('Datasource Available:', datasource?.columns);
 ```
 
 #### **4. Rollback y Recuperación**
@@ -928,7 +969,81 @@ expect(columnConfigs).toHaveProperty('#');
 └── types.ts           ✅ (tipos actualizados)
 ```
 
-**🎯 SISTEMA COMPLETO: Personalización avanzada de tablas con nombres dinámicos, plantillas Jinja y numeración de filas - Totalmente funcional y listo para producción.**
+**🎯 SISTEMA COMPLETO: Personalización avanzada de tablas con nombres dinámicos, plantillas Jinja, numeración de filas y Top N inteligente - Totalmente funcional y listo para producción.**
+
+---
+
+## Fase 4: Top N con Agrupación Inteligente (NUEVA FUNCIONALIDAD) ⚡
+
+### **🚀 ¿Qué es Top N?**
+Una funcionalidad avanzada que permite mostrar solo los N registros principales según una métrica específica, agrupando automáticamente el resto como "Otros" con cálculos inteligentes.
+
+### **⚙️ Controles Implementados**
+1. **"Enable Top N"** (CheckboxControl) - Activa/desactiva la funcionalidad
+2. **"Top N Metric"** (MetricsControl) - Selecciona la métrica para ranking (valores más altos primero)
+3. **"Top N Count"** (SelectControl) - Cantidad de registros top: 5, 10, 20, 50, 100, o All (sin límite)
+
+### **🧠 Algoritmo Inteligente**
+#### **Cálculo de la Fila "Otros":**
+- **Métricas Simples** (ventas, cantidad, etc.): Se **suman** todos los valores restantes
+- **Ratios/Porcentajes** (ventas/cuota, margen%, etc.): Se **recalculan** correctamente
+  - Identifica automáticamente ratios por nombre de columna o valores típicos
+  - Para ratios identificables, busca columnas componente y recalcula (ej: suma_ventas / suma_cuota)
+  - Para ratios no identificables, calcula promedio ponderado
+
+#### **Detección Automática de Ratios:**
+- **Por nombre**: columnas con `/`, `ratio`, `rate`, `%`, `vs`, `per`, `margin`, etc.
+- **Por valores**: detecta valores típicos de ratios (0-10 rango, decimales pequeños)
+- **Componentes**: busca columnas base para recalcular (ej: "venta/cuota" busca "venta" y "cuota")
+
+### **📊 Ejemplo Práctico**
+```
+Datos Originales (100 filas):
+┌─────────┬───────┬───────┬───────┬─────────────┐
+│ Familia │ Marca │ Venta │ Cuota │ Venta/Cuota │
+├─────────┼───────┼───────┼───────┼─────────────┤
+│ A       │ X     │ 1000  │ 800   │ 1.25        │
+│ B       │ Y     │ 900   │ 700   │ 1.29        │
+│ C       │ Z     │ 850   │ 600   │ 1.42        │
+│ ...     │ ...   │ ...   │ ...   │ ...         │
+└─────────┴───────┴───────┴───────┴─────────────┘
+
+Con Top 10 por "Venta":
+┌─────────┬───────┬───────┬───────┬─────────────┐
+│ Familia │ Marca │ Venta │ Cuota │ Venta/Cuota │
+├─────────┼───────┼───────┼───────┼─────────────┤
+│ A       │ X     │ 1000  │ 800   │ 1.25        │
+│ B       │ Y     │ 900   │ 700   │ 1.29        │
+│ ... (10 filas principales) ...             │
+│ Otros   │ -     │ 45000 │36000  │ 1.25        │ ← ✅ 45000/36000
+└─────────┴───────┴───────┴───────┴─────────────┘
+```
+
+### **🎛️ Configuración**
+1. **Activar**: Marcar checkbox "Enable Top N"
+2. **Seleccionar Métrica**: Elegir métrica para ranking (ej: "Venta")
+3. **Configurar Cantidad**: Seleccionar Top 5, 10, 20, 50, 100 o All
+4. **Aplicar**: Los cambios se reflejan automáticamente (reactivo)
+
+### **✅ Características Técnicas**
+- **Renderizado Reactivo**: Cambios instantáneos sin guardar
+- **Ordenamiento Inteligente**: Siempre muestra valores más altos primero
+- **Cálculos Precisos**: Algoritmo diferenciado para métricas vs ratios
+- **Compatibilidad**: Funciona con numeración de filas y templates Jinja
+- **Performance**: Optimizado para grandes datasets con memoización
+
+### **🔧 Archivos Modificados**
+- `controlPanel.tsx`: Controles Top N con visibilidad condicional
+- `types.ts`: Definiciones TypeScript para nuevas propiedades  
+- `transformProps.ts`: Motor completo de procesamiento Top N
+- `buildQuery.ts`: Inclusión automática de métrica top en query
+- `utils/isEqualColumns.ts`: Dependencias reactivas actualizadas
+
+### **📈 Casos de Uso Comunes**
+1. **Top Vendedores**: Mostrar top 10 vendedores por ventas, agrupar resto
+2. **Productos Principales**: Top 20 productos por margen, resumir otros
+3. **Regiones Performance**: Top 5 regiones por crecimiento, total otros
+4. **Análisis ABC**: Clasificar productos por importancia, agrupar cola larga
 
 ---
 
@@ -1072,6 +1187,53 @@ buildQuery.checkpoint.ts
 ---
 
 ## 📅 Historial de Versiones y Cambios
+
+### **v4.0 - 26 de Septiembre de 2025**
+**🆕 NUEVA FUNCIONALIDAD MAYOR: Top N con Agrupación Inteligente**
+- **Control agregado**: `show_top` (CheckboxControl) - Activar/desactivar modo Top N
+- **Control agregado**: `top_metric` (MetricsControl) - Seleccionar métrica para ranking  
+- **Control agregado**: `top_count` (SelectControl) - Cantidad del Top (5,10,20,50,100,All)
+- **Funcionalidad**: Mostrar solo top N filas, agrupar restantes como "Otros"
+- **Algoritmo inteligente**: Suma para métricas simples, recálculo para ratios/porcentajes
+- **Estado**: ✅ Completado y compilado exitosamente (7.17s)
+- **Archivos modificados**:
+  - `controlPanel.tsx`: 3 nuevos controles Top con visibilidad condicional
+  - `types.ts`: Tipos `show_top`, `top_metric`, `top_count`
+  - `transformProps.ts`: Algoritmo completo de procesamiento Top N 
+  - `buildQuery.ts`: Inclusión automática de métrica Top en query
+  - `utils/isEqualColumns.ts`: Dependencias reactivas para Top N
+
+#### **🚨 ERROR CRÍTICO RESUELTO: Top N Metric Control**
+- **Error**: `TypeError: Cannot read properties of undefined (reading 'type')`
+- **Síntomas**: Al activar "Enable Top N" y intentar seleccionar métrica en "Top N Metric"
+- **Causa raíz**: Control `MetricsControl` configurado incorrectamente, faltaba `mapStateToProps`
+- **Problema específico**: Sin `mapStateToProps`, el control no tenía acceso al datasource ni métricas
+- **Solución aplicada**: 
+  ```typescript
+  // ❌ Configuración incompleta (causaba error)
+  config: {
+    type: 'MetricsControl',
+    // ... otras props
+    // FALTABA: mapStateToProps
+  }
+  
+  // ✅ Configuración completa (funciona correctamente)  
+  config: {
+    type: 'MetricsControl',
+    // ... otras props
+    mapStateToProps: ({ datasource, controls }) => ({
+      columns: datasource?.columns || [],
+      savedMetrics: defineSavedMetrics(datasource),
+      datasource,
+      datasourceType: datasource?.type,
+      queryMode: getQueryMode(controls),
+      externalValidationErrors: [],
+    }),
+  }
+  ```
+- **Resultado**: ✅ Control Top N Metric ahora funcional, build exitoso
+- **Lección aprendida**: Los controles `MetricsControl` requieren `mapStateToProps` obligatoriamente
+- **Prevención**: Verificar configuración completa al agregar nuevos controles de tipo métrica
 
 ### **v3.1 - 26 de Septiembre de 2025**
 **🔧 CORRECCIÓN CRÍTICA: Renderizado Reactivo de Numeración**
