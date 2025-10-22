@@ -535,7 +535,7 @@ function processTopData(
 
     // For dimensions (non-metrics), use "Otros"
     if (!isMetric && !isNumeric) {
-      othersRow[key] = 'Otros';
+      othersRow[key] = 'OTROS';
       return;
     }
 
