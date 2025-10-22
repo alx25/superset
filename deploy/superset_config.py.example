@@ -1,0 +1,37 @@
+import os
+
+# Clave secreta
+SECRET_KEY = os.getenv("SECRET_KEY", "change_me")
+
+# Base de datos de metadatos
+SQLALCHEMY_DATABASE_URI = os.getenv(
+    "SQLALCHEMY_DATABASE_URI",
+    "sqlite:////tmp/superset.db",  # solo para pruebas locales
+)
+
+# Redis / Celery (opcional)
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+
+RESULTS_BACKEND = None
+CACHE_CONFIG = {
+    "CACHE_TYPE": "RedisCache",
+    "CACHE_DEFAULT_TIMEOUT": 300,
+    "CACHE_KEY_PREFIX": "superset_",
+    "HOST": REDIS_HOST,
+    "PORT": REDIS_PORT,
+    "DB": 1,
+}
+
+# Si habilitas Celery, configura broker y backend
+# from celery.schedules import crontab
+# class CeleryConfig(object):
+#     broker_url = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
+#     result_backend = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
+# CELERY_CONFIG = CeleryConfig
+
+# Seguridad detrás de proxy (producción)
+# ENABLE_PROXY_FIX = True
+
+# Timeout del servidor web (ajusta para prod)
+# SUPERSET_WEBSERVER_TIMEOUT = 120
