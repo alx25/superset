@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="es">
+       
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Irex Superset</title>
+    
+    <link rel="stylesheet" href="{{ url_for('static', filename='customcss/custom_login.css', v='1.18') }}">
+
+
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-box">
+            <!-- Añadir el logo encima del título -->
+            <img src="{{ url_for('static', filename='assets/images/logo.png') }}" alt="Logo de Irex Superset" class="login-logo">
+            
+            <!--<h2 class="login-subtitle">Bienvenid@ a Irex Superset!!</h2>-->
+            <div class="welcome-container">
+                <span class="hello">👋 Hola, bienvenid@ a</span>
+                <span class="welcome">Irex Superset!!</span>
+             </div>
+            <p class="login-subtitle">💙 Desarrollado por el equipo de inteligencia Comercial</p>
+            
+            <!-- Botón para abrir la ventana flotante -->
+            <div class= "video-frame">
+            <button class="open-modal">📺 Ver video de demostración</button>
+            </div>
+            <!-- Manejo de mensajes flash -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    <div class="flash-messages">
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ category }}">{{ message }}</div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            {% endwith %}
+            
+            <form action="{{ url_for('CustomAuthDBView.login') }}" method="POST">
+                {{ form.hidden_tag() }}
+                <div class="form-group">
+                    <label for="username">Usuario</label>
+                    {{ form.username(class="form-control", placeholder="@usuario") }}
+                </div>
+                <div class="form-group">
+                    <label for="password">Contraseña</label>
+                    {{ form.password(class="form-control", placeholder="********") }}
+                </div>
+                <button type="submit" class="btn btn-primary login-button">Iniciar Sesión →</button>
+            </form>
+        </div>
+        
+        <!-- Añadir el cuadro a la derecha -->
+        <div class="info-box">
+            <h3>Trabaja inteligentemente</h3>
+            <p>Accede a toda tu información y mantente actualizado con los datos más recientes.</p>
+            <img src="{{ url_for('static', filename='assets/images/dashboard.png') }}" alt="Dashboard preview" class="dashboard-preview">
+            <!-- Puedes añadir más contenido aquí según sea necesario -->
+        </div>
+    </div>
+
+<!-- Ventana modal -->
+<div id="myModal" class="modal">
+    <div class="modal-content">
+        
+        <video id="myVideo" controls>
+            <source src="/static/video_superset/Presentacion Superset.mp4" type="video/mp4">
+            <!-- Subtítulos en formato VTT -->
+            <track src="/static/video_superset/subtitulos.vtt" kind="subtitles" srclang="es" label="Español" default>
+            Tu navegador no soporta la reproducción de video.
+        </video>
+        <span class="close">&times; Cerrar video</span>
+    </div>
+    
+</div>
+
+
+
+</body>
+
+<script>
+    // Obtener elementos del DOM
+    var modal = document.getElementById("myModal");
+    var span = document.querySelector(".close");
+    var video = document.getElementById("myVideo");
+    var btn = document.querySelector(".open-modal");
+
+    // Función para mostrar el modal
+    function showModal() {
+        modal.style.display = "block";
+    }
+
+    // Función para ocultar el modal y pausar el video
+    function closeModal() {
+        modal.style.display = "none";
+        video.pause(); // Pausar el video cuando se cierra la ventana
+        video.currentTime = 0; // Reiniciar el video desde el principio
+    }
+
+    // Abrir el modal cuando el usuario haga clic en el botón
+    btn.onclick = function() {
+        showModal();
+    }
+
+    // Cerrar el modal cuando el usuario haga clic en el botón de cerrar (x)
+    span.onclick = function() {
+        closeModal();
+        localStorage.setItem('videoVisto', 'true'); // Marcar que el video ha sido visto
+    }
+
+    // Cerrar el modal cuando el usuario haga clic fuera del contenido
+    window.onclick = function(event) {
+        if (event.target == modal) {
+            closeModal();
+            localStorage.setItem('videoVisto', 'true'); // Marcar que el video ha sido visto
+        }
+    }
+
+    // Mostrar el modal solo si el usuario nunca ha visto el video
+    window.onload = function() {
+        if (!localStorage.getItem('videoVisto')) {
+            showModal();
+        }
+    }
+
+    // Opcional: Detectar si el video se ha reproducido completamente
+    video.onended = function() {
+        closeModal();
+        localStorage.setItem('videoVisto', 'true'); // Marcar que el video ha sido visto
+    }
+</script>
+
+
+
+</html>

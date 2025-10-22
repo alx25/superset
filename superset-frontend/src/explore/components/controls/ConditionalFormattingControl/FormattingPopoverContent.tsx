@@ -17,7 +17,13 @@
  * under the License.
  */
 import { useState } from 'react';
-import { styled, SupersetTheme, t, useTheme } from '@superset-ui/core';
+import {
+  styled,
+  SupersetTheme,
+  t,
+  useTheme,
+  GenericDataType,
+} from '@superset-ui/core';
 import { ColorSchemeEnum } from '@superset-ui/plugin-chart-table';
 import {
   Comparator,
@@ -25,8 +31,8 @@ import {
 } from '@superset-ui/chart-controls';
 import { Form, FormItem, FormProps } from 'src/components/Form';
 import Select from 'src/components/Select/Select';
+import { Input, InputNumber } from 'src/components/Input';
 import { Col, Row } from 'src/components';
-import { InputNumber } from 'src/components/Input';
 import Button from 'src/components/Button';
 import { ConditionalFormattingConfig } from './types';
 
@@ -55,6 +61,7 @@ const operatorOptions = [
   { value: Comparator.GreaterOrEqual, label: '≥' },
   { value: Comparator.LessOrEqual, label: '≤' },
   { value: Comparator.Equal, label: '=' },
+  { value: Comparator.Like, label: 'LIKE' },
   { value: Comparator.NotEqual, label: '≠' },
   { value: Comparator.Between, label: '< x <' },
   { value: Comparator.BetweenOrEqual, label: '≤ x ≤' },
@@ -138,53 +145,8 @@ const renderOperator = ({ showOnlyNone }: { showOnlyNone?: boolean } = {}) => (
   </FormItem>
 );
 
-const renderOperatorFields = ({ getFieldValue }: GetFieldValue) =>
-  isOperatorNone(getFieldValue('operator')) ? (
-    <Row gutter={12}>
-      <Col span={6}>{renderOperator()}</Col>
-    </Row>
-  ) : isOperatorMultiValue(getFieldValue('operator')) ? (
-    <Row gutter={12}>
-      <Col span={9}>
-        <FormItem
-          name="targetValueLeft"
-          label={t('Left value')}
-          rules={rulesTargetValueLeft}
-          dependencies={targetValueLeftDeps}
-          validateTrigger="onBlur"
-          trigger="onBlur"
-        >
-          <FullWidthInputNumber />
-        </FormItem>
-      </Col>
-      <Col span={6}>{renderOperator()}</Col>
-      <Col span={9}>
-        <FormItem
-          name="targetValueRight"
-          label={t('Right value')}
-          rules={rulesTargetValueRight}
-          dependencies={targetValueRightDeps}
-          validateTrigger="onBlur"
-          trigger="onBlur"
-        >
-          <FullWidthInputNumber />
-        </FormItem>
-      </Col>
-    </Row>
-  ) : (
-    <Row gutter={12}>
-      <Col span={6}>{renderOperator()}</Col>
-      <Col span={18}>
-        <FormItem
-          name="targetValue"
-          label={t('Target value')}
-          rules={rulesRequired}
-        >
-          <FullWidthInputNumber />
-        </FormItem>
-      </Col>
-    </Row>
-  );
+// renderOperatorFields will be defined inside the component so it can access the
+// `columns` prop and GenericDataType to decide which input to render for target values.
 
 export const FormattingPopoverContent = ({
   config,
@@ -194,7 +156,7 @@ export const FormattingPopoverContent = ({
 }: {
   config?: ConditionalFormattingConfig;
   onChange: (config: ConditionalFormattingConfig) => void;
-  columns: { label: string; value: string }[];
+  columns: { label: string; value: string; type?: number }[];
   extraColorChoices?: { label: string; value: string }[];
 }) => {
   const theme = useTheme();
@@ -207,6 +169,82 @@ export const FormattingPopoverContent = ({
   const handleChange = (event: any) => {
     setShowOperatorFields(
       !(event === ColorSchemeEnum.Green || event === ColorSchemeEnum.Red),
+    );
+  };
+
+  const renderOperatorFields = ({ getFieldValue }: GetFieldValue) => {
+    const operator = getFieldValue('operator');
+    if (isOperatorNone(operator)) {
+      return (
+        <Row gutter={12}>
+          <Col span={6}>{renderOperator()}</Col>
+        </Row>
+      );
+    }
+    if (isOperatorMultiValue(operator)) {
+      return (
+        <Row gutter={12}>
+          <Col span={9}>
+            <FormItem
+              name="targetValueLeft"
+              label={t('Left value')}
+              rules={rulesTargetValueLeft}
+              dependencies={targetValueLeftDeps}
+              validateTrigger="onBlur"
+              trigger="onBlur"
+            >
+              <FullWidthInputNumber />
+            </FormItem>
+          </Col>
+          <Col span={6}>{renderOperator()}</Col>
+          <Col span={9}>
+            <FormItem
+              name="targetValueRight"
+              label={t('Right value')}
+              rules={rulesTargetValueRight}
+              dependencies={targetValueRightDeps}
+              validateTrigger="onBlur"
+              trigger="onBlur"
+            >
+              <FullWidthInputNumber />
+            </FormItem>
+          </Col>
+        </Row>
+      );
+    }
+    return (
+      <Row gutter={12}>
+        <Col span={6}>{renderOperator()}</Col>
+        <Col span={18}>
+          <FormItem
+            noStyle
+            shouldUpdate={(prev, cur) => prev.column !== cur.column}
+          >
+            {({ getFieldValue }) => {
+              const column = getFieldValue('column');
+              const selectedCol = columns.find(c => c.value === column) as any;
+              const isNumeric = selectedCol?.type === GenericDataType.Numeric;
+              return (
+                <FormItem
+                  name="targetValue"
+                  label={t('Target value')}
+                  rules={rulesRequired}
+                >
+                  {isNumeric ? (
+                    <FullWidthInputNumber />
+                  ) : (
+                    <Input
+                      placeholder={t(
+                        'Text or pattern (use % as wildcard for LIKE)',
+                      )}
+                    />
+                  )}
+                </FormItem>
+              );
+            }}
+          </FormItem>
+        </Col>
+      </Row>
     );
   };
 
