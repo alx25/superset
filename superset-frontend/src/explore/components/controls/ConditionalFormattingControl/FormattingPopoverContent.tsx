@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   styled,
   SupersetTheme,
@@ -34,6 +34,7 @@ import Select from 'src/components/Select/Select';
 import { Input, InputNumber } from 'src/components/Input';
 import { Col, Row } from 'src/components';
 import Button from 'src/components/Button';
+import { SketchPicker, ColorResult } from 'react-color';
 import { ConditionalFormattingConfig } from './types';
 
 const FullWidthInputNumber = styled(InputNumber)`
@@ -43,6 +44,10 @@ const FullWidthInputNumber = styled(InputNumber)`
 const JustifyEnd = styled.div`
   display: flex;
   justify-content: flex-end;
+`;
+
+const CustomColorPicker = styled.div`
+  margin-top: ${({ theme }) => theme.gridUnit * 2}px;
 `;
 
 const colorSchemeOptions = (theme: SupersetTheme) => [
@@ -160,16 +165,63 @@ export const FormattingPopoverContent = ({
   extraColorChoices?: { label: string; value: string }[];
 }) => {
   const theme = useTheme();
-  const colorScheme = colorSchemeOptions(theme);
+  const presetColorOptions = useMemo(() => colorSchemeOptions(theme), [theme]);
+  const CUSTOM_COLOR_VALUE = '__custom_color__';
+  const allColorValues = useMemo(
+    () => [...presetColorOptions, ...extraColorChoices].map(opt => opt.value),
+    [presetColorOptions, extraColorChoices],
+  );
+  const hasCustomInitialValue = Boolean(
+    config?.colorScheme && !allColorValues.includes(config.colorScheme),
+  );
+  const defaultColumn = config?.column ?? columns[0]?.value;
+  const initialCustomColor = hasCustomInitialValue
+    ? (config?.colorScheme as string)
+    : theme.colors.primary.base;
+  const [customColor, setCustomColor] = useState(initialCustomColor);
   const [showOperatorFields, setShowOperatorFields] = useState(
     config === undefined ||
       (config?.colorScheme !== ColorSchemeEnum.Green &&
         config?.colorScheme !== ColorSchemeEnum.Red),
   );
-  const handleChange = (event: any) => {
-    setShowOperatorFields(
-      !(event === ColorSchemeEnum.Green || event === ColorSchemeEnum.Red),
-    );
+  const [isCustomColor, setIsCustomColor] = useState(hasCustomInitialValue);
+  const handleChange = (selection: any) => {
+    const value =
+      selection && typeof selection === 'object'
+        ? selection.value ?? selection.key ?? selection
+        : selection;
+    const isBasicColor =
+      value === ColorSchemeEnum.Green || value === ColorSchemeEnum.Red;
+    setShowOperatorFields(!isBasicColor || value === CUSTOM_COLOR_VALUE);
+    setIsCustomColor(value === CUSTOM_COLOR_VALUE);
+  };
+
+  const handleCustomColorChange = (value: ColorResult) => {
+    setCustomColor(value.hex);
+  };
+
+  const initialColorSchemeValue = hasCustomInitialValue
+    ? CUSTOM_COLOR_VALUE
+    : config?.colorScheme ?? presetColorOptions[0].value;
+
+  const selectColorOptions = useMemo(
+    () => [
+      ...presetColorOptions,
+      ...extraColorChoices,
+      { value: CUSTOM_COLOR_VALUE, label: t('Custom color') },
+    ],
+    [presetColorOptions, extraColorChoices],
+  );
+
+  const handleFinish = (values: ConditionalFormattingConfig) => {
+    const rawColor = values.colorScheme as any;
+    const normalizedColor =
+      rawColor && typeof rawColor === 'object'
+        ? rawColor.value ?? rawColor.key
+        : rawColor;
+    const resolvedColor =
+      normalizedColor === CUSTOM_COLOR_VALUE ? customColor : normalizedColor;
+    onChange({ ...values, colorScheme: resolvedColor });
   };
 
   const renderOperatorFields = ({ getFieldValue }: GetFieldValue) => {
@@ -250,19 +302,18 @@ export const FormattingPopoverContent = ({
 
   return (
     <Form
-      onFinish={onChange}
-      initialValues={config}
+      onFinish={handleFinish}
+      initialValues={{
+        ...config,
+        column: defaultColumn,
+        colorScheme: initialColorSchemeValue,
+      }}
       requiredMark="optional"
       layout="vertical"
     >
       <Row gutter={12}>
         <Col span={12}>
-          <FormItem
-            name="column"
-            label={t('Column')}
-            rules={rulesRequired}
-            initialValue={columns[0]?.value}
-          >
+          <FormItem name="column" label={t('Column')} rules={rulesRequired}>
             <Select ariaLabel={t('Select column')} options={columns} />
           </FormItem>
         </Col>
@@ -271,16 +322,28 @@ export const FormattingPopoverContent = ({
             name="colorScheme"
             label={t('Color scheme')}
             rules={rulesRequired}
-            initialValue={colorScheme[0].value}
           >
             <Select
               onChange={event => handleChange(event)}
               ariaLabel={t('Color scheme')}
-              options={[...colorScheme, ...extraColorChoices]}
+              options={selectColorOptions}
             />
           </FormItem>
         </Col>
       </Row>
+      {isCustomColor && (
+        <Row gutter={12}>
+          <Col span={24}>
+            <CustomColorPicker>
+              <SketchPicker
+                color={customColor}
+                onChangeComplete={handleCustomColorChange}
+                disableAlpha
+              />
+            </CustomColorPicker>
+          </Col>
+        </Row>
+      )}
       <FormItem noStyle shouldUpdate={shouldFormItemUpdate}>
         {showOperatorFields ? (
           renderOperatorFields

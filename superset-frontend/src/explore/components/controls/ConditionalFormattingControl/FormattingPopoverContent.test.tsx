@@ -16,6 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+import userEvent from '@testing-library/user-event';
 import {
   render,
   screen,
@@ -26,7 +27,27 @@ import { Comparator } from '@superset-ui/chart-controls';
 import { ColorSchemeEnum } from '@superset-ui/plugin-chart-table';
 import { FormattingPopoverContent } from './FormattingPopoverContent';
 
+jest.mock('react-color', () => ({
+  SketchPicker: ({
+    onChangeComplete,
+  }: {
+    onChangeComplete: (color: any) => void;
+  }) => (
+    <button
+      type="button"
+      data-test="mock-color-picker"
+      onClick={() => onChangeComplete({ hex: '#123456' })}
+    >
+      Pick Color
+    </button>
+  ),
+}));
+
 const mockOnChange = jest.fn();
+
+beforeEach(() => {
+  mockOnChange.mockReset();
+});
 
 const columns = [
   { label: 'Column 1', value: 'column1' },
@@ -118,4 +139,31 @@ test('renders None for operator when Green for increase is selected', async () =
 
   // Assert that the operator is set to 'None'
   expect(screen.getByText(/none/i)).toBeInTheDocument();
+});
+
+test('saves custom color from picker when Custom color option selected', async () => {
+  render(
+    <FormattingPopoverContent
+      onChange={mockOnChange}
+      columns={columns}
+      extraColorChoices={extraColorChoices}
+    />,
+  );
+
+  const colorCombobox = screen.getAllByLabelText(/color scheme/i)[0];
+  await userEvent.click(colorCombobox);
+
+  const customOption = await screen.findByText('Custom color');
+  await userEvent.click(customOption);
+
+  const pickerButton = await screen.findByTestId('mock-color-picker');
+  await userEvent.click(pickerButton);
+
+  await userEvent.click(screen.getByText('Apply'));
+
+  await waitFor(() => {
+    expect(mockOnChange).toHaveBeenCalledWith(
+      expect.objectContaining({ colorScheme: '#123456' }),
+    );
+  });
 });
