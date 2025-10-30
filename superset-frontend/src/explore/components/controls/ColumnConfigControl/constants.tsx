@@ -176,14 +176,22 @@ const enableHtmlTemplate: ControlFormItemSpec<'Checkbox'> = {
   debounceDelay: 200,
 };
 
-const htmlTemplate: ControlFormItemSpec<'Input'> = {
-  controlType: 'Input',
+const htmlTemplate: ControlFormItemSpec<'TextAreaControl'> = {
+  controlType: 'TextAreaControl',
   label: t('HTML template'),
   description: t(
-    'Use double curly braces to reference row values, for example {{ column_name }}.',
+    'Supports simple CASE logic and variables such as {{ value }} or {{ column_name }}. Example:\nCASE {{ implementada }}\n  WHEN "Sí" THEN "<span class="pill pill--ok">Si aprobado</span>"\n  WHEN "No" THEN "<span class="pill pill--warn">No pendiente</span>"\n  ELSE "<span class="pill">—</span>"\nEND',
   ),
-  placeholder: '<b>{{ marca_nombre }}</b>',
+  placeholder:
+    '<span style="display:inline-flex;align-items:center;gap:4px;">{{ value }}</span>',
   debounceDelay: 500,
+  language: 'html',
+  minLines: 6,
+  maxLines: 40,
+  offerEditInModal: true,
+  textAreaStyles: {
+    resize: 'vertical',
+  },
 };
 /**
  * All configurable column formatting properties.

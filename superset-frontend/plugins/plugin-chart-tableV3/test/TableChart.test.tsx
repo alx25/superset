@@ -19,9 +19,12 @@
 import { CommonWrapper } from 'enzyme';
 import { render } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import { GenericDataType } from '@superset-ui/core';
 import TableChart from '../src/TableChart';
 import transformProps from '../src/transformProps';
 import DateWithFormatter from '../src/utils/DateWithFormatter';
+import { formatColumnValue } from '../src/utils/formatValue';
+import { DataColumnMeta } from '../src/types';
 import testData from './testData';
 import { mount, ProviderWrapper } from './enzyme';
 
@@ -316,6 +319,79 @@ describe('plugin-chart-table', () => {
       const htmlCell = cells[1];
       expect(htmlCell.querySelector('b')).toBeNull();
       expect(htmlCell.textContent).toBe('Michael');
+    });
+
+    it('supports CASE-based HTML templates', () => {
+      const column: DataColumnMeta = {
+        key: 'implementada',
+        label: 'implementada',
+        dataType: GenericDataType.String,
+        config: {
+          enableHtmlTemplate: true,
+          htmlTemplate:
+            'CASE {{ implementada }} WHEN "Sí" THEN "<span class=\"ok\">✔️ Sí</span>" WHEN "No" THEN "<span class=\"ko\">❌ No</span>" ELSE "<span class=\"na\">—</span>" END',
+        },
+      };
+
+      const [isHtml, html] = formatColumnValue(
+        column,
+        'Sí',
+        {
+          implementada: 'Sí',
+        },
+      );
+
+      expect(isHtml).toBe(true);
+      expect(html).toContain('✔️ Sí');
+      expect(html).not.toContain('<script');
+    });
+
+    it('supports CASE WHEN comparison templates', () => {
+      const column: DataColumnMeta = {
+        key: 'Plan',
+        label: 'Plan',
+        dataType: GenericDataType.Numeric,
+        config: {
+          enableHtmlTemplate: true,
+          htmlTemplate:
+            'CASE WHEN {{ Plan }} > 5000000 THEN "<span class=\'pill pill--ok\'>{{ Plan }}</span>" ELSE "<span class=\'pill pill--warn\'>{{ Plan }}</span>" END',
+        },
+      };
+
+      const [, highHtml] = formatColumnValue(
+        column,
+        6_500_000,
+        {
+          Plan: 6_500_000,
+        },
+      );
+
+      const [, lowHtml] = formatColumnValue(
+        column,
+        2_500_000,
+        {
+          Plan: 2_500_000,
+        },
+      );
+
+      expect(highHtml).toContain('pill pill--ok');
+      expect(lowHtml).toContain('pill pill--warn');
+    });
+
+    it('does not apply HTML templates to totals rows', () => {
+      const column: DataColumnMeta = {
+        key: 'implementada',
+        label: 'implementada',
+        dataType: GenericDataType.String,
+        config: {
+          enableHtmlTemplate: true,
+          htmlTemplate: '<b>{{ implementada }}</b>',
+        },
+      };
+
+      const [isHtml, html] = formatColumnValue(column, 'Total', undefined);
+      expect(isHtml).toBe(false);
+      expect(html).toBe('Total');
     });
   });
 
