@@ -180,7 +180,7 @@ const htmlTemplate: ControlFormItemSpec<'TextAreaControl'> = {
   controlType: 'TextAreaControl',
   label: t('HTML template'),
   description: t(
-    'Supports simple CASE logic and variables such as {{ value }} or {{ column_name }}. Example:\nCASE {{ implementada }}\n  WHEN "Sí" THEN "<span class="pill pill--ok">Si aprobado</span>"\n  WHEN "No" THEN "<span class="pill pill--warn">No pendiente</span>"\n  ELSE "<span class="pill">—</span>"\nEND',
+    "Supports simple CASE logic and variables such as {{ value }} (formatted) or {{ raw_value }} (raw) alongside other columns like {{ column_name }}. Example:\nCASE WHEN {{ raw_value }} > 5000000\n  THEN <span class='pill pill--ok'>{{ value }}</span>\n  ELSE <span class='pill pill--warn'>{{ value }}</span>\nEND",
   ),
   placeholder:
     '<span style="display:inline-flex;align-items:center;gap:4px;">{{ value }}</span>',

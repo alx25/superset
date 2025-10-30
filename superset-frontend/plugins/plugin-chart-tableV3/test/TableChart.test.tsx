@@ -354,8 +354,9 @@ describe('plugin-chart-table', () => {
         config: {
           enableHtmlTemplate: true,
           htmlTemplate:
-            'CASE WHEN {{ Plan }} > 5000000 THEN "<span class=\'pill pill--ok\'>{{ Plan }}</span>" ELSE "<span class=\'pill pill--warn\'>{{ Plan }}</span>" END',
+            'CASE WHEN {{ Plan }} > 5000000 THEN "<span class=\'pill pill--ok\'>{{ value }}</span>" ELSE "<span class=\'pill pill--warn\'>{{ value }}</span>" END',
         },
+        formatter: () => 'formatted-plan',
       };
 
       const [, highHtml] = formatColumnValue(
@@ -375,7 +376,9 @@ describe('plugin-chart-table', () => {
       );
 
       expect(highHtml).toContain('pill pill--ok');
+      expect(highHtml).toContain('formatted-plan');
       expect(lowHtml).toContain('pill pill--warn');
+      expect(lowHtml).toContain('formatted-plan');
     });
 
     it('does not apply HTML templates to totals rows', () => {

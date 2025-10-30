@@ -84,6 +84,21 @@ function substituteTemplateVariables(
     if (!key) {
       return '';
     }
+    if (key === 'value') {
+      return formattedValue ?? '';
+    }
+    if (key === 'raw_value') {
+      const rawColumnValue = getTemplateValue(
+        row,
+        column,
+        formattedValue,
+        column.key,
+      );
+      return rawColumnValue === undefined ? '' : rawColumnValue;
+    }
+    if (key === column.key) {
+      return formattedValue ?? '';
+    }
     const value = getTemplateValue(row, column, formattedValue, key);
     return value === undefined ? '' : value;
   });
