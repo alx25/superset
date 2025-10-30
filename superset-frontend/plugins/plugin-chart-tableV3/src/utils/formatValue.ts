@@ -18,6 +18,7 @@
  */
 import {
   CurrencyFormatter,
+  DataRecord,
   DataRecordValue,
   GenericDataType,
   getNumberFormatter,
@@ -30,6 +31,40 @@ import DateWithFormatter from './DateWithFormatter';
 /**
  * Format text for cell value.
  */
+const TEMPLATE_VARIABLE_REGEX = /\{\{\s*([^}]+)\s*\}\}/g;
+
+function getNestedValue(row: DataRecord, path: string) {
+  return path
+    .split('.')
+    .reduce<any>((acc, key) => (acc == null ? undefined : acc?.[key]), row);
+}
+
+function renderHtmlTemplate(
+  template: string,
+  row: DataRecord,
+  column: DataColumnMeta,
+  formattedValue: string,
+) {
+  if (!template) {
+    return '';
+  }
+  return template.replace(TEMPLATE_VARIABLE_REGEX, (_, rawKey: string) => {
+    const key = rawKey.trim();
+    if (!key) {
+      return '';
+    }
+    if (key === 'value') {
+      return formattedValue ?? '';
+    }
+    if (key === column.key) {
+      const cellValue = row?.[column.key];
+      return cellValue == null ? '' : String(cellValue);
+    }
+    const nested = getNestedValue(row, key);
+    return nested == null ? '' : String(nested);
+  });
+}
+
 function formatValue(
   formatter: DataColumnMeta['formatter'],
   value: DataRecordValue,
@@ -59,7 +94,8 @@ function formatValue(
 export function formatColumnValue(
   column: DataColumnMeta,
   value: DataRecordValue,
-) {
+  row?: DataRecord,
+): [boolean, string] {
   const { dataType, formatter, config = {} } = column;
   const isNumber = dataType === GenericDataType.Numeric;
   const smallNumberFormatter =
@@ -71,10 +107,25 @@ export function formatColumnValue(
             currency: config.currencyFormat,
           })
         : getNumberFormatter(config.d3SmallNumberFormat);
-  return formatValue(
+  const baseResult = formatValue(
     isNumber && typeof value === 'number' && Math.abs(value) < 1
       ? smallNumberFormatter
       : formatter,
     value,
   );
+  if (
+    config.enableHtmlTemplate &&
+    typeof config.htmlTemplate === 'string' &&
+    config.htmlTemplate.trim() &&
+    row
+  ) {
+    const rendered = renderHtmlTemplate(
+      config.htmlTemplate,
+      row,
+      column,
+      baseResult[1],
+    );
+    return [true, sanitizeHtml(rendered)];
+  }
+  return baseResult;
 }

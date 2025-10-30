@@ -50,6 +50,8 @@ export type TableColumnConfig = {
   colorPositiveNegative?: boolean;
   truncateLongCells?: boolean;
   currencyFormat?: Currency;
+  enableHtmlTemplate?: boolean;
+  htmlTemplate?: string;
 };
 
 export interface DataColumnMeta {

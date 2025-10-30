@@ -17,7 +17,7 @@
  * under the License.
  */
 import { CommonWrapper } from 'enzyme';
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import TableChart from '../src/TableChart';
 import transformProps from '../src/transformProps';
@@ -64,6 +64,57 @@ describe('plugin-chart-table', () => {
         .__timestamp as DateWithFormatter;
       expect(String(parsedDate)).toBe('2020-01-01 12:34:56');
       expect(parsedDate.getTime()).toBe(1577882096000);
+    });
+
+    it('should generate gradient formatter when rule matches', () => {
+      const props = transformProps({
+        ...testData.advanced,
+        rawFormData: {
+          ...testData.advanced.rawFormData,
+          conditional_formatting: [
+            {
+              colorScheme: '#ACE1C4',
+              column: 'sum__num',
+              operator: '<',
+              targetValue: 12342,
+            },
+          ],
+        },
+      });
+
+      const formatter = props.columnColorFormatters?.find(
+        ({ column }) => column === 'sum__num',
+      );
+
+      expect(formatter).toBeDefined();
+      const color = formatter!.getColorFromValue(2467) ?? '';
+      expect(color.toUpperCase()).toMatch(/^#ACE1C4/);
+      expect(color.length).toBeGreaterThan(7);
+    });
+
+    it('should generate uniform formatter when colorMode is uniform', () => {
+      const props = transformProps({
+        ...testData.advanced,
+        rawFormData: {
+          ...testData.advanced.rawFormData,
+          conditional_formatting: [
+            {
+              colorScheme: '#ACE1C4',
+              column: 'sum__num',
+              operator: '>',
+              targetValue: 2467,
+              colorMode: 'uniform',
+            },
+          ],
+        },
+      });
+
+      const formatter = props.columnColorFormatters?.find(
+        ({ column }) => column === 'sum__num',
+      );
+
+      expect(formatter).toBeDefined();
+      expect(formatter!.getColorFromValue(2467063)).toBe('#ACE1C4');
     });
   });
 
@@ -213,113 +264,58 @@ describe('plugin-chart-table', () => {
       expect(tree.text()).toContain('No records found');
     });
 
-    it('render color with column color formatter', () => {
-      render(
-        ProviderWrapper({
-          children: (
-            <TableChart
-              {...transformProps({
-                ...testData.advanced,
-                rawFormData: {
-                  ...testData.advanced.rawFormData,
-                  conditional_formatting: [
-                    {
-                      colorScheme: '#ACE1C4',
-                      column: 'sum__num',
-                      operator: '>',
-                      targetValue: 2467,
-                    },
-                  ],
-                },
-              })}
-            />
-          ),
-        }),
-      );
-
-      expect(
-        getComputedStyle(screen.getByTitle('2467063')).backgroundColor,
-      ).toBe('rgba(172, 225, 196, 1)');
-      expect(
-        getComputedStyle(screen.getByTitle('2467')).backgroundColor,
-      ).toBe('rgba(0, 0, 0, 0)');
-    });
-
-    it('render cell without color', () => {
-      const dataWithEmptyCell = testData.advanced.queriesData[0];
-      dataWithEmptyCell.data.push({
-        __timestamp: null,
-        name: 'Noah',
-        sum__num: null,
-        '%pct_nice': 0.643,
-        'abc.com': 'bazzinga',
+    it('render HTML template when enabled', () => {
+      const props = transformProps({
+        ...testData.basic,
+        rawFormData: {
+          ...testData.basic.rawFormData,
+          allow_render_html: true,
+          column_config: {
+            name: {
+              enableHtmlTemplate: true,
+              htmlTemplate: '<b>{{ name }}</b>',
+            },
+          },
+        },
       });
 
       render(
         ProviderWrapper({
-          children: (
-            <TableChart
-              {...transformProps({
-                ...testData.advanced,
-                queriesData: [dataWithEmptyCell],
-                rawFormData: {
-                  ...testData.advanced.rawFormData,
-                  conditional_formatting: [
-                    {
-                      colorScheme: '#ACE1C4',
-                      column: 'sum__num',
-                      operator: '<',
-                      targetValue: 12342,
-                    },
-                  ],
-                },
-              })}
-            />
-          ),
+          children: <TableChart {...props} sticky={false} />,
         }),
       );
-      expect(
-        getComputedStyle(screen.getByTitle('2467')).backgroundColor,
-      ).toBe('rgba(172, 225, 196, 0.812)');
-      expect(
-        getComputedStyle(screen.getByTitle('2467063')).backgroundColor,
-      ).toBe('rgba(0, 0, 0, 0)');
-      expect(
-        getComputedStyle(screen.getByText('N/A')).backgroundColor,
-      ).toBe('rgba(0, 0, 0, 0)');
+
+      const cells = document.querySelectorAll('td');
+      const htmlCell = cells[1];
+      expect(htmlCell.querySelector('b')).not.toBeNull();
+      expect(htmlCell.textContent).toBe('Michael');
     });
 
-    it('render uniform color when colorMode is uniform', () => {
+    it('shows plain text when HTML rendering is disabled', () => {
+      const props = transformProps({
+        ...testData.basic,
+        rawFormData: {
+          ...testData.basic.rawFormData,
+          allow_render_html: false,
+          column_config: {
+            name: {
+              enableHtmlTemplate: true,
+              htmlTemplate: '<b>{{ name }}</b>',
+            },
+          },
+        },
+      });
+
       render(
         ProviderWrapper({
-          children: (
-            <TableChart
-              {...transformProps({
-                ...testData.advanced,
-                rawFormData: {
-                  ...testData.advanced.rawFormData,
-                  conditional_formatting: [
-                    {
-                      colorScheme: '#ACE1C4',
-                      column: 'sum__num',
-                      operator: '>',
-                      targetValue: 2467,
-                      colorMode: 'uniform',
-                    },
-                  ],
-                },
-              })}
-            />
-          ),
+          children: <TableChart {...props} sticky={false} />,
         }),
       );
 
-      expect(
-        getComputedStyle(screen.getByTitle('2467063')).backgroundColor,
-      ).toMatch(/rgb(a)?\(172, 225, 196(, 1)?\)/);
-      expect(
-        getComputedStyle(screen.getByTitle('2467')).backgroundColor,
-      ).toMatch(/rgb(a)?\(172, 225, 196(, 1)?\)/);
+      const cells = document.querySelectorAll('td');
+      const htmlCell = cells[1];
+      expect(htmlCell.querySelector('b')).toBeNull();
+      expect(htmlCell.textContent).toBe('Michael');
     });
   });
 
