@@ -59,6 +59,13 @@ const colorSchemeOptions = (theme: SupersetTheme) => [
   { value: theme.colors.error.dark1, label: t('error dark') },
 ];
 
+const colorModeOptions = [
+  { value: 'gradient', label: t('Heatmap') },
+  { value: 'uniform', label: t('Uniform color') },
+];
+
+const DEFAULT_COLOR_MODE = 'gradient' as const;
+
 const operatorOptions = [
   { value: Comparator.None, label: t('None') },
   { value: Comparator.GreaterThan, label: '>' },
@@ -203,6 +210,7 @@ export const FormattingPopoverContent = ({
   const initialColorSchemeValue = hasCustomInitialValue
     ? CUSTOM_COLOR_VALUE
     : config?.colorScheme ?? presetColorOptions[0].value;
+  const initialColorModeValue = config?.colorMode ?? DEFAULT_COLOR_MODE;
 
   const selectColorOptions = useMemo(
     () => [
@@ -307,6 +315,7 @@ export const FormattingPopoverContent = ({
         ...config,
         column: defaultColumn,
         colorScheme: initialColorSchemeValue,
+        colorMode: initialColorModeValue,
       }}
       requiredMark="optional"
       layout="vertical"
@@ -328,6 +337,13 @@ export const FormattingPopoverContent = ({
               ariaLabel={t('Color scheme')}
               options={selectColorOptions}
             />
+          </FormItem>
+          <FormItem
+            name="colorMode"
+            label={t('Color style')}
+            rules={rulesRequired}
+          >
+            <Select ariaLabel={t('Color style')} options={colorModeOptions} />
           </FormItem>
         </Col>
       </Row>

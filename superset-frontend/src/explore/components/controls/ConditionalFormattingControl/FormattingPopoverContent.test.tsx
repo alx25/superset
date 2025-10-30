@@ -77,6 +77,7 @@ test('renders FormattingPopoverContent component', () => {
   // Assert that the component renders correctly
   expect(screen.getByLabelText('Column')).toBeInTheDocument();
   expect(screen.getAllByLabelText('Color scheme')).toHaveLength(2);
+  expect(screen.getAllByLabelText('Color style')).toHaveLength(2);
   expect(screen.getAllByLabelText('Operator')).toHaveLength(2);
   expect(screen.queryByLabelText('Left value')).not.toBeInTheDocument();
   expect(screen.queryByLabelText('Right value')).not.toBeInTheDocument();
@@ -163,7 +164,34 @@ test('saves custom color from picker when Custom color option selected', async (
 
   await waitFor(() => {
     expect(mockOnChange).toHaveBeenCalledWith(
-      expect.objectContaining({ colorScheme: '#123456' }),
+      expect.objectContaining({
+        colorScheme: '#123456',
+        colorMode: 'gradient',
+      }),
+    );
+  });
+});
+
+test('allows choosing uniform color mode', async () => {
+  render(
+    <FormattingPopoverContent
+      onChange={mockOnChange}
+      columns={columns}
+      extraColorChoices={extraColorChoices}
+    />,
+  );
+
+  const styleCombobox = screen.getAllByLabelText(/color style/i)[0];
+  await userEvent.click(styleCombobox);
+
+  const uniformOption = await screen.findByText('Uniform color');
+  await userEvent.click(uniformOption);
+
+  await userEvent.click(screen.getByText('Apply'));
+
+  await waitFor(() => {
+    expect(mockOnChange).toHaveBeenCalledWith(
+      expect.objectContaining({ colorMode: 'uniform' }),
     );
   });
 });

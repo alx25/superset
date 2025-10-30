@@ -237,10 +237,12 @@ describe('plugin-chart-table', () => {
         }),
       );
 
-      expect(getComputedStyle(screen.getByTitle('2467063')).background).toBe(
-        'rgba(172, 225, 196, 1)',
-      );
-      expect(getComputedStyle(screen.getByTitle('2467')).background).toBe('');
+      expect(
+        getComputedStyle(screen.getByTitle('2467063')).backgroundColor,
+      ).toBe('rgba(172, 225, 196, 1)');
+      expect(
+        getComputedStyle(screen.getByTitle('2467')).backgroundColor,
+      ).toBe('rgba(0, 0, 0, 0)');
     });
 
     it('render cell without color', () => {
@@ -276,13 +278,48 @@ describe('plugin-chart-table', () => {
           ),
         }),
       );
-      expect(getComputedStyle(screen.getByTitle('2467')).background).toBe(
-        'rgba(172, 225, 196, 0.812)',
+      expect(
+        getComputedStyle(screen.getByTitle('2467')).backgroundColor,
+      ).toBe('rgba(172, 225, 196, 0.812)');
+      expect(
+        getComputedStyle(screen.getByTitle('2467063')).backgroundColor,
+      ).toBe('rgba(0, 0, 0, 0)');
+      expect(
+        getComputedStyle(screen.getByText('N/A')).backgroundColor,
+      ).toBe('rgba(0, 0, 0, 0)');
+    });
+
+    it('render uniform color when colorMode is uniform', () => {
+      render(
+        ProviderWrapper({
+          children: (
+            <TableChart
+              {...transformProps({
+                ...testData.advanced,
+                rawFormData: {
+                  ...testData.advanced.rawFormData,
+                  conditional_formatting: [
+                    {
+                      colorScheme: '#ACE1C4',
+                      column: 'sum__num',
+                      operator: '>',
+                      targetValue: 2467,
+                      colorMode: 'uniform',
+                    },
+                  ],
+                },
+              })}
+            />
+          ),
+        }),
       );
-      expect(getComputedStyle(screen.getByTitle('2467063')).background).toBe(
-        '',
-      );
-      expect(getComputedStyle(screen.getByText('N/A')).background).toBe('');
+
+      expect(
+        getComputedStyle(screen.getByTitle('2467063')).backgroundColor,
+      ).toMatch(/rgb(a)?\(172, 225, 196(, 1)?\)/);
+      expect(
+        getComputedStyle(screen.getByTitle('2467')).backgroundColor,
+      ).toMatch(/rgb(a)?\(172, 225, 196(, 1)?\)/);
     });
   });
 

@@ -460,6 +460,7 @@ export type ConditionalFormattingConfig = {
   targetValueRight?: number | string;
   column?: string;
   colorScheme?: string;
+  colorMode?: 'gradient' | 'uniform';
 };
 
 export type ColorFormatters = {
