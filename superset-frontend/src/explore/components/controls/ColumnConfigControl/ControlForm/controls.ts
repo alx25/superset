@@ -22,6 +22,7 @@ import { Input, InputNumber } from 'src/components/Input';
 import Slider from 'src/components/Slider';
 import CurrencyControl from '../../CurrencyControl';
 import CheckboxControl from '../../CheckboxControl';
+import TextAreaControl from '../../TextAreaControl';
 
 export const ControlFormItemComponents = {
   Slider,
@@ -33,4 +34,5 @@ export const ControlFormItemComponents = {
   Checkbox: CheckboxControl,
   RadioButtonControl: sharedControlComponents.RadioButtonControl,
   CurrencyControl,
+  TextAreaControl,
 };

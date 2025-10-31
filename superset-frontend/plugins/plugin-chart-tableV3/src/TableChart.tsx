@@ -93,6 +93,8 @@ const ACTION_KEYS = {
   space: ' ',
 };
 
+const stripHtmlTags = (value: string) => value.replace(/<[^>]+>/g, '');
+
 /**
  * Return sortType based on data type
  */
@@ -456,7 +458,9 @@ export default function TableChart<D extends DataRecord = DataRecord>(
                 col: col.key,
                 op: '==',
                 val: dataRecordValue as string | number | boolean,
-                formattedVal: formatColumnValue(col, dataRecordValue)[1],
+                formattedVal: String(
+                  formatColumnValue(col, dataRecordValue, value)[1],
+                ),
               });
             }
           });
@@ -741,8 +745,15 @@ export default function TableChart<D extends DataRecord = DataRecord>(
         // so we ask TS not to check.
         accessor: ((datum: D) => datum[key]) as never,
         Cell: ({ value, row }: { value: DataRecordValue; row: Row<D> }) => {
-          const [isHtml, text] = formatColumnValue(column, value);
+          const [isHtml, text] = formatColumnValue(
+            column,
+            value,
+            row.original as D,
+          );
           const html = isHtml && allowRenderHtml ? { __html: text } : undefined;
+          const displayText = isHtml
+            ? stripHtmlTags(String(text))
+            : String(text);
 
           let backgroundColor;
           let arrow = '';
@@ -906,12 +917,12 @@ export default function TableChart<D extends DataRecord = DataRecord>(
                   style={columnWidth ? { width: columnWidth } : undefined}
                 >
                   {arrow && <span css={arrowStyles}>{arrow}</span>}
-                  {text}
+                  {displayText}
                 </div>
               ) : (
                 <>
                   {arrow && <span css={arrowStyles}>{arrow}</span>}
-                  {text}
+                  {displayText}
                 </>
               )}
             </StyledCell>

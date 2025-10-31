@@ -39,7 +39,9 @@ export type SharedColumnConfigProp =
   | 'horizontalAlign'
   | 'truncateLongCells'
   | 'showCellBars'
-  | 'currencyFormat';
+  | 'currencyFormat'
+  | 'enableHtmlTemplate'
+  | 'htmlTemplate';
 
 const d3NumberFormat: ControlFormItemSpec<'Select'> = {
   allowNewOptions: true,
@@ -163,6 +165,34 @@ const currencyFormat: ControlFormItemSpec<'CurrencyControl'> = {
   ),
   debounceDelay: 200,
 };
+
+const enableHtmlTemplate: ControlFormItemSpec<'Checkbox'> = {
+  controlType: 'Checkbox',
+  label: t('HTML render'),
+  description: t(
+    'Render this column using a custom HTML template defined below. The underlying data remains unchanged for downloads.',
+  ),
+  defaultValue: false,
+  debounceDelay: 200,
+};
+
+const htmlTemplate: ControlFormItemSpec<'TextAreaControl'> = {
+  controlType: 'TextAreaControl',
+  label: t('HTML template'),
+  description: t(
+    "Supports simple CASE logic and variables such as {{ value }} (formatted) or {{ raw_value }} (raw) alongside other columns like {{ column_name }}. Example:\nCASE WHEN {{ raw_value }} > 5000000\n  THEN <span class='pill pill--ok'>{{ value }}</span>\n  ELSE <span class='pill pill--warn'>{{ value }}</span>\nEND",
+  ),
+  placeholder:
+    '<span style="display:inline-flex;align-items:center;gap:4px;">{{ value }}</span>',
+  debounceDelay: 500,
+  language: 'html',
+  minLines: 6,
+  maxLines: 40,
+  offerEditInModal: true,
+  textAreaStyles: {
+    resize: 'vertical',
+  },
+};
 /**
  * All configurable column formatting properties.
  */
@@ -186,16 +216,24 @@ export const SHARED_COLUMN_CONFIG_PROPS = {
   alignPositiveNegative,
   colorPositiveNegative,
   currencyFormat,
+  enableHtmlTemplate,
+  htmlTemplate,
 };
 
 export const DEFAULT_CONFIG_FORM_LAYOUT: ColumnConfigFormLayout = {
   [GenericDataType.String]: [
-    ['displayName'],
-    [
-      'columnWidth',
-      { name: 'horizontalAlign', override: { defaultValue: 'left' } },
-    ],
-    ['truncateLongCells'],
+    {
+      tab: t('Display'),
+      children: [
+        ['displayName'],
+        [
+          'columnWidth',
+          { name: 'horizontalAlign', override: { defaultValue: 'left' } },
+        ],
+        ['truncateLongCells'],
+      ],
+    },
+    { tab: t('HTML'), children: [['enableHtmlTemplate'], ['htmlTemplate']] },
   ],
   [GenericDataType.Numeric]: [
     {
@@ -219,20 +257,33 @@ export const DEFAULT_CONFIG_FORM_LAYOUT: ColumnConfigFormLayout = {
         ['currencyFormat'],
       ],
     },
+    { tab: t('HTML'), children: [['enableHtmlTemplate'], ['htmlTemplate']] },
   ],
   [GenericDataType.Temporal]: [
-    ['displayName'],
-    [
-      'columnWidth',
-      { name: 'horizontalAlign', override: { defaultValue: 'left' } },
-    ],
-    ['d3TimeFormat'],
+    {
+      tab: t('Display'),
+      children: [
+        ['displayName'],
+        [
+          'columnWidth',
+          { name: 'horizontalAlign', override: { defaultValue: 'left' } },
+        ],
+        ['d3TimeFormat'],
+      ],
+    },
+    { tab: t('HTML'), children: [['enableHtmlTemplate'], ['htmlTemplate']] },
   ],
   [GenericDataType.Boolean]: [
-    ['displayName'],
-    [
-      'columnWidth',
-      { name: 'horizontalAlign', override: { defaultValue: 'left' } },
-    ],
+    {
+      tab: t('Display'),
+      children: [
+        ['displayName'],
+        [
+          'columnWidth',
+          { name: 'horizontalAlign', override: { defaultValue: 'left' } },
+        ],
+      ],
+    },
+    { tab: t('HTML'), children: [['enableHtmlTemplate'], ['htmlTemplate']] },
   ],
 };
