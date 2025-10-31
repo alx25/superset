@@ -83,3 +83,33 @@ def test_get_data_resolves_jinja_placeholders_in_display_name() -> None:
 
     header = result.splitlines()[0]
     assert header == "Ventas 321"
+
+
+def test_get_data_omits_jinja_fields_in_export() -> None:
+    df = pd.DataFrame({"jinja_metric": [10], "regular_metric": [20]})
+    form_data = {"jinja_fields": ["jinja_metric"]}
+    query_context = _build_query_context(form_data=form_data, verbose_map=None)
+
+    result = query_context.get_data(
+        df.copy(),
+        [GenericDataType.NUMERIC, GenericDataType.NUMERIC],
+    )
+
+    header = result.splitlines()[0]
+    assert header == "regular_metric"
+
+
+def test_get_data_omits_jinja_fields_matching_verbose_labels() -> None:
+    df = pd.DataFrame({"raw_metric": [11], "other": [22]})
+    form_data = {"jinja_fields": ["Ventas"]}
+    query_context = _build_query_context(
+        form_data=form_data, verbose_map={"raw_metric": "Ventas", "other": "Other"}
+    )
+
+    result = query_context.get_data(
+        df.copy(),
+        [GenericDataType.NUMERIC, GenericDataType.NUMERIC],
+    )
+
+    header = result.splitlines()[0]
+    assert header == "Other"

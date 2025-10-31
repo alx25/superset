@@ -60,6 +60,7 @@ from superset.utils.core import (
     get_base_axis_labels,
     get_column_names_from_columns,
     get_column_names_from_metrics,
+    get_metric_name,
     get_metric_names,
     get_x_axis_label,
     normalize_dttm_col,
@@ -647,19 +648,52 @@ class QueryContextProcessor:
     ) -> str | list[dict[str, Any]]:
         if self._query_context.result_format in ChartDataResultFormat.table_like():
             include_index = not isinstance(df.index, pd.RangeIndex)
-            columns = list(df.columns)
+            column_type_by_name = {
+                column: column_type
+                for column, column_type in zip(df.columns, coltypes)
+            }
             verbose_map = self._qc_datasource.data.get("verbose_map", {}) or {}
             form_data = self._query_context.form_data or {}
-            column_config = {}
+            column_config: dict[str, Any] = {}
+            jinja_field_labels: set[str] = set()
+            context_df = df
             if isinstance(form_data, dict):
                 config_candidate = form_data.get("column_config")
                 if isinstance(config_candidate, dict):
                     column_config = config_candidate
+                jinja_fields_candidate = form_data.get("jinja_fields")
+                if isinstance(jinja_fields_candidate, (list, tuple)):
+                    for entry in jinja_fields_candidate:
+                        label: str | None = None
+                        if isinstance(entry, str):
+                            label = entry
+                        elif isinstance(entry, dict):
+                            try:
+                                label = get_metric_name(entry, verbose_map)
+                            except ValueError:
+                                label = entry.get("label") or entry.get("sqlExpression")
+                        if label:
+                            jinja_field_labels.add(str(label))
+
+            if jinja_field_labels:
+                drop_columns = [
+                    column
+                    for column in df.columns
+                    if column in jinja_field_labels
+                    or (verbose_map.get(column) in jinja_field_labels)
+                ]
+                if drop_columns:
+                    df = df.drop(columns=drop_columns).copy()
+
+            columns = list(df.columns)
+            effective_column_types = [column_type_by_name.get(column) for column in columns]
 
             jinja_context: dict[str, Any] = {}
-            if not df.empty:
-                first_row = df.iloc[0].to_dict()
-                for column in columns:
+            # Use the original data frame (with Jinja fields) to resolve placeholders.
+            context_source = context_df if not context_df.empty else df
+            if not context_source.empty:
+                first_row = context_source.iloc[0].to_dict()
+                for column in context_source.columns:
                     value = first_row.get(column)
                     jinja_context[column] = value
                     verbose_label = verbose_map.get(column)
@@ -712,7 +746,7 @@ class QueryContextProcessor:
                     df, index=include_index, **config["CSV_EXPORT"]
                 )
             elif self._query_context.result_format == ChartDataResultFormat.XLSX:
-                excel.apply_column_types(df, coltypes)
+                excel.apply_column_types(df, effective_column_types)
                 result = excel.df_to_excel(df, **config["EXCEL_EXPORT"])
             return result or ""
 
