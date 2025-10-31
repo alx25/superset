@@ -659,16 +659,6 @@ class QueryContextProcessor:
             required_identifiers: set[str] = set()
             context_df = df
             if isinstance(form_data, dict):
-                config_candidate = form_data.get("column_config")
-                if isinstance(config_candidate, dict):
-                    column_config = config_candidate
-                    for raw_name, settings in column_config.items():
-                        if isinstance(settings, dict):
-                            track_identifier(raw_name)
-                            display_name_candidate = settings.get("displayName")
-                            if isinstance(display_name_candidate, str):
-                                track_identifier(display_name_candidate)
-
                 def track_identifier(label: str | None) -> None:
                     if not label:
                         return
@@ -680,6 +670,16 @@ class QueryContextProcessor:
                     for raw_label, verbose_label in verbose_map.items():
                         if str(verbose_label) == identifier:
                             required_identifiers.add(str(raw_label))
+
+                config_candidate = form_data.get("column_config")
+                if isinstance(config_candidate, dict):
+                    column_config = config_candidate
+                    for raw_name, settings in column_config.items():
+                        if isinstance(settings, dict):
+                            track_identifier(raw_name)
+                            display_name_candidate = settings.get("displayName")
+                            if isinstance(display_name_candidate, str):
+                                track_identifier(display_name_candidate)
 
                 metrics_candidate = form_data.get("metrics")
                 if isinstance(metrics_candidate, (list, tuple)):
