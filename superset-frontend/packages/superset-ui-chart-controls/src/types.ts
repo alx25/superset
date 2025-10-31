@@ -17,7 +17,13 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { ReactElement, ReactNode, ReactText, ComponentType } from 'react';
+import {
+  ReactElement,
+  ReactNode,
+  ReactText,
+  ComponentType,
+  CSSProperties,
+} from 'react';
 
 import type {
   AdhocColumn,
@@ -460,6 +466,7 @@ export type ConditionalFormattingConfig = {
   targetValueRight?: number | string;
   column?: string;
   colorScheme?: string;
+  colorMode?: 'gradient' | 'uniform';
 };
 
 export type ColorFormatters = {
@@ -571,4 +578,19 @@ export type ControlFormItemSpec<T extends ControlType = ControlType> = {
                 value?: Currency;
                 defaultValue?: Currency;
               }
-            : {});
+            : T extends 'TextAreaControl'
+              ? {
+                  minLines?: number;
+                  maxLines?: number;
+                  offerEditInModal?: boolean;
+                  language?:
+                    | null
+                    | 'json'
+                    | 'html'
+                    | 'sql'
+                    | 'markdown'
+                    | 'javascript';
+                  textAreaStyles?: CSSProperties;
+                  resize?: CSSProperties['resize'];
+                }
+              : {});

@@ -388,4 +388,17 @@ describe('getColorFormatters()', () => {
     const colorFormatters = getColorFormatters(undefined, mockData);
     expect(colorFormatters.length).toEqual(0);
   });
+
+  it('returns solid color when transparency is disabled', () => {
+    const columnConfig = [
+      {
+        operator: Comparator.GreaterThan,
+        targetValue: 50,
+        colorScheme: '#FF0000',
+        column: 'count',
+      },
+    ];
+    const colorFormatters = getColorFormatters(columnConfig, mockData, false);
+    expect(colorFormatters[0].getColorFromValue(100)).toEqual('#FF0000');
+  });
 });

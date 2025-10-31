@@ -329,12 +329,15 @@ export const getColorFormatters = memoizeOne(
                   config?.targetValueRight !== undefined
                 : config?.targetValue !== undefined)))
         ) {
+          const columnKey = config.column!;
+          const shouldApplyTransparency =
+            config?.colorMode === 'uniform' ? false : alpha;
           acc.push({
-            column: config?.column,
+            column: columnKey,
             getColorFromValue: getColorFunction(
               config,
-              data.map(row => row[config.column!] as any),
-              alpha,
+              data.map(row => row[columnKey]),
+              shouldApplyTransparency,
             ),
           });
         }

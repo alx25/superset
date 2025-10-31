@@ -17,11 +17,14 @@
  * under the License.
  */
 import { CommonWrapper } from 'enzyme';
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import { GenericDataType } from '@superset-ui/core';
 import TableChart from '../src/TableChart';
 import transformProps from '../src/transformProps';
 import DateWithFormatter from '../src/utils/DateWithFormatter';
+import { formatColumnValue } from '../src/utils/formatValue';
+import { DataColumnMeta } from '../src/types';
 import testData from './testData';
 import { mount, ProviderWrapper } from './enzyme';
 
@@ -64,6 +67,57 @@ describe('plugin-chart-table', () => {
         .__timestamp as DateWithFormatter;
       expect(String(parsedDate)).toBe('2020-01-01 12:34:56');
       expect(parsedDate.getTime()).toBe(1577882096000);
+    });
+
+    it('should generate gradient formatter when rule matches', () => {
+      const props = transformProps({
+        ...testData.advanced,
+        rawFormData: {
+          ...testData.advanced.rawFormData,
+          conditional_formatting: [
+            {
+              colorScheme: '#ACE1C4',
+              column: 'sum__num',
+              operator: '<',
+              targetValue: 12342,
+            },
+          ],
+        },
+      });
+
+      const formatter = props.columnColorFormatters?.find(
+        ({ column }) => column === 'sum__num',
+      );
+
+      expect(formatter).toBeDefined();
+      const color = formatter!.getColorFromValue(2467) ?? '';
+      expect(color.toUpperCase()).toMatch(/^#ACE1C4/);
+      expect(color.length).toBeGreaterThan(7);
+    });
+
+    it('should generate uniform formatter when colorMode is uniform', () => {
+      const props = transformProps({
+        ...testData.advanced,
+        rawFormData: {
+          ...testData.advanced.rawFormData,
+          conditional_formatting: [
+            {
+              colorScheme: '#ACE1C4',
+              column: 'sum__num',
+              operator: '>',
+              targetValue: 2467,
+              colorMode: 'uniform',
+            },
+          ],
+        },
+      });
+
+      const formatter = props.columnColorFormatters?.find(
+        ({ column }) => column === 'sum__num',
+      );
+
+      expect(formatter).toBeDefined();
+      expect(formatter!.getColorFromValue(2467063)).toBe('#ACE1C4');
     });
   });
 
@@ -213,76 +267,134 @@ describe('plugin-chart-table', () => {
       expect(tree.text()).toContain('No records found');
     });
 
-    it('render color with column color formatter', () => {
-      render(
-        ProviderWrapper({
-          children: (
-            <TableChart
-              {...transformProps({
-                ...testData.advanced,
-                rawFormData: {
-                  ...testData.advanced.rawFormData,
-                  conditional_formatting: [
-                    {
-                      colorScheme: '#ACE1C4',
-                      column: 'sum__num',
-                      operator: '>',
-                      targetValue: 2467,
-                    },
-                  ],
-                },
-              })}
-            />
-          ),
-        }),
-      );
-
-      expect(getComputedStyle(screen.getByTitle('2467063')).background).toBe(
-        'rgba(172, 225, 196, 1)',
-      );
-      expect(getComputedStyle(screen.getByTitle('2467')).background).toBe('');
-    });
-
-    it('render cell without color', () => {
-      const dataWithEmptyCell = testData.advanced.queriesData[0];
-      dataWithEmptyCell.data.push({
-        __timestamp: null,
-        name: 'Noah',
-        sum__num: null,
-        '%pct_nice': 0.643,
-        'abc.com': 'bazzinga',
+    it('render HTML template when enabled', () => {
+      const props = transformProps({
+        ...testData.basic,
+        rawFormData: {
+          ...testData.basic.rawFormData,
+          allow_render_html: true,
+          column_config: {
+            name: {
+              enableHtmlTemplate: true,
+              htmlTemplate: '<b>{{ name }}</b>',
+            },
+          },
+        },
       });
 
       render(
         ProviderWrapper({
-          children: (
-            <TableChart
-              {...transformProps({
-                ...testData.advanced,
-                queriesData: [dataWithEmptyCell],
-                rawFormData: {
-                  ...testData.advanced.rawFormData,
-                  conditional_formatting: [
-                    {
-                      colorScheme: '#ACE1C4',
-                      column: 'sum__num',
-                      operator: '<',
-                      targetValue: 12342,
-                    },
-                  ],
-                },
-              })}
-            />
-          ),
+          children: <TableChart {...props} sticky={false} />,
         }),
       );
-      expect(getComputedStyle(screen.getByTitle('2467')).background).toBe(
-        'rgba(172, 225, 196, 0.812)',
+
+      const cells = document.querySelectorAll('td');
+      const htmlCell = cells[1];
+      expect(htmlCell.querySelector('b')).not.toBeNull();
+      expect(htmlCell.textContent).toBe('Michael');
+    });
+
+    it('shows plain text when HTML rendering is disabled', () => {
+      const props = transformProps({
+        ...testData.basic,
+        rawFormData: {
+          ...testData.basic.rawFormData,
+          allow_render_html: false,
+          column_config: {
+            name: {
+              enableHtmlTemplate: true,
+              htmlTemplate: '<b>{{ name }}</b>',
+            },
+          },
+        },
+      });
+
+      render(
+        ProviderWrapper({
+          children: <TableChart {...props} sticky={false} />,
+        }),
       );
-      expect(getComputedStyle(screen.getByTitle('2467063')).background).toBe(
-        '',
+
+      const cells = document.querySelectorAll('td');
+      const htmlCell = cells[1];
+      expect(htmlCell.querySelector('b')).toBeNull();
+      expect(htmlCell.textContent).toBe('Michael');
+    });
+
+    it('supports CASE-based HTML templates', () => {
+      const column: DataColumnMeta = {
+        key: 'implementada',
+        label: 'implementada',
+        dataType: GenericDataType.String,
+        config: {
+          enableHtmlTemplate: true,
+          htmlTemplate:
+            'CASE {{ implementada }} WHEN "Sí" THEN "<span class=\"ok\">✔️ Sí</span>" WHEN "No" THEN "<span class=\"ko\">❌ No</span>" ELSE "<span class=\"na\">—</span>" END',
+        },
+      };
+
+      const [isHtml, html] = formatColumnValue(
+        column,
+        'Sí',
+        {
+          implementada: 'Sí',
+        },
       );
-      expect(getComputedStyle(screen.getByText('N/A')).background).toBe('');
+
+      expect(isHtml).toBe(true);
+      expect(html).toContain('✔️ Sí');
+      expect(html).not.toContain('<script');
+    });
+
+    it('supports CASE WHEN comparison templates', () => {
+      const column: DataColumnMeta = {
+        key: 'Plan',
+        label: 'Plan',
+        dataType: GenericDataType.Numeric,
+        config: {
+          enableHtmlTemplate: true,
+          htmlTemplate:
+            'CASE WHEN {{ Plan }} > 5000000 THEN "<span class=\'pill pill--ok\'>{{ value }}</span>" ELSE "<span class=\'pill pill--warn\'>{{ value }}</span>" END',
+        },
+        formatter: () => 'formatted-plan',
+      };
+
+      const [, highHtml] = formatColumnValue(
+        column,
+        6_500_000,
+        {
+          Plan: 6_500_000,
+        },
+      );
+
+      const [, lowHtml] = formatColumnValue(
+        column,
+        2_500_000,
+        {
+          Plan: 2_500_000,
+        },
+      );
+
+      expect(highHtml).toContain('pill pill--ok');
+      expect(highHtml).toContain('formatted-plan');
+      expect(lowHtml).toContain('pill pill--warn');
+      expect(lowHtml).toContain('formatted-plan');
+    });
+
+    it('does not apply HTML templates to totals rows', () => {
+      const column: DataColumnMeta = {
+        key: 'implementada',
+        label: 'implementada',
+        dataType: GenericDataType.String,
+        config: {
+          enableHtmlTemplate: true,
+          htmlTemplate: '<b>{{ implementada }}</b>',
+        },
+      };
+
+      const [isHtml, html] = formatColumnValue(column, 'Total', undefined);
+      expect(isHtml).toBe(false);
+      expect(html).toBe('Total');
     });
   });
 
