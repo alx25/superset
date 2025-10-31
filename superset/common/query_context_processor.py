@@ -648,9 +648,63 @@ class QueryContextProcessor:
         if self._query_context.result_format in ChartDataResultFormat.table_like():
             include_index = not isinstance(df.index, pd.RangeIndex)
             columns = list(df.columns)
-            verbose_map = self._qc_datasource.data.get("verbose_map", {})
-            if verbose_map:
-                df.columns = [verbose_map.get(column, column) for column in columns]
+            verbose_map = self._qc_datasource.data.get("verbose_map", {}) or {}
+            form_data = self._query_context.form_data or {}
+            column_config = {}
+            if isinstance(form_data, dict):
+                config_candidate = form_data.get("column_config")
+                if isinstance(config_candidate, dict):
+                    column_config = config_candidate
+
+            jinja_context: dict[str, Any] = {}
+            if not df.empty:
+                first_row = df.iloc[0].to_dict()
+                for column in columns:
+                    value = first_row.get(column)
+                    jinja_context[column] = value
+                    verbose_label = verbose_map.get(column)
+                    if verbose_label is not None:
+                        jinja_context[verbose_label] = value
+
+            jinja_pattern = re.compile(r"\{\{([^}]+)\}\}")
+
+            def resolve_display_name(template: str) -> str:
+                if not isinstance(template, str):
+                    return str(template)
+
+                def replace(match: re.Match) -> str:
+                    expression = match.group(1).strip()
+                    if expression in jinja_context:
+                        replacement = jinja_context[expression]
+                        if replacement is None:
+                            return "NULL"
+                        try:
+                            if pd.isna(replacement):
+                                return "NULL"
+                        except TypeError:
+                            # Non-numeric objects may not be compatible with pd.isna
+                            pass
+                        return str(replacement)
+                    return match.group(0)
+
+                return jinja_pattern.sub(replace, template)
+
+            renamed_columns = []
+            for column in columns:
+                resolved_value: Any = verbose_map.get(column, column)
+                column_settings = column_config.get(column) if column_config else None
+                if (
+                    isinstance(column_settings, dict)
+                    and column_settings.get("displayName") is not None
+                ):
+                    resolved_value = resolve_display_name(
+                        column_settings["displayName"]
+                    )
+                if resolved_value is None:
+                    resolved_value = column
+                renamed_columns.append(str(resolved_value))
+
+            df.columns = renamed_columns
 
             result = None
             if self._query_context.result_format == ChartDataResultFormat.CSV:
