@@ -591,6 +591,21 @@ const config: ControlPanelConfig = {
         ],
         [
           {
+            name: 'top_show_in_chart',
+            config: {
+              type: 'CheckboxControl',
+              label: t('Ver top N en el control del graficos'),
+              renderTrigger: true,
+              default: false,
+              description: t(
+                'Display the Top N count selector inside the table so viewers can adjust it. The value set above is used as the initial default.',
+              ),
+              visibility: ({ controls }) => Boolean(controls?.show_top?.value),
+            },
+          },
+        ],
+        [
+          {
             name: 'column_config',
             config: {
               type: 'ColumnConfigControl',

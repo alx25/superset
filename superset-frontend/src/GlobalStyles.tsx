@@ -72,6 +72,7 @@ export const GlobalStyles = () => (
         }
       }
       .column-config-popover {
+        z-index: 900 !important; /* Ensure column popover stays behind modals */
         & .ant-input-number {
           width: 100%;
         }

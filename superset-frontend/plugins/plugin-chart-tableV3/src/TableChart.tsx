@@ -18,7 +18,9 @@
  */
 import {
   CSSProperties,
+  ChangeEvent,
   useCallback,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useState,
@@ -79,6 +81,7 @@ import { formatColumnValue } from './utils/formatValue';
 import { PAGE_SIZE_OPTIONS } from './consts';
 import { updateExternalFormData } from './DataTable/utils/externalAPIs';
 import getScrollBarSize from './DataTable/utils/getScrollBarSize';
+import { processTopData } from './utils/topN';
 
 type ValueRange = [number, number];
 
@@ -242,7 +245,7 @@ export default function TableChart<D extends DataRecord = DataRecord>(
     timeGrain,
     height,
     width,
-    data,
+    data: initialData,
     totals,
     isRawRecords,
     rowCount = 0,
@@ -266,9 +269,116 @@ export default function TableChart<D extends DataRecord = DataRecord>(
     isUsingTimeComparison,
     basicColorFormatters,
     basicColorColumnFormatters,
+    topConfig,
   } = props;
+
+  const [currentTopCount, setCurrentTopCount] = useState<number | undefined>(
+    topConfig?.allowUserControl ? topConfig.defaultCount : undefined,
+  );
+
+  useEffect(() => {
+    if (topConfig?.allowUserControl) {
+      setCurrentTopCount(topConfig.defaultCount);
+    }
+  }, [topConfig?.allowUserControl, topConfig?.defaultCount, topConfig?.metric]);
+
+  const data = useMemo((): D[] => {
+    if (topConfig?.allowUserControl && topConfig.enabled) {
+      const resolvedCount = Math.max(
+        0,
+        Math.floor(
+          currentTopCount ??
+            topConfig.defaultCount ??
+            topConfig.baseData.length,
+        ),
+      );
+      const processedRecords = processTopData(
+        topConfig.baseData,
+        topConfig.columns,
+        topConfig.metric,
+        resolvedCount,
+      );
+      const withRowNumbers = topConfig.showRowNumbers
+        ? processedRecords.map(
+            (row, index) => ({ '#': index + 1, ...row }) as DataRecord,
+          )
+        : processedRecords;
+      return withRowNumbers as unknown as D[];
+    }
+    return initialData;
+  }, [
+    currentTopCount,
+    initialData,
+    topConfig?.allowUserControl,
+    topConfig?.enabled,
+    topConfig?.baseData,
+    topConfig?.columns,
+    topConfig?.defaultCount,
+    topConfig?.metric,
+    topConfig?.showRowNumbers,
+  ]);
+
+  const topCountValue = useMemo(() => {
+    if (!topConfig?.allowUserControl || !topConfig.enabled) {
+      return undefined;
+    }
+    return currentTopCount ?? topConfig.defaultCount ?? 0;
+  }, [
+    currentTopCount,
+    topConfig?.allowUserControl,
+    topConfig?.defaultCount,
+    topConfig?.enabled,
+  ]);
+
+  const topControlId = useMemo(() => {
+    if (!topConfig?.allowUserControl) {
+      return undefined;
+    }
+    const metricKey = topConfig.metric || 'metric';
+    return `top-n-input-${metricKey.replace(/[^a-zA-Z0-9]/g, '_')}`;
+  }, [topConfig?.allowUserControl, topConfig?.metric]);
+
+  const handleTopCountChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      if (!topConfig?.allowUserControl) {
+        return;
+      }
+      const nextValue = Number(event.target.value);
+      if (Number.isNaN(nextValue)) {
+        setCurrentTopCount(topConfig.defaultCount);
+        return;
+      }
+      setCurrentTopCount(Math.max(0, Math.floor(nextValue)));
+    },
+    [topConfig?.allowUserControl, topConfig?.defaultCount],
+  );
+
+  const topNControl =
+    topConfig?.allowUserControl && topConfig.enabled && topControlId ? (
+      <div
+        className="dt-topn-control form-inline"
+        style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+      >
+        <label htmlFor={topControlId}>{t('Ver top')}</label>
+        <input
+          id={topControlId}
+          className="form-control input-sm"
+          type="number"
+          min={0}
+          step={1}
+          value={topCountValue}
+          onChange={handleTopCountChange}
+          style={{ width: 80 }}
+        />
+        <span className="dt-topn-hint">
+          {topCountValue === 0
+            ? t('Mostrando todas las filas')
+            : t('Mostrando el top %s', topCountValue ?? 0)}
+        </span>
+      </div>
+    ) : null;
   const comparisonColumns = [
-    { key: 'all', label: t('Display all') },
+    { key: 'all', label: t('Mostrar todo') },
     { key: '#', label: '#' },
     { key: '△', label: '△' },
     { key: '%', label: '%' },
@@ -990,7 +1100,7 @@ export default function TableChart<D extends DataRecord = DataRecord>(
                   }
                 `}
               >
-                {t('Summary')}
+                {t('Resumen')}
                 <Tooltip
                   overlay={t(
                     'Show total aggregations of selected metrics. Note that row limit does not apply to the result.',
@@ -1101,6 +1211,7 @@ export default function TableChart<D extends DataRecord = DataRecord>(
         renderTimeComparisonDropdown={
           isUsingTimeComparison ? renderTimeComparisonDropdown : undefined
         }
+        topNControl={topNControl}
       />
     </Styles>
   );

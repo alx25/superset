@@ -95,6 +95,7 @@ export type TableChartFormData = QueryFormData & {
   show_top?: boolean;
   top_metric?: QueryFormMetric | null;
   top_count?: number;
+  top_show_in_chart?: boolean;
   table_timestamp_format?: string;
   time_grain_sqla?: TimeGranularity;
   column_config?: Record<string, TableColumnConfig>;
@@ -154,11 +155,22 @@ export interface TableChartTransformedProps<D extends DataRecord = DataRecord> {
   basicColorFormatters?: { [Key: string]: BasicColorFormatterType }[];
   basicColorColumnFormatters?: { [Key: string]: BasicColorFormatterType }[];
   startDateOffset?: string;
+  topConfig?: TopNConfig;
 }
 
 export enum ColorSchemeEnum {
   'Green' = 'Green',
   'Red' = 'Red',
 }
+
+export type TopNConfig = {
+  enabled: boolean;
+  metric: string;
+  defaultCount: number;
+  allowUserControl: boolean;
+  baseData: DataRecord[];
+  columns: DataColumnMeta[];
+  showRowNumbers: boolean;
+};
 
 export default {};
