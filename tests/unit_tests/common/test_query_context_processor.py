@@ -113,3 +113,17 @@ def test_get_data_omits_jinja_fields_matching_verbose_labels() -> None:
 
     header = result.splitlines()[0]
     assert header == "Other"
+
+
+def test_get_data_keeps_jinja_field_when_metric_requires_it() -> None:
+    df = pd.DataFrame({"metric_a": [1], "metric_b": [2]})
+    form_data = {"jinja_fields": ["metric_b"], "metrics": ["metric_b"]}
+    query_context = _build_query_context(form_data=form_data, verbose_map=None)
+
+    result = query_context.get_data(
+        df.copy(),
+        [GenericDataType.NUMERIC, GenericDataType.NUMERIC],
+    )
+
+    header = result.splitlines()[0]
+    assert header == "metric_a,metric_b"

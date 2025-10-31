@@ -656,11 +656,49 @@ class QueryContextProcessor:
             form_data = self._query_context.form_data or {}
             column_config: dict[str, Any] = {}
             jinja_field_labels: set[str] = set()
+            required_identifiers: set[str] = set()
             context_df = df
             if isinstance(form_data, dict):
                 config_candidate = form_data.get("column_config")
                 if isinstance(config_candidate, dict):
                     column_config = config_candidate
+                    for raw_name, settings in column_config.items():
+                        if isinstance(settings, dict):
+                            track_identifier(raw_name)
+                            display_name_candidate = settings.get("displayName")
+                            if isinstance(display_name_candidate, str):
+                                track_identifier(display_name_candidate)
+
+                def track_identifier(label: str | None) -> None:
+                    if not label:
+                        return
+                    identifier = str(label)
+                    required_identifiers.add(identifier)
+                    mapped_verbose = verbose_map.get(identifier)
+                    if mapped_verbose is not None:
+                        required_identifiers.add(str(mapped_verbose))
+                    for raw_label, verbose_label in verbose_map.items():
+                        if str(verbose_label) == identifier:
+                            required_identifiers.add(str(raw_label))
+
+                metrics_candidate = form_data.get("metrics")
+                if isinstance(metrics_candidate, (list, tuple)):
+                    for metric in metrics_candidate:
+                        try:
+                            resolved_metric = get_metric_name(metric, verbose_map)
+                        except ValueError:
+                            resolved_metric = None
+                        if resolved_metric is not None:
+                            track_identifier(resolved_metric)
+                        if isinstance(metric, dict):
+                            track_identifier(metric.get("label"))
+                            track_identifier(metric.get("sqlExpression"))
+                            column_dict = metric.get("column")
+                            if isinstance(column_dict, dict):
+                                track_identifier(column_dict.get("column_name"))
+                        elif isinstance(metric, str):
+                            track_identifier(metric)
+
                 jinja_fields_candidate = form_data.get("jinja_fields")
                 if isinstance(jinja_fields_candidate, (list, tuple)):
                     for entry in jinja_fields_candidate:
@@ -676,12 +714,13 @@ class QueryContextProcessor:
                             jinja_field_labels.add(str(label))
 
             if jinja_field_labels:
-                drop_columns = [
-                    column
-                    for column in df.columns
-                    if column in jinja_field_labels
-                    or (verbose_map.get(column) in jinja_field_labels)
-                ]
+                drop_columns: list[str] = []
+                for column in df.columns:
+                    verbose_label = verbose_map.get(column)
+                    if column in required_identifiers or verbose_label in required_identifiers:
+                        continue
+                    if column in jinja_field_labels or verbose_label in jinja_field_labels:
+                        drop_columns.append(column)
                 if drop_columns:
                     df = df.drop(columns=drop_columns).copy()
 
