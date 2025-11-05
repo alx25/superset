@@ -65,10 +65,16 @@ superset-websocket/config.json
 *.js.map
 node_modules
 npm-debug.log*
+<<<<<<< HEAD
 superset/static/assets/*
 !superset/static/assets/.gitkeep
 superset/static/uploads/*
 !superset/static/uploads/.gitkeep
+superset/superset/static/video_superset
+=======
+superset/static/assets
+superset/superset/static/video_superset
+>>>>>>> 70cc877a1e (Enhance Superset login experience with new animations, password visibility toggle, and updated styles.)
 superset/static/version_info.json
 superset-frontend/**/esm/*
 superset-frontend/**/lib/*
@@ -123,5 +129,10 @@ docker/*local*
 
 # Jest test report
 test-report.html
+superset/static/video_superset/Presentacion Superset.mp4
+<<<<<<< HEAD
 superset/static/stats/statistics.html
 .aider*
+=======
+superset/static/video_superset/Presentacion Superset.mp4
+>>>>>>> 70cc877a1e (Enhance Superset login experience with new animations, password visibility toggle, and updated styles.)

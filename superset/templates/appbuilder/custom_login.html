@@ -6,11 +6,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Irex Superset</title>
     
-    <link rel="stylesheet" href="{{ url_for('static', filename='customcss/custom_login.css', v='1.18') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='customcss/custom_login.css', v='1.25') }}">
 
 
 </head>
 <body>
+    <div class="animated-background">
+        <span class="glow glow-one"></span>
+        <span class="glow glow-two"></span>
+        <span class="glow glow-three"></span>
+    </div>
     <div class="login-container">
         <div class="login-box">
             <!-- Añadir el logo encima del título -->
@@ -44,9 +49,15 @@
                     <label for="username">Usuario</label>
                     {{ form.username(class="form-control", placeholder="@usuario") }}
                 </div>
-                <div class="form-group">
+                <div class="form-group password-group">
                     <label for="password">Contraseña</label>
-                    {{ form.password(class="form-control", placeholder="********") }}
+                    <div class="password-wrapper">
+                        {{ form.password(class="form-control password-input", placeholder="********", autocomplete="current-password", id="password") }}
+                        <button type="button" class="toggle-password" aria-label="Mostrar contraseña">
+                            <span data-show-text>Mostrar</span>
+                            <span data-hide-text>Ocultar</span>
+                        </button>
+                    </div>
                 </div>
                 <button type="submit" class="btn btn-primary login-button">Iniciar Sesión →</button>
             </form>
@@ -56,7 +67,14 @@
         <div class="info-box">
             <h3>Trabaja inteligentemente</h3>
             <p>Accede a toda tu información y mantente actualizado con los datos más recientes.</p>
-            <img src="{{ url_for('static', filename='assets/images/dashboard.png') }}" alt="Dashboard preview" class="dashboard-preview">
+            <ul class="feature-list">
+                <li>Paneles personalizados para cada equipo</li>
+                <li>Alertas automatizadas con métricas clave</li>
+                <li>Colaboración segura dentro de la organización</li>
+            </ul>
+            <div class="animation-wrapper">
+                <div id="login-animation" data-animation="{{ url_for('static', filename='assets/images/business_presentation.json') }}"></div>
+            </div>
             <!-- Puedes añadir más contenido aquí según sea necesario -->
         </div>
     </div>
@@ -77,61 +95,93 @@
 </div>
 
 
-
-</body>
-
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie.min.js" defer></script>
 <script>
-    // Obtener elementos del DOM
-    var modal = document.getElementById("myModal");
-    var span = document.querySelector(".close");
-    var video = document.getElementById("myVideo");
-    var btn = document.querySelector(".open-modal");
+    const modal = document.getElementById("myModal");
+    const closeButton = document.querySelector(".close");
+    const video = document.getElementById("myVideo");
+    const modalTrigger = document.querySelector(".open-modal");
+    const passwordInput = document.getElementById("password");
+    const togglePasswordBtn = document.querySelector(".toggle-password");
 
-    // Función para mostrar el modal
-    function showModal() {
-        modal.style.display = "block";
-    }
-
-    // Función para ocultar el modal y pausar el video
-    function closeModal() {
-        modal.style.display = "none";
-        video.pause(); // Pausar el video cuando se cierra la ventana
-        video.currentTime = 0; // Reiniciar el video desde el principio
-    }
-
-    // Abrir el modal cuando el usuario haga clic en el botón
-    btn.onclick = function() {
-        showModal();
-    }
-
-    // Cerrar el modal cuando el usuario haga clic en el botón de cerrar (x)
-    span.onclick = function() {
-        closeModal();
-        localStorage.setItem('videoVisto', 'true'); // Marcar que el video ha sido visto
-    }
-
-    // Cerrar el modal cuando el usuario haga clic fuera del contenido
-    window.onclick = function(event) {
-        if (event.target == modal) {
-            closeModal();
-            localStorage.setItem('videoVisto', 'true'); // Marcar que el video ha sido visto
+    const showModal = () => {
+        if (modal) {
+            modal.style.display = "block";
         }
+    };
+
+    const closeModal = () => {
+        if (modal) {
+            modal.style.display = "none";
+        }
+        if (video) {
+            video.pause();
+            video.currentTime = 0;
+        }
+    };
+
+    if (modalTrigger) {
+        modalTrigger.addEventListener("click", showModal);
     }
 
-    // Mostrar el modal solo si el usuario nunca ha visto el video
-    window.onload = function() {
-        if (!localStorage.getItem('videoVisto')) {
+    if (closeButton) {
+        closeButton.addEventListener("click", () => {
+            closeModal();
+            localStorage.setItem("videoVisto", "true");
+        });
+    }
+
+    window.addEventListener("click", (event) => {
+        if (modal && event.target === modal) {
+            closeModal();
+            localStorage.setItem("videoVisto", "true");
+        }
+    });
+
+    window.addEventListener("load", () => {
+        if (!localStorage.getItem("videoVisto")) {
             showModal();
         }
+    });
+
+    if (video) {
+        video.addEventListener("ended", () => {
+            closeModal();
+            localStorage.setItem("videoVisto", "true");
+        });
     }
 
-    // Opcional: Detectar si el video se ha reproducido completamente
-    video.onended = function() {
-        closeModal();
-        localStorage.setItem('videoVisto', 'true'); // Marcar que el video ha sido visto
+    const initializeAnimation = () => {
+        if (window.lottie) {
+            const animationContainer = document.getElementById("login-animation");
+            if (animationContainer && animationContainer.dataset.animation) {
+                window.lottie.loadAnimation({
+                    container: animationContainer,
+                    renderer: "svg",
+                    loop: true,
+                    autoplay: true,
+                    path: animationContainer.dataset.animation
+                });
+            }
+        }
+    };
+
+    if (togglePasswordBtn && passwordInput) {
+        togglePasswordBtn.addEventListener("click", () => {
+            const isPassword = passwordInput.getAttribute("type") === "password";
+            passwordInput.setAttribute("type", isPassword ? "text" : "password");
+            togglePasswordBtn.classList.toggle("is-visible", isPassword);
+            togglePasswordBtn.setAttribute("aria-label", isPassword ? "Ocultar contraseña" : "Mostrar contraseña");
+            togglePasswordBtn.setAttribute("aria-pressed", isPassword);
+        });
+    }
+
+    if (document.readyState === "complete") {
+        initializeAnimation();
+    } else {
+        window.addEventListener("load", initializeAnimation);
     }
 </script>
 
-
-
+</body>
 </html>
