@@ -4,24 +4,43 @@
 
 {% block head_css %}
     {{ super() }}
-    <link rel="stylesheet" href="{{ url_for('static', filename='customcss/password_flow.css', v='1.0') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='customcss/password_flow.css', v='2.0') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 {% endblock %}
 
 {% block content %}
 <div class="col-12">
-    <div class="password-page password-page--message">
-        <div class="password-card">
-            <div class="password-card__form password-message">
-            <div class="password-message__icon">&#9432;</div>
-                <div class="password-message__text">{{ message }}</div>
-                <div class="password-message__actions">
-                    {% if redirect %}
-                        <a class="btn password-card__cta" href="{{ redirect }}">Continuar</a>
-                    {% endif %}
-                    <a class="btn btn-secondary" href="mailto:{{ support_email }}">Contactar soporte</a>
-                </div>
+    <div class="password-page">
+        <div class="password-message">
+            <div class="password-message__icon">✓</div>
+            
+            <h1>{{ message }}</h1>
+            
+            <p class="password-message__text">
+                Tu solicitud ha sido procesada correctamente. 
+                {% if redirect %}
+                    Serás redirigido automáticamente en unos segundos.
+                {% endif %}
+            </p>
+            
+            <div class="password-message__actions">
+                {% if redirect %}
+                    <a class="btn btn-primary" href="{{ redirect }}">Continuar</a>
+                {% endif %}
+                <a class="btn btn-secondary" href="mailto:{{ support_email }}">Contactar soporte</a>
             </div>
         </div>
     </div>
 </div>
+
+{% if redirect %}
+<script>
+    // Redirigir automáticamente después de 3 segundos
+    setTimeout(function() {
+        window.location.href = "{{ redirect }}";
+    }, 3000);
+</script>
+{% endif %}
 {% endblock %}
