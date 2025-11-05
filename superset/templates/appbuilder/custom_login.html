@@ -61,6 +61,9 @@
                 </div>
                 <button type="submit" class="btn btn-primary login-button">Iniciar Sesión →</button>
             </form>
+            <div class="password-reset-link">
+                <a href="{{ url_for('PasswordResetView.request_reset') }}">¿Olvidaste tu contraseña?</a>
+            </div>
         </div>
         
         <!-- Añadir el cuadro a la derecha -->

@@ -1,0 +1,18 @@
+{% extends "appbuilder/baselayout.html" %}
+{% block content %}
+<div class="col-lg-6 col-md-8 col-sm-12 mx-auto password-request">
+    <h2>Recuperar contraseña</h2>
+    <p>Escribe tu usuario o correo electrónico y, si existe, te enviaremos un enlace para restablecer tu contraseña.</p>
+    <form method="post">
+        {{ form.hidden_tag() }}
+        <div class="form-group">
+            {{ form.identifier.label }}
+            {{ form.identifier(class="form-control", placeholder="usuario o correo") }}
+        </div>
+        <button type="submit" class="btn btn-primary">Enviar instrucciones</button>
+    </form>
+    <p class="mt-3">
+        <a href="{{ url_for('CustomAuthDBView.login') }}">Volver al inicio de sesión</a>
+    </p>
+</div>
+{% endblock %}

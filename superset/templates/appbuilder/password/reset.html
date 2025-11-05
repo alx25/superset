@@ -1,0 +1,19 @@
+{% extends "appbuilder/baselayout.html" %}
+{% block content %}
+<div class="col-lg-6 col-md-8 col-sm-12 mx-auto password-reset">
+    <h2>Establecer nueva contraseña</h2>
+    <p>Introduce tu nueva contraseña y confírmala para completar el proceso.</p>
+    <form method="post">
+        {{ form.hidden_tag() }}
+        <div class="form-group">
+            {{ form.password.label }}
+            {{ form.password(class="form-control", placeholder="Nueva contraseña") }}
+        </div>
+        <div class="form-group">
+            {{ form.conf_password.label }}
+            {{ form.conf_password(class="form-control", placeholder="Confirmar contraseña") }}
+        </div>
+        <button type="submit" class="btn btn-primary">Guardar contraseña</button>
+    </form>
+</div>
+{% endblock %}
