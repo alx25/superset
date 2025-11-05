@@ -1,1 +1,446 @@
 WEBVTT
+
+a014fc00-f61e-493d-a713-f1ecebbbd074-0
+00:00:00.960 --> 00:00:03.833
+Hola, bienvenidos a Irex superset. 
+
+a014fc00-f61e-493d-a713-f1ecebbbd074-1
+00:00:03.833 --> 00:00:07.158
+Superset es una herramienta poderosa que te
+ayuda a convertir los datos de
+
+a014fc00-f61e-493d-a713-f1ecebbbd074-2
+00:00:07.158 --> 00:00:10.539
+la compañía en información
+valiosa y visualmente atractiva.
+
+a014fc00-f61e-493d-a713-f1ecebbbd074-3
+00:00:10.539 --> 00:00:14.033
+Si estás buscando una forma de
+explorar tus datos y compartir
+
+a014fc00-f61e-493d-a713-f1ecebbbd074-4
+00:00:14.033 --> 00:00:17.076
+tus hallazgos con otros,
+superset es la mejor opción.
+
+a014fc00-f61e-493d-a713-f1ecebbbd074-5
+00:00:17.076 --> 00:00:20.682
+Ahora vamos a realizar un breve
+recorrido a través de Superset.
+
+a014fc00-f61e-493d-a713-f1ecebbbd074-6
+00:00:20.682 --> 00:00:23.612
+Primero vamos a ir a la
+dirección que te muestro en
+
+a014fc00-f61e-493d-a713-f1ecebbbd074-7
+00:00:23.612 --> 00:00:24.120
+pantalla.
+
+182bc678-5432-432d-9240-0798e0edf430-0
+00:00:24.960 --> 00:00:28.741
+Después vas a ingresar con el
+usuario y la contraseña que el
+
+182bc678-5432-432d-9240-0798e0edf430-1
+00:00:28.741 --> 00:00:32.833
+equipo de inteligencia comercial
+te facilitó. Si en algún momento
+
+182bc678-5432-432d-9240-0798e0edf430-2
+00:00:32.833 --> 00:00:36.243
+olvidas tu contraseña, puedes
+solicitarla nuevamente a
+
+182bc678-5432-432d-9240-0798e0edf430-3
+00:00:36.243 --> 00:00:40.024
+inteligencia comercial. Una vez
+hayas ingresado, verás en la
+
+182bc678-5432-432d-9240-0798e0edf430-4
+00:00:40.024 --> 00:00:43.868
+pantalla todos los reportes o
+también llamados dashboards que
+
+182bc678-5432-432d-9240-0798e0edf430-5
+00:00:43.868 --> 00:00:47.278
+tienes a tu disposición.
+Actualmente se manejan muchos
+
+182bc678-5432-432d-9240-0798e0edf430-6
+00:00:47.278 --> 00:00:51.184
+reportes en la compañía, pero tú
+solo verás los que te sean de
+
+182bc678-5432-432d-9240-0798e0edf430-7
+00:00:51.184 --> 00:00:51.680
+interés.
+
+684d3a2a-c9fc-4c50-b7e7-8b9cd1dd7511-0
+00:00:56.720 --> 00:01:00.204
+Bien, como primer paso es
+importante que cambiemos la
+
+684d3a2a-c9fc-4c50-b7e7-8b9cd1dd7511-1
+00:01:00.204 --> 00:01:04.270
+contraseña por una segura y que
+podamos recordar. Recuerda que
+
+684d3a2a-c9fc-4c50-b7e7-8b9cd1dd7511-2
+00:01:04.270 --> 00:01:07.626
+solo tú debes acceder a la
+cuenta y que nunca debes
+
+684d3a2a-c9fc-4c50-b7e7-8b9cd1dd7511-3
+00:01:07.626 --> 00:01:11.562
+compartir esta información con
+otro usuario. Para cambiar la
+
+684d3a2a-c9fc-4c50-b7e7-8b9cd1dd7511-4
+00:01:11.562 --> 00:01:14.853
+contraseña vamos a ir al
+apartado de configuración
+
+684d3a2a-c9fc-4c50-b7e7-8b9cd1dd7511-5
+00:01:14.853 --> 00:01:18.661
+ubicado en la parte de arriba a
+la derecha de la pantalla.
+
+684d3a2a-c9fc-4c50-b7e7-8b9cd1dd7511-6
+00:01:18.661 --> 00:01:20.920
+Después ingresamos en
+información.
+
+8a6a3666-a4f4-426e-b9c8-a9081e5cfc70-0
+00:01:21.280 --> 00:01:24.956
+Donde verás tu información
+básica de usuario, vamos a dar
+
+8a6a3666-a4f4-426e-b9c8-a9081e5cfc70-1
+00:01:24.956 --> 00:01:28.695
+Clic en el botón restablecer mi
+contraseña. Ingresamos una
+
+8a6a3666-a4f4-426e-b9c8-a9081e5cfc70-2
+00:01:28.695 --> 00:01:32.055
+contraseña segura, luego
+confirmamos la contraseña y
+
+8a6a3666-a4f4-426e-b9c8-a9081e5cfc70-3
+00:01:32.055 --> 00:01:35.794
+guardamos listo con esto. A
+partir de este momento vamos a
+
+8a6a3666-a4f4-426e-b9c8-a9081e5cfc70-4
+00:01:35.794 --> 00:01:39.661
+poder acceder a superset con
+nuestro usuario y la contraseña
+
+8a6a3666-a4f4-426e-b9c8-a9081e5cfc70-5
+00:01:39.661 --> 00:01:43.464
+recién creada. Recuerda que
+puedes cambiar la contraseña en
+
+8a6a3666-a4f4-426e-b9c8-a9081e5cfc70-6
+00:01:43.464 --> 00:01:47.647
+cualquier momento. Volvemos a la
+pantalla principal dando Clic en
+
+8a6a3666-a4f4-426e-b9c8-a9081e5cfc70-7
+00:01:47.647 --> 00:01:50.880
+la Pestaña dashboards o en el
+icono de la empresa.
+
+2abb5624-774c-410f-9aca-6fcc2f882f81-0
+00:01:52.880 --> 00:01:56.786
+Bien, ahora viene la parte
+buena, vamos a ver cómo superset
+
+2abb5624-774c-410f-9aca-6fcc2f882f81-1
+00:01:56.786 --> 00:02:00.497
+es capaz de mostrarnos un
+reporte y qué podemos hacer en él.
+
+2abb5624-774c-410f-9aca-6fcc2f882f81-2
+00:02:00.497 --> 00:02:04.209
+Voy a acceder a este
+dashboard llamado devoluciones.
+
+2abb5624-774c-410f-9aca-6fcc2f882f81-3
+00:02:04.209 --> 00:02:07.855
+Todos los reportes en superset
+comparten un formato muy similar,
+
+2abb5624-774c-410f-9aca-6fcc2f882f81-4
+00:02:07.855 --> 00:02:12.087
+lo que puede variar es
+la información que nos muestran,
+
+2abb5624-774c-410f-9aca-6fcc2f882f81-5
+00:02:12.087 --> 00:02:15.733
+la cantidad y variedad de
+gráficos y algunas pestañas o
+
+2abb5624-774c-410f-9aca-6fcc2f882f81-6
+00:02:15.733 --> 00:02:19.640
+elementos adicionales que se
+hayan integrado en el reporte.
+
+543939f6-1136-45b1-a881-3ffb416e3aa8-0
+00:02:20.920 --> 00:02:24.562
+Bien, en la parte izquierda
+podemos encontrar los filtros,
+
+543939f6-1136-45b1-a881-3ffb416e3aa8-1
+00:02:24.562 --> 00:02:28.452
+algunos ya vienen seleccionados
+por defecto, como en este caso
+
+543939f6-1136-45b1-a881-3ffb416e3aa8-2
+00:02:28.452 --> 00:02:32.156
+el año y mes, esto es para no
+tener que especificar algunos
+
+543939f6-1136-45b1-a881-3ffb416e3aa8-3
+00:02:32.156 --> 00:02:35.923
+filtros cada vez que ingresamos.
+Vamos a ver cómo aplicar un filtro.
+
+543939f6-1136-45b1-a881-3ffb416e3aa8-4
+00:02:35.923 --> 00:02:39.874
+Digamos que queremos ver
+cómo están las devoluciones en
+
+543939f6-1136-45b1-a881-3ffb416e3aa8-5
+00:02:39.874 --> 00:02:43.393
+cajas, que sería el filtro de
+medida y solo las áreas de
+
+543939f6-1136-45b1-a881-3ffb416e3aa8-6
+00:02:43.393 --> 00:02:47.036
+cadenas organizadas y canal
+tradicional. Seleccionamos los
+
+543939f6-1136-45b1-a881-3ffb416e3aa8-7
+00:02:47.036 --> 00:02:50.000
+filtros y damos Clic en el botón
+apply filters.
+
+c6db8cbd-1977-49a8-9024-f2dfb546cba2-0
+00:02:51.160 --> 00:02:56.186
+Vemos como el dashboard cambia
+los gráficos para adaptarse a
+
+c6db8cbd-1977-49a8-9024-f2dfb546cba2-1
+00:02:56.186 --> 00:03:01.130
+los filtros aplicados. Todos los
+gráficos son interactivos.
+
+c6db8cbd-1977-49a8-9024-f2dfb546cba2-2
+00:03:01.130 --> 00:03:06.322
+Podemos ver la información con
+solo pasar el puntero del Mouse
+
+c6db8cbd-1977-49a8-9024-f2dfb546cba2-3
+00:03:06.322 --> 00:03:11.348
+por encima. También podemos
+ocultar o mostrar información al
+
+c6db8cbd-1977-49a8-9024-f2dfb546cba2-4
+00:03:11.348 --> 00:03:14.479
+hacer Clic en la leyenda del
+gráfico.
+
+e6d0fc6c-d9b1-4cf9-9dec-07aa760eb095-0
+00:03:15.200 --> 00:03:19.066
+Además, es posible descargar el
+gráfico como una imagen para
+
+e6d0fc6c-d9b1-4cf9-9dec-07aa760eb095-1
+00:03:19.066 --> 00:03:22.933
+poder usarla más adelante en una
+presentación o enviarla por
+
+e6d0fc6c-d9b1-4cf9-9dec-07aa760eb095-2
+00:03:22.933 --> 00:03:26.293
+correo. En el caso de las
+tablas, también tenemos la
+
+e6d0fc6c-d9b1-4cf9-9dec-07aa760eb095-3
+00:03:26.293 --> 00:03:30.413
+opción de descargarlas, como un
+archivo CSV o Excel. Además, es
+
+e6d0fc6c-d9b1-4cf9-9dec-07aa760eb095-4
+00:03:30.413 --> 00:03:34.090
+posible descargar todo el
+dashboard, ya sea como un PDF o
+
+e6d0fc6c-d9b1-4cf9-9dec-07aa760eb095-5
+00:03:34.090 --> 00:03:37.957
+una imagen, si accedemos a los 3
+puntos en la parte superior
+
+e6d0fc6c-d9b1-4cf9-9dec-07aa760eb095-6
+00:03:37.957 --> 00:03:41.951
+derecha del reporte. Como ven,
+acceder a su información es muy
+
+e6d0fc6c-d9b1-4cf9-9dec-07aa760eb095-7
+00:03:41.951 --> 00:03:44.360
+sencillo, pero también es muy
+seguro.
+
+be8983c3-c834-4349-a701-2db27922ab63-0
+00:03:45.200 --> 00:03:49.173
+Superset utiliza una
+infraestructura que nos permite
+
+be8983c3-c834-4349-a701-2db27922ab63-1
+00:03:49.173 --> 00:03:53.596
+aplicar filtros de seguridad y
+con esto cada usuario podrá
+
+be8983c3-c834-4349-a701-2db27922ab63-2
+00:03:53.596 --> 00:03:57.720
+acceder solo a la información
+que le corresponde. Esto
+
+be8983c3-c834-4349-a701-2db27922ab63-3
+00:03:57.720 --> 00:04:02.293
+significa que sólo vas a poder
+ver tus datos y no los de los
+
+be8983c3-c834-4349-a701-2db27922ab63-4
+00:04:02.293 --> 00:04:06.941
+demás. En inteligencia comercial
+trabajamos para hacer llegar
+
+be8983c3-c834-4349-a701-2db27922ab63-5
+00:04:06.941 --> 00:04:10.840
+A sus manos información confiable
+y de fácil acceso.
+
+1edd58b1-489e-460c-a607-ae026a3eac63-0
+00:04:12.400 --> 00:04:16.479
+Como parte de nuestro esfuerzo
+se han implementado mejoras para
+
+1edd58b1-489e-460c-a607-ae026a3eac63-1
+00:04:16.479 --> 00:04:20.176
+hacer más fácil la tarea de
+revisar reportes diariamente,
+
+1edd58b1-489e-460c-a607-ae026a3eac63-2
+00:04:20.176 --> 00:04:24.064
+vamos a ver de qué se trata.
+Cuando estamos en un reporte que
+
+1edd58b1-489e-460c-a607-ae026a3eac63-3
+00:04:24.064 --> 00:04:28.015
+revisamos frecuentemente debemos
+aplicar filtros cada vez que
+
+1edd58b1-489e-460c-a607-ae026a3eac63-4
+00:04:28.015 --> 00:04:31.712
+ingresamos, lo cual puede ser
+una tarea repetitiva. Ahora
+
+1edd58b1-489e-460c-a607-ae026a3eac63-5
+00:04:31.712 --> 00:04:35.664
+consúltele al don se integra con
+superset y nos facilita esta
+
+1edd58b1-489e-460c-a607-ae026a3eac63-6
+00:04:35.664 --> 00:04:39.679
+tarea, para esto vamos a aplicar
+algún filtro en el dashboard.
+
+d4fec5e9-4a81-4c50-85b8-573a7b63c9d7-0
+00:04:40.400 --> 00:04:44.411
+En este caso solo cambiaré los
+datos a cajas y aplicamos los
+
+d4fec5e9-4a81-4c50-85b8-573a7b63c9d7-1
+00:04:44.411 --> 00:04:48.553
+cambios. Lo siguiente es ir al
+botón flotante de consúltele al Don
+
+d4fec5e9-4a81-4c50-85b8-573a7b63c9d7-2
+00:04:48.553 --> 00:04:52.630
+y dirigirnos a la pestaña
+marcadores. Ahora damos Clic en
+
+d4fec5e9-4a81-4c50-85b8-573a7b63c9d7-3
+00:04:52.630 --> 00:04:56.246
+el botón guardar marcador,
+ingresamos un nombre que lo
+
+d4fec5e9-4a81-4c50-85b8-573a7b63c9d7-4
+00:04:56.246 --> 00:04:59.731
+identifique y aceptamos los
+mensajes listo. Con esto
+
+d4fec5e9-4a81-4c50-85b8-573a7b63c9d7-5
+00:04:59.731 --> 00:05:04.071
+habremos guardado un marcador al
+que podremos acceder fácilmente.
+
+d4fec5e9-4a81-4c50-85b8-573a7b63c9d7-6
+00:05:04.071 --> 00:05:07.688
+Con solo hacer Clic encima
+podemos crear todos los que
+
+d4fec5e9-4a81-4c50-85b8-573a7b63c9d7-7
+00:05:07.688 --> 00:05:08.280
+queramos.
+
+71188bbf-73bf-4e62-a456-9f59b0269be0-0
+00:05:08.720 --> 00:05:13.273
+Y esto guardará cada filtro que
+hayamos aplicado al momento de
+
+71188bbf-73bf-4e62-a456-9f59b0269be0-1
+00:05:13.273 --> 00:05:17.538
+guardarlo. Un uso práctico de
+esto es cuando estamos en la
+
+71188bbf-73bf-4e62-a456-9f59b0269be0-2
+00:05:17.538 --> 00:05:21.296
+pantalla principal de
+dashboards, donde podemos ver
+
+71188bbf-73bf-4e62-a456-9f59b0269be0-3
+00:05:21.296 --> 00:05:25.488
+los marcadores guardados y
+acceder a cualquiera de ellos.
+
+71188bbf-73bf-4e62-a456-9f59b0269be0-4
+00:05:25.488 --> 00:05:29.969
+Esto nos Evita tener que aplicar
+los filtros cada vez. Eso es
+
+71188bbf-73bf-4e62-a456-9f59b0269be0-5
+00:05:29.969 --> 00:05:34.523
+todo de nuestra parte. Gracias
+por ver el vídeo. Esperamos que
+
+71188bbf-73bf-4e62-a456-9f59b0269be0-6
+00:05:34.523 --> 00:05:35.680
+te haya gustado.
+
+0993af12-66c2-4d9d-a219-0e572a8dab6f-0
+00:05:36.520 --> 00:05:39.273
+En inteligencia comercial
+estamos comprometidos a
+
+0993af12-66c2-4d9d-a219-0e572a8dab6f-1
+00:05:39.273 --> 00:05:42.687
+brindarte las mejores soluciones
+para que siempre cuentes con
+
+0993af12-66c2-4d9d-a219-0e572a8dab6f-2
+00:05:42.687 --> 00:05:44.560
+datos precisos. Nos vemos
+pronto.

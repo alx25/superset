@@ -67,6 +67,7 @@ superset-websocket/config.json
 node_modules
 npm-debug.log*
 superset/static/assets
+superset/superset/static/video_superset
 superset/static/version_info.json
 superset-frontend/**/esm/*
 superset-frontend/**/lib/*
@@ -122,3 +123,4 @@ docker/*local*
 
 # Jest test report
 test-report.html
+superset/static/video_superset/Presentacion Superset.mp4
