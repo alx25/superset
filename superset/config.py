@@ -277,6 +277,11 @@ SQLALCHEMY_DATABASE_URI = 'postgresql://superset:superset@localhost/superset'
 # SQLALCHEMY_CUSTOM_PASSWORD_STORE = lookup_password
 SQLALCHEMY_CUSTOM_PASSWORD_STORE = None
 
+# OAuth2 configuration for database connections
+# Required for some database engines that support OAuth2 authentication
+# If you don't use OAuth2 for database connections, leave this as an empty dict
+DATABASE_OAUTH2_CLIENTS = {}
+
 #
 # The EncryptedFieldTypeAdapter is used whenever we're building SqlAlchemy models
 # which include sensitive fields that should be app-encrypted BEFORE sending
@@ -367,7 +372,7 @@ RATELIMIT_STORAGE_URI = "redis://localhost:6379/0"
 APP_NAME = "Irex-Superset"
 
 # Specify the App icon
-APP_ICON = "/static/assets/images/irexlogo.png"
+APP_ICON = "/static/assets/images/logo.png"
 
 # Specify where clicking the logo would take the user
 # e.g. setting it to '/' would take the user to '/superset/welcome/'
