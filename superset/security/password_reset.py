@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from flask import current_app, flash, render_template, request, url_for
 from werkzeug.routing import BuildError
 from flask_appbuilder import BaseView, expose
@@ -44,6 +45,13 @@ class PasswordResetView(BaseView):
     default_view = "request_reset"
     settings = PasswordResetSettings()
 
+    def _support_email(self) -> str:
+        return (
+            current_app.config.get("PASSWORD_RESET_SUPPORT_EMAIL")
+            or current_app.config.get("SMTP_MAIL_FROM")
+            or "soporte@localhost"
+        )
+
     def _build_serializer(self) -> URLSafeTimedSerializer:
         secret_key = current_app.config.get("SECRET_KEY")
         if not secret_key:
@@ -70,21 +78,44 @@ class PasswordResetView(BaseView):
         serializer = self._build_serializer()
         token = serializer.dumps(user.email)
         reset_url = url_for("PasswordResetView.reset_password", token=token, _external=True)
-        subject = str(_("Recupera tu contrasena"))
+        subject = str(_("Recupera tu contraseña"))
+        static_folder = Path(current_app.static_folder or "")
+        logo_cid = None
+        inline_images: dict[str, bytes] = {}
+        if static_folder:
+            logo_path = static_folder / "assets" / "images" / "logo.png"
+            if logo_path.exists():
+                logo_cid = "password-reset-logo"
+                try:
+                    inline_images[logo_cid] = logo_path.read_bytes()
+                except OSError as err:
+                    logger.warning("No se pudo leer el logo para el correo: %s", err)
+                else:
+                    logger.debug("Logo embebido para correo: %s", logo_path)
+            else:
+                logger.warning("No se encontró el logo en %s", logo_path)
+
         html_content = render_template(
             "appbuilder/password/email_reset.html",
             user=user,
             reset_url=reset_url,
             app_name=current_app.config.get("APP_NAME", "Superset"),
+            logo_url=url_for("static", filename="assets/images/logo.png", _external=True),
+            logo_cid=logo_cid,
+            support_email=self._support_email(),
         )
+        mime_subtype = "related" if inline_images else "alternative"
+        logger.info("Enviando correo de recuperacion para el usuario %s", user.username)
         try:
             send_email_smtp(
                 user.email,
                 subject,
                 html_content,
                 current_app.config,
-                mime_subtype="alternative",
+                mime_subtype=mime_subtype,
+                images=inline_images or None,
             )
+            logger.info("Correo de recuperacion enviado a %s", user.email)
         except Exception as exc:  # pylint: disable=broad-except
             if isinstance(exc, TypeError) and "linesep" in str(exc):
                 logger.warning(
@@ -99,7 +130,11 @@ class PasswordResetView(BaseView):
                         subject,
                         html_content,
                         safe_config,
-                        mime_subtype="alternative",
+                        mime_subtype=mime_subtype,
+                    )
+                    logger.info(
+                        "Correo de recuperacion enviado tras remover EMAIL_HEADER_MUTATOR para %s",
+                        user.email,
                     )
                     return
                 except Exception as retry_exc:  # pylint: disable=broad-except
@@ -115,6 +150,7 @@ class PasswordResetView(BaseView):
             "appbuilder/general/model/message.html",
             message=message,
             redirect=redirect_url,
+            support_email=self._support_email(),
         )
 
     def _login_url(self) -> str:
@@ -142,6 +178,7 @@ class PasswordResetView(BaseView):
         return self.render_template(
             "appbuilder/password/request.html",
             form=form,
+            support_email=self._support_email(),
         )
 
     @expose("/restablecer/<token>/", methods=["GET", "POST"])
@@ -182,6 +219,7 @@ class PasswordResetView(BaseView):
         return self.render_template(
             "appbuilder/password/reset.html",
             form=form,
+            support_email=self._support_email(),
         )
 
 

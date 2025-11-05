@@ -1,18 +1,47 @@
 {% extends "appbuilder/baselayout.html" %}
+
+{% block navbar %}{% endblock %}
+
+{% block head_css %}
+    {{ super() }}
+    <link rel="stylesheet" href="{{ url_for('static', filename='customcss/password_flow.css', v='1.0') }}">
+{% endblock %}
+
 {% block content %}
-<div class="col-lg-6 col-md-8 col-sm-12 mx-auto password-request">
-    <h2>Recuperar contraseña</h2>
-    <p>Escribe tu usuario o correo electrónico y, si existe, te enviaremos un enlace para restablecer tu contraseña.</p>
-    <form method="post">
-        {{ form.hidden_tag() }}
-        <div class="form-group">
-            {{ form.identifier.label }}
-            {{ form.identifier(class="form-control", placeholder="usuario o correo") }}
+<div class="col-12">
+    <div class="password-page">
+        <div class="password-card">
+            <div class="password-card__info">
+                <img src="{{ url_for('static', filename='assets/images/logo.png') }}" alt="Logo Irex" class="password-card__logo">
+                        <div class="password-card__heading">
+                            <h2>Recupera acceso en minutos</h2>
+                    <p>Verificaremos tu identidad y te enviaremos un enlace seguro para que puedas definir una nueva contraseña.</p>
+                </div>
+                        <ul>
+                            <li><strong>Consejo:</strong> usa tu correo corporativo o tu usuario de Superset.</li>
+                            <li>El enlace caduca en una hora para mantener la seguridad.</li>
+                            <li>Si no recibes el correo, revisa spam o escribe a <a class="password-card__link" href="mailto:{{ support_email }}">{{ support_email }}</a>.</li>
+                </ul>
+            </div>
+            <div class="password-card__form">
+            <h1 class="password-card__title">Solicitar restablecimiento</h1>
+            <p class="password-card__subtitle">Ingresa tu usuario o correo corporativo asociado a Irex Superset.</p>
+                <form method="post" novalidate>
+                    {{ form.hidden_tag() }}
+                    <div class="form-group">
+                        <label for="identifier">Usuario o correo</label>
+                        {{ form.identifier(class="form-control", id="identifier", placeholder="usuario@irex.co.cr") }}
+                        {% if form.identifier.errors %}
+                            <div class="password-form__errors">
+                                {{ form.identifier.errors[0] }}
+                            </div>
+                        {% endif %}
+                    </div>
+                    <button type="submit" class="btn password-card__cta">Enviar instrucciones</button>
+                </form>
+                <a class="password-card__link" href="{{ url_for('CustomAuthDBView.login') }}">Volver al inicio de sesion</a>
+            </div>
         </div>
-        <button type="submit" class="btn btn-primary">Enviar instrucciones</button>
-    </form>
-    <p class="mt-3">
-        <a href="{{ url_for('CustomAuthDBView.login') }}">Volver al inicio de sesión</a>
-    </p>
+    </div>
 </div>
 {% endblock %}

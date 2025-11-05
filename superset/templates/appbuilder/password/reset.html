@@ -1,19 +1,55 @@
 {% extends "appbuilder/baselayout.html" %}
+
+{% block navbar %}{% endblock %}
+
+{% block head_css %}
+    {{ super() }}
+    <link rel="stylesheet" href="{{ url_for('static', filename='customcss/password_flow.css', v='1.0') }}">
+{% endblock %}
+
 {% block content %}
-<div class="col-lg-6 col-md-8 col-sm-12 mx-auto password-reset">
-    <h2>Establecer nueva contraseña</h2>
-    <p>Introduce tu nueva contraseña y confírmala para completar el proceso.</p>
-    <form method="post">
-        {{ form.hidden_tag() }}
-        <div class="form-group">
-            {{ form.password.label }}
-            {{ form.password(class="form-control", placeholder="Nueva contraseña") }}
+<div class="col-12">
+    <div class="password-page">
+        <div class="password-card">
+            <div class="password-card__info">
+                <img src="{{ url_for('static', filename='assets/images/logo.png') }}" alt="Logo Irex" class="password-card__logo">
+                <div>
+                    <h2>Protege tu cuenta</h2>
+                    <p>Define una nueva contraseña robusta y manten tu acceso seguro a los tableros.</p>
+                </div>
+                        <ul>
+                            <li>Elige al menos 8 caracteres combinando letras, numeros y simbolos.</li>
+                            <li>No reutilices contrasenas de otros servicios.</li>
+                            <li>Si no solicitaste este cambio, escribe a <a class="password-card__link" href="mailto:{{ support_email }}">{{ support_email }}</a>.</li>
+                </ul>
+            </div>
+            <div class="password-card__form">
+                <h1 class="password-card__title">Crear nueva contrasena</h1>
+                <p class="password-card__subtitle">Mantente al dia con informacion segura para tu equipo.</p>
+                <form method="post" novalidate>
+                    {{ form.hidden_tag() }}
+                    <div class="form-group">
+                        <label for="password">Nueva contrasena</label>
+                        {{ form.password(class="form-control", id="password", placeholder="Ingresa una contrasena segura") }}
+                        {% if form.password.errors %}
+                            <div class="password-form__errors">
+                                {{ form.password.errors[0] }}
+                            </div>
+                        {% endif %}
+                    </div>
+                    <div class="form-group">
+                        <label for="conf_password">Confirmar contrasena</label>
+                        {{ form.conf_password(class="form-control", id="conf_password", placeholder="Repite tu nueva contrasena") }}
+                        {% if form.conf_password.errors %}
+                            <div class="password-form__errors">
+                                {{ form.conf_password.errors[0] }}
+                            </div>
+                        {% endif %}
+                    </div>
+                    <button type="submit" class="btn password-card__cta">Guardar contrasena</button>
+                </form>
+            </div>
         </div>
-        <div class="form-group">
-            {{ form.conf_password.label }}
-            {{ form.conf_password(class="form-control", placeholder="Confirmar contraseña") }}
-        </div>
-        <button type="submit" class="btn btn-primary">Guardar contraseña</button>
-    </form>
+    </div>
 </div>
 {% endblock %}

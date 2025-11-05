@@ -1,5 +1,57 @@
-<p>Hola {{ user.first_name or user.username }},</p>
-<p>Recibimos una solicitud para restablecer tu contrase&ntilde;a de {{ app_name }}.</p>
-<p>Puedes continuar haciendo clic en el siguiente enlace:</p>
-<p><a href="{{ reset_url }}" target="_blank">Restablecer contrase&ntilde;a</a></p>
-<p>Si no solicitaste este cambio, ignora este mensaje.</p>
+<!DOCTYPE html>
+<html lang="es">
+	<head>
+		<meta charset="UTF-8">
+		<title>Restablece tu contraseña</title>
+	</head>
+		<body style="margin:0; padding:0; background-color:#f3f6ff; font-family: 'Helvetica Neue', Arial, sans-serif; color:#0f172a;">
+			<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#f3f6ff; padding: 40px 16px;">
+			<tr>
+				<td align="center">
+					  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="520" style="max-width:520px; width:100%; background:#ffffff; border-radius:18px; overflow:hidden; box-shadow:0 22px 48px -20px rgba(15, 23, 42, 0.25);">
+						<tr>
+											<td style="padding:32px 36px 0 36px; text-align:center; background-color:#ffffff; border-bottom:1px solid #e2e8f0;">
+								{% if logo_cid %}
+									<img src="cid:{{ logo_cid }}" alt="Logo" width="140" height="auto" style="display:block; margin:0 auto 18px auto;">
+								{% elif logo_url %}
+									<img src="{{ logo_url }}" alt="Logo" width="140" height="auto" style="display:block; margin:0 auto 18px auto;">
+								{% endif %}
+												<h1 style="margin:0; font-size:22px; font-weight:700; color:#0f172a;">Hola {{ user.first_name or user.username }},</h1>
+												<p style="margin:12px 0 24px 0; color:#4b5563; font-size:15px; line-height:1.6;">Recibimos una solicitud para restablecer tu acceso a {{ app_name }}. Usa el siguiente boton para continuar.</p>
+							</td>
+						</tr>
+						<tr>
+							<td style="padding:36px;">
+								<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+									<tr>
+										<td style="text-align:center;">
+															<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;">
+																<tr>
+																	<td bgcolor="#2563eb" style="background:linear-gradient(135deg, #2563eb 0%, #3b82f6 100%); border-radius:999px; padding:14px 34px;">
+																		<a href="{{ reset_url }}" target="_blank" style="font-size:16px; font-weight:600; letter-spacing:0.3px; color:#ffffff; text-decoration:none; display:block;">Restablecer contraseña</a>
+																	</td>
+																</tr>
+															</table>
+										</td>
+									</tr>
+									<tr>
+										<td style="padding-top:24px; font-size:14px; line-height:1.6; color:#1f2937;">
+															<p style="margin:0 0 16px 0;">Por seguridad, el enlace expirara en 60 minutos. Si necesitas un nuevo enlace, puedes solicitarlo desde la pagina de ingreso.</p>
+															<p style="margin:0;">Si no fuiste tu quien inicio este proceso, comunicate con nosotros en <a href="mailto:{{ support_email }}" style="color:#2563eb; font-weight:600; text-decoration:none;">{{ support_email }}</a>.</p>
+										</td>
+									</tr>
+								</table>
+							</td>
+						</tr>
+						<tr>
+											<td style="background:#f8fafc; padding:24px 36px; font-size:12px; color:#64748b; text-align:center;">
+								<p style="margin:0 0 6px 0;">Equipo de Inteligencia Comercial &bull; {{ app_name }}</p>
+									<p style="margin:0;">Mensaje generado automaticamente. No respondas a este correo.</p>
+							</td>
+						</tr>
+					</table>
+				</td>
+			</tr>
+		</table>
+	</body>
+</html>

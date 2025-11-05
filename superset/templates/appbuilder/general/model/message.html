@@ -1,14 +1,26 @@
 {% extends "appbuilder/baselayout.html" %}
+
+{% block navbar %}{% endblock %}
+
+{% block head_css %}
+    {{ super() }}
+    <link rel="stylesheet" href="{{ url_for('static', filename='customcss/password_flow.css', v='1.0') }}">
+{% endblock %}
+
 {% block content %}
-<div class="col-lg-6 col-md-8 col-sm-12 mx-auto mt-4">
-    <div class="card">
-        <div class="card-body">
-            <p>{{ message }}</p>
-            {% if redirect %}
-                <p class="mt-3">
-                    <a class="btn btn-primary" href="{{ redirect }}">Continuar</a>
-                </p>
-            {% endif %}
+<div class="col-12">
+    <div class="password-page password-page--message">
+        <div class="password-card">
+            <div class="password-card__form password-message">
+            <div class="password-message__icon">&#9432;</div>
+                <div class="password-message__text">{{ message }}</div>
+                <div class="password-message__actions">
+                    {% if redirect %}
+                        <a class="btn password-card__cta" href="{{ redirect }}">Continuar</a>
+                    {% endif %}
+                    <a class="btn btn-secondary" href="mailto:{{ support_email }}">Contactar soporte</a>
+                </div>
+            </div>
         </div>
     </div>
 </div>
