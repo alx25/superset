@@ -16,8 +16,14 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { useState } from 'react';
-import { styled, SupersetTheme, t, useTheme } from '@superset-ui/core';
+import { useMemo, useState } from 'react';
+import {
+  styled,
+  SupersetTheme,
+  t,
+  useTheme,
+  GenericDataType,
+} from '@superset-ui/core';
 import { ColorSchemeEnum } from '@superset-ui/plugin-chart-table';
 import {
   Comparator,
@@ -25,9 +31,10 @@ import {
 } from '@superset-ui/chart-controls';
 import { Form, FormItem, FormProps } from 'src/components/Form';
 import Select from 'src/components/Select/Select';
+import { Input, InputNumber } from 'src/components/Input';
 import { Col, Row } from 'src/components';
-import { InputNumber } from 'src/components/Input';
 import Button from 'src/components/Button';
+import { SketchPicker, ColorResult } from 'react-color';
 import { ConditionalFormattingConfig } from './types';
 
 const FullWidthInputNumber = styled(InputNumber)`
@@ -39,14 +46,52 @@ const JustifyEnd = styled.div`
   justify-content: flex-end;
 `;
 
+const CustomColorPicker = styled.div`
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: ${({ theme }) => theme.gridUnit * 2}px;
+  margin-top: ${({ theme }) => theme.gridUnit * 2}px;
+  padding: ${({ theme }) => theme.gridUnit * 2}px;
+  border-radius: ${({ theme }) => theme.borderRadius}px;
+  background-color: ${({ theme }) => theme.colors.grayscale.light5};
+
+  .sketch-picker {
+    box-shadow: none !important;
+  }
+`;
+
+const CustomColorSummary = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.gridUnit * 2}px;
+  margin-top: ${({ theme }) => theme.gridUnit * 2}px;
+`;
+
+const ColorSwatch = styled.span<{ color: string }>`
+  display: inline-block;
+  width: 32px;
+  height: 18px;
+  border-radius: ${({ theme }) => theme.borderRadius / 2}px;
+  border: 1px solid ${({ theme }) => theme.colors.grayscale.light2};
+  background-color: ${({ color }) => color};
+`;
+
 const colorSchemeOptions = (theme: SupersetTheme) => [
   { value: theme.colors.success.light1, label: t('success') },
-  { value: theme.colors.warning.light1, label: t('alert') },
+  { value: theme.colors.warning.light1, label: t('warning') },
   { value: theme.colors.error.light1, label: t('error') },
   { value: theme.colors.success.dark1, label: t('success dark') },
-  { value: theme.colors.warning.dark1, label: t('alert dark') },
+  { value: theme.colors.warning.dark1, label: t('warning dark') },
   { value: theme.colors.error.dark1, label: t('error dark') },
 ];
+
+const colorModeOptions = [
+  { value: 'gradient', label: t('Heatmap') },
+  { value: 'uniform', label: t('Uniform color') },
+];
+
+const DEFAULT_COLOR_MODE = 'gradient' as const;
 
 const operatorOptions = [
   { value: Comparator.None, label: t('None') },
@@ -55,6 +100,7 @@ const operatorOptions = [
   { value: Comparator.GreaterOrEqual, label: '≥' },
   { value: Comparator.LessOrEqual, label: '≤' },
   { value: Comparator.Equal, label: '=' },
+  { value: Comparator.Like, label: 'LIKE' },
   { value: Comparator.NotEqual, label: '≠' },
   { value: Comparator.Between, label: '< x <' },
   { value: Comparator.BetweenOrEqual, label: '≤ x ≤' },
@@ -138,53 +184,8 @@ const renderOperator = ({ showOnlyNone }: { showOnlyNone?: boolean } = {}) => (
   </FormItem>
 );
 
-const renderOperatorFields = ({ getFieldValue }: GetFieldValue) =>
-  isOperatorNone(getFieldValue('operator')) ? (
-    <Row gutter={12}>
-      <Col span={6}>{renderOperator()}</Col>
-    </Row>
-  ) : isOperatorMultiValue(getFieldValue('operator')) ? (
-    <Row gutter={12}>
-      <Col span={9}>
-        <FormItem
-          name="targetValueLeft"
-          label={t('Left value')}
-          rules={rulesTargetValueLeft}
-          dependencies={targetValueLeftDeps}
-          validateTrigger="onBlur"
-          trigger="onBlur"
-        >
-          <FullWidthInputNumber />
-        </FormItem>
-      </Col>
-      <Col span={6}>{renderOperator()}</Col>
-      <Col span={9}>
-        <FormItem
-          name="targetValueRight"
-          label={t('Right value')}
-          rules={rulesTargetValueRight}
-          dependencies={targetValueRightDeps}
-          validateTrigger="onBlur"
-          trigger="onBlur"
-        >
-          <FullWidthInputNumber />
-        </FormItem>
-      </Col>
-    </Row>
-  ) : (
-    <Row gutter={12}>
-      <Col span={6}>{renderOperator()}</Col>
-      <Col span={18}>
-        <FormItem
-          name="targetValue"
-          label={t('Target value')}
-          rules={rulesRequired}
-        >
-          <FullWidthInputNumber />
-        </FormItem>
-      </Col>
-    </Row>
-  );
+// renderOperatorFields will be defined inside the component so it can access the
+// `columns` prop and GenericDataType to decide which input to render for target values.
 
 export const FormattingPopoverContent = ({
   config,
@@ -194,37 +195,164 @@ export const FormattingPopoverContent = ({
 }: {
   config?: ConditionalFormattingConfig;
   onChange: (config: ConditionalFormattingConfig) => void;
-  columns: { label: string; value: string }[];
+  columns: { label: string; value: string; type?: number }[];
   extraColorChoices?: { label: string; value: string }[];
 }) => {
   const theme = useTheme();
-  const colorScheme = colorSchemeOptions(theme);
+  const presetColorOptions = useMemo(() => colorSchemeOptions(theme), [theme]);
+  const CUSTOM_COLOR_VALUE = '__custom_color__';
+  const allColorValues = useMemo(
+    () => [...presetColorOptions, ...extraColorChoices].map(opt => opt.value),
+    [presetColorOptions, extraColorChoices],
+  );
+  const hasCustomInitialValue = Boolean(
+    config?.colorScheme && !allColorValues.includes(config.colorScheme),
+  );
+  const defaultColumn = config?.column ?? columns[0]?.value;
+  const initialCustomColor = hasCustomInitialValue
+    ? (config?.colorScheme as string)
+    : theme.colors.primary.base;
+  const [customColor, setCustomColor] = useState(initialCustomColor);
   const [showOperatorFields, setShowOperatorFields] = useState(
     config === undefined ||
       (config?.colorScheme !== ColorSchemeEnum.Green &&
         config?.colorScheme !== ColorSchemeEnum.Red),
   );
-  const handleChange = (event: any) => {
-    setShowOperatorFields(
-      !(event === ColorSchemeEnum.Green || event === ColorSchemeEnum.Red),
+  const [isCustomColor, setIsCustomColor] = useState(hasCustomInitialValue);
+  const [showCustomPicker, setShowCustomPicker] = useState(false);
+  const handleChange = (selection: any) => {
+    const value =
+      selection && typeof selection === 'object'
+        ? selection.value ?? selection.key ?? selection
+        : selection;
+    const isBasicColor =
+      value === ColorSchemeEnum.Green || value === ColorSchemeEnum.Red;
+    setShowOperatorFields(!isBasicColor || value === CUSTOM_COLOR_VALUE);
+    const isCustom = value === CUSTOM_COLOR_VALUE;
+  setIsCustomColor(isCustom);
+  setShowCustomPicker(false);
+  };
+
+  const handleCustomColorChange = (value: ColorResult) => {
+    setCustomColor(value.hex);
+  };
+
+  const initialColorSchemeValue = hasCustomInitialValue
+    ? CUSTOM_COLOR_VALUE
+    : config?.colorScheme ?? presetColorOptions[0].value;
+  const initialColorModeValue = config?.colorMode ?? DEFAULT_COLOR_MODE;
+
+  const selectColorOptions = useMemo(
+    () => [
+      ...presetColorOptions,
+      ...extraColorChoices,
+      { value: CUSTOM_COLOR_VALUE, label: t('Custom color') },
+    ],
+    [presetColorOptions, extraColorChoices],
+  );
+
+  const handleFinish = (values: ConditionalFormattingConfig) => {
+    const rawColor = values.colorScheme as any;
+    const normalizedColor =
+      rawColor && typeof rawColor === 'object'
+        ? rawColor.value ?? rawColor.key
+        : rawColor;
+    const resolvedColor =
+      normalizedColor === CUSTOM_COLOR_VALUE ? customColor : normalizedColor;
+    onChange({ ...values, colorScheme: resolvedColor });
+  };
+
+  const renderOperatorFields = ({ getFieldValue }: GetFieldValue) => {
+    const operator = getFieldValue('operator');
+    if (isOperatorNone(operator)) {
+      return (
+        <Row gutter={12}>
+          <Col span={6}>{renderOperator()}</Col>
+        </Row>
+      );
+    }
+    if (isOperatorMultiValue(operator)) {
+      return (
+        <Row gutter={12}>
+          <Col span={9}>
+            <FormItem
+              name="targetValueLeft"
+              label={t('Left value')}
+              rules={rulesTargetValueLeft}
+              dependencies={targetValueLeftDeps}
+              validateTrigger="onBlur"
+              trigger="onBlur"
+            >
+              <FullWidthInputNumber />
+            </FormItem>
+          </Col>
+          <Col span={6}>{renderOperator()}</Col>
+          <Col span={9}>
+            <FormItem
+              name="targetValueRight"
+              label={t('Right value')}
+              rules={rulesTargetValueRight}
+              dependencies={targetValueRightDeps}
+              validateTrigger="onBlur"
+              trigger="onBlur"
+            >
+              <FullWidthInputNumber />
+            </FormItem>
+          </Col>
+        </Row>
+      );
+    }
+    return (
+      <Row gutter={12}>
+        <Col span={6}>{renderOperator()}</Col>
+        <Col span={18}>
+          <FormItem
+            noStyle
+            shouldUpdate={(prev, cur) => prev.column !== cur.column}
+          >
+            {({ getFieldValue }) => {
+              const column = getFieldValue('column');
+              const selectedCol = columns.find(c => c.value === column) as any;
+              const isNumeric = selectedCol?.type === GenericDataType.Numeric;
+              return (
+                <FormItem
+                  name="targetValue"
+                  label={t('Target value')}
+                  rules={rulesRequired}
+                >
+                  {isNumeric ? (
+                    <FullWidthInputNumber />
+                  ) : (
+                    <Input
+                      placeholder={t(
+                        'Text or pattern (use % as wildcard for LIKE)',
+                      )}
+                    />
+                  )}
+                </FormItem>
+              );
+            }}
+          </FormItem>
+        </Col>
+      </Row>
     );
   };
 
   return (
     <Form
-      onFinish={onChange}
-      initialValues={config}
+      onFinish={handleFinish}
+      initialValues={{
+        ...config,
+        column: defaultColumn,
+        colorScheme: initialColorSchemeValue,
+        colorMode: initialColorModeValue,
+      }}
       requiredMark="optional"
       layout="vertical"
     >
       <Row gutter={12}>
         <Col span={12}>
-          <FormItem
-            name="column"
-            label={t('Column')}
-            rules={rulesRequired}
-            initialValue={columns[0]?.value}
-          >
+          <FormItem name="column" label={t('Column')} rules={rulesRequired}>
             <Select ariaLabel={t('Select column')} options={columns} />
           </FormItem>
         </Col>
@@ -233,15 +361,59 @@ export const FormattingPopoverContent = ({
             name="colorScheme"
             label={t('Color scheme')}
             rules={rulesRequired}
-            initialValue={colorScheme[0].value}
           >
             <Select
               onChange={event => handleChange(event)}
               ariaLabel={t('Color scheme')}
-              options={[...colorScheme, ...extraColorChoices]}
+              options={selectColorOptions}
             />
           </FormItem>
         </Col>
+      </Row>
+      <Row gutter={12}>
+        <Col span={isCustomColor ? 12 : 24}>
+          <FormItem
+            name="colorMode"
+            label={t('Color style')}
+            rules={rulesRequired}
+          >
+            <Select ariaLabel={t('Color style')} options={colorModeOptions} />
+          </FormItem>
+        </Col>
+        {isCustomColor && (
+          <Col span={12}>
+            <FormItem label={t('Custom color')} colon={false}>
+              {showCustomPicker ? (
+                <CustomColorPicker>
+                  <SketchPicker
+                    color={customColor}
+                    onChangeComplete={handleCustomColorChange}
+                    disableAlpha
+                  />
+                  <Button
+                    buttonStyle="tertiary"
+                    onClick={() => setShowCustomPicker(false)}
+                  >
+                    {t('Hide color picker')}
+                  </Button>
+                </CustomColorPicker>
+              ) : (
+                <CustomColorSummary>
+                  <ColorSwatch
+                    color={customColor}
+                    aria-label={t('Selected custom color preview')}
+                  />
+                  <Button
+                    buttonStyle="link"
+                    onClick={() => setShowCustomPicker(true)}
+                  >
+                    {t('Show color picker')}
+                  </Button>
+                </CustomColorSummary>
+              )}
+            </FormItem>
+          </Col>
+        )}
       </Row>
       <FormItem noStyle shouldUpdate={shouldFormItemUpdate}>
         {showOperatorFields ? (

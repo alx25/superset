@@ -128,6 +128,7 @@ export default function ControlForm({
     <div
       css={{
         label: {
+          textTransform: 'uppercase',
           color: theme.colors.text.label,
           fontSize: theme.typography.sizes.s,
         },

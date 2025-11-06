@@ -1,0 +1,63 @@
+{% extends "appbuilder/baselayout.html" %}
+
+{% block navbar %}{% endblock %}
+
+{% block head_css %}
+    {{ super() }}
+    <link rel="stylesheet" href="{{ url_for('static', filename='customcss/password_flow.css', v='2.0') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="col-12">
+    <div class="password-page">
+        <div class="password-card">
+            <!-- Panel de información (izquierdo) -->
+            <div class="password-card__info">
+                <div class="password-card__logo-container">
+                    <img src="{{ url_for('static', filename='assets/images/logo.png') }}" alt="Logo Irex" class="password-card__logo">
+                </div>
+                
+                <div class="password-card__heading">
+                    <h2>Recupera tu acceso</h2>
+                    <p>Te enviaremos un enlace seguro para restablecer tu contraseña y acceder nuevamente a tus dashboards.</p>
+                </div>
+                
+                <ul>
+                    <li>Ingresa tu usuario o correo corporativo</li>
+                    <li>Recibirás un enlace válido por 60 minutos</li>
+                    <li>Revisa tu bandeja de spam si no lo ves</li>
+                    <li>¿Necesitas ayuda? Escribe a <a class="password-card__link" href="mailto:{{ support_email }}" style="color: var(--irex-green); text-decoration: underline;">{{ support_email }}</a></li>
+                </ul>
+            </div>
+
+            <!-- Panel de formulario (derecho) -->
+            <div class="password-card__form">
+                <h1 class="password-card__title">Restablecer Contraseña</h1>
+                <p class="password-card__subtitle">Ingresa tu información para recuperar tu cuenta</p>
+                
+                <form method="post" novalidate>
+                    {{ form.hidden_tag() }}
+                    <div class="form-group">
+                        <label for="identifier">Usuario o correo electrónico</label>
+                        {{ form.identifier(class="form-control", id="identifier", placeholder="tu.usuario@irex.co.cr", autocomplete="username") }}
+                        {% if form.identifier.errors %}
+                            <div class="password-form__errors">
+                                {{ form.identifier.errors[0] }}
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    <button type="submit" class="btn password-card__cta">Enviar enlace de recuperación</button>
+                </form>
+                
+                <div style="text-align: center; margin-top: 1rem;">
+                    <a class="password-card__link" href="{{ url_for('CustomAuthDBView.login') }}">← Volver al inicio de sesión</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

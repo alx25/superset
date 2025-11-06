@@ -22,17 +22,14 @@ import {
   StrictJsonValue,
 } from '@superset-ui/core';
 import { ControlFormItemSpec } from '@superset-ui/chart-controls';
-import {
-  SHARED_COLUMN_CONFIG_PROPS,
-  SharedColumnConfigProp,
-} from './constants';
+import { SharedColumnConfigProp } from './constants';
 import { ControlFormItemComponents } from './ControlForm';
 
 /**
  * Column formatting configs.
  */
 export type ColumnConfig = {
-  [key in SharedColumnConfigProp]?: (typeof SHARED_COLUMN_CONFIG_PROPS)[key]['value'];
+  [key in SharedColumnConfigProp]?: any;
 } & Record<string, StrictJsonValue>;
 
 /**

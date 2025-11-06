@@ -26,6 +26,8 @@ export * from './controls';
 
 export type ControlFormItemProps = ControlFormItemDefaultSpec & {
   name: string;
+  value?: JsonValue;
+  defaultValue?: JsonValue;
   onChange?: (fieldValue: JsonValue) => void;
 };
 

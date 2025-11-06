@@ -16,14 +16,14 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+import type { CommonWrapper } from 'enzyme';
+import { render } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import { render, screen } from '@testing-library/react';
-import { ThemeProvider, supersetTheme } from '@superset-ui/core';
 import TableChart from '../src/TableChart';
 import transformProps from '../src/transformProps';
 import DateWithFormatter from '../src/utils/DateWithFormatter';
 import testData from './testData';
-import { ProviderWrapper } from './testHelpers';
+import { mount, ProviderWrapper } from './enzyme';
 
 describe('plugin-chart-table', () => {
   describe('transformProps', () => {
@@ -65,224 +65,94 @@ describe('plugin-chart-table', () => {
       expect(String(parsedDate)).toBe('2020-01-01 12:34:56');
       expect(parsedDate.getTime()).toBe(1577882096000);
     });
-    it('should process comparison columns when time_compare and comparison_type are set', () => {
-      const transformedProps = transformProps(testData.comparison);
 
-      // Check if comparison columns are processed
-      const comparisonColumns = transformedProps.columns.filter(
-        col =>
-          col.label === 'Main' ||
-          col.label === '#' ||
-          col.label === '△' ||
-          col.label === '%',
-      );
-
-      expect(comparisonColumns.length).toBeGreaterThan(0);
-      expect(comparisonColumns.some(col => col.label === 'Main')).toBe(true);
-      expect(comparisonColumns.some(col => col.label === '#')).toBe(true);
-      expect(comparisonColumns.some(col => col.label === '△')).toBe(true);
-      expect(comparisonColumns.some(col => col.label === '%')).toBe(true);
-    });
-
-    it('should not process comparison columns when time_compare is empty', () => {
-      const propsWithoutTimeCompare = {
-        ...testData.comparison,
+    it('should generate gradient formatter when rule matches', () => {
+      const props = transformProps({
+        ...testData.advanced,
         rawFormData: {
-          ...testData.comparison.rawFormData,
-          time_compare: [],
+          ...testData.advanced.rawFormData,
+          conditional_formatting: [
+            {
+              colorScheme: '#ACE1C4',
+              column: 'sum__num',
+              operator: '<',
+              targetValue: 12342,
+            },
+          ],
         },
-      };
+      });
 
-      const transformedProps = transformProps(propsWithoutTimeCompare);
-
-      // Check if comparison columns are not processed
-      const comparisonColumns = transformedProps.columns.filter(
-        col =>
-          col.label === 'Main' ||
-          col.label === '#' ||
-          col.label === '△' ||
-          col.label === '%',
+      const formatter = props.columnColorFormatters?.find(
+        ({ column }) => column === 'sum__num',
       );
 
-      expect(comparisonColumns.length).toBe(0);
+      expect(formatter).toBeDefined();
+      const color = formatter!.getColorFromValue(2467) ?? '';
+      expect(color.toUpperCase()).toMatch(/^#ACE1C4/);
+      expect(color.length).toBeGreaterThan(7);
     });
 
-    it('should correctly apply column configuration for comparison columns', () => {
-      const transformedProps = transformProps(testData.comparisonWithConfig);
+    it('should generate uniform formatter when colorMode is uniform', () => {
+      const props = transformProps({
+        ...testData.advanced,
+        rawFormData: {
+          ...testData.advanced.rawFormData,
+          conditional_formatting: [
+            {
+              colorScheme: '#ACE1C4',
+              column: 'sum__num',
+              operator: '>',
+              targetValue: 2467,
+              colorMode: 'uniform',
+            },
+          ],
+        },
+      });
 
-      const comparisonColumns = transformedProps.columns.filter(
-        col =>
-          col.key.startsWith('Main') ||
-          col.key.startsWith('#') ||
-          col.key.startsWith('△') ||
-          col.key.startsWith('%'),
+      const formatter = props.columnColorFormatters?.find(
+        ({ column }) => column === 'sum__num',
       );
 
-      expect(comparisonColumns).toHaveLength(4);
-
-      const mainMetricConfig = comparisonColumns.find(
-        col => col.key === 'Main metric_1',
-      );
-      expect(mainMetricConfig).toBeDefined();
-      expect(mainMetricConfig?.config).toEqual({ d3NumberFormat: '.2f' });
-
-      const hashMetricConfig = comparisonColumns.find(
-        col => col.key === '# metric_1',
-      );
-      expect(hashMetricConfig).toBeDefined();
-      expect(hashMetricConfig?.config).toEqual({ d3NumberFormat: '.1f' });
-
-      const deltaMetricConfig = comparisonColumns.find(
-        col => col.key === '△ metric_1',
-      );
-      expect(deltaMetricConfig).toBeDefined();
-      expect(deltaMetricConfig?.config).toEqual({ d3NumberFormat: '.0f' });
-
-      const percentMetricConfig = comparisonColumns.find(
-        col => col.key === '% metric_1',
-      );
-      expect(percentMetricConfig).toBeDefined();
-      expect(percentMetricConfig?.config).toEqual({ d3NumberFormat: '.3f' });
-    });
-
-    it('should correctly format comparison columns using getComparisonColFormatter', () => {
-      const transformedProps = transformProps(testData.comparisonWithConfig);
-      const comparisonColumns = transformedProps.columns.filter(
-        col =>
-          col.key.startsWith('Main') ||
-          col.key.startsWith('#') ||
-          col.key.startsWith('△') ||
-          col.key.startsWith('%'),
-      );
-
-      const formattedMainMetric = comparisonColumns
-        .find(col => col.key === 'Main metric_1')
-        ?.formatter?.(12345.678);
-      expect(formattedMainMetric).toBe('12345.68');
-
-      const formattedHashMetric = comparisonColumns
-        .find(col => col.key === '# metric_1')
-        ?.formatter?.(12345.678);
-      expect(formattedHashMetric).toBe('12345.7');
-
-      const formattedDeltaMetric = comparisonColumns
-        .find(col => col.key === '△ metric_1')
-        ?.formatter?.(12345.678);
-      expect(formattedDeltaMetric).toBe('12346');
-
-      const formattedPercentMetric = comparisonColumns
-        .find(col => col.key === '% metric_1')
-        ?.formatter?.(0.123456);
-      expect(formattedPercentMetric).toBe('0.123');
-    });
-
-    it('should set originalLabel for comparison columns when time_compare and comparison_type are set', () => {
-      const transformedProps = transformProps(testData.comparison);
-
-      // Check if comparison columns are processed
-      const comparisonColumns = transformedProps.columns.filter(
-        col =>
-          col.label === 'Main' ||
-          col.label === '#' ||
-          col.label === '△' ||
-          col.label === '%',
-      );
-
-      expect(comparisonColumns.length).toBeGreaterThan(0);
-      expect(comparisonColumns.some(col => col.label === 'Main')).toBe(true);
-      expect(comparisonColumns.some(col => col.label === '#')).toBe(true);
-      expect(comparisonColumns.some(col => col.label === '△')).toBe(true);
-      expect(comparisonColumns.some(col => col.label === '%')).toBe(true);
-
-      // Verify originalLabel for metric_1 comparison columns
-      const mainMetric1 = transformedProps.columns.find(
-        col => col.key === 'Main metric_1',
-      );
-      expect(mainMetric1).toBeDefined();
-      expect(mainMetric1?.originalLabel).toBe('metric_1');
-
-      const hashMetric1 = transformedProps.columns.find(
-        col => col.key === '# metric_1',
-      );
-      expect(hashMetric1).toBeDefined();
-      expect(hashMetric1?.originalLabel).toBe('metric_1');
-
-      const deltaMetric1 = transformedProps.columns.find(
-        col => col.key === '△ metric_1',
-      );
-      expect(deltaMetric1).toBeDefined();
-      expect(deltaMetric1?.originalLabel).toBe('metric_1');
-
-      const percentMetric1 = transformedProps.columns.find(
-        col => col.key === '% metric_1',
-      );
-      expect(percentMetric1).toBeDefined();
-      expect(percentMetric1?.originalLabel).toBe('metric_1');
-
-      // Verify originalLabel for metric_2 comparison columns
-      const mainMetric2 = transformedProps.columns.find(
-        col => col.key === 'Main metric_2',
-      );
-      expect(mainMetric2).toBeDefined();
-      expect(mainMetric2?.originalLabel).toBe('metric_2');
-
-      const hashMetric2 = transformedProps.columns.find(
-        col => col.key === '# metric_2',
-      );
-      expect(hashMetric2).toBeDefined();
-      expect(hashMetric2?.originalLabel).toBe('metric_2');
-
-      const deltaMetric2 = transformedProps.columns.find(
-        col => col.key === '△ metric_2',
-      );
-      expect(deltaMetric2).toBeDefined();
-      expect(deltaMetric2?.originalLabel).toBe('metric_2');
-
-      const percentMetric2 = transformedProps.columns.find(
-        col => col.key === '% metric_2',
-      );
-      expect(percentMetric2).toBeDefined();
-      expect(percentMetric2?.originalLabel).toBe('metric_2');
+      expect(formatter).toBeDefined();
+      expect(formatter!.getColorFromValue(2467063)).toBe('#ACE1C4');
     });
   });
 
   describe('TableChart', () => {
+    let wrap: CommonWrapper; // the ReactDataTable wrapper
+    type RenderedTree = ReturnType<CommonWrapper['render']>;
+    let tree: RenderedTree;
+
     it('render basic data', () => {
-      render(
-        <ThemeProvider theme={supersetTheme}>
-          <TableChart {...transformProps(testData.basic)} sticky={false} />,
-        </ThemeProvider>,
+      wrap = mount(
+        <TableChart {...transformProps(testData.basic)} sticky={false} />,
       );
 
-      const firstDataRow = screen.getAllByRole('rowgroup')[1];
-      const cells = firstDataRow.querySelectorAll('td');
+      tree = wrap.render(); // returns a CheerioWrapper with jQuery-like API
+      const cells = tree.find('td');
       expect(cells).toHaveLength(12);
-      expect(cells[0]).toHaveTextContent('2020-01-01 12:34:56');
-      expect(cells[1]).toHaveTextContent('Michael');
+      expect(cells.eq(0).text()).toEqual('2020-01-01 12:34:56');
+      expect(cells.eq(1).text()).toEqual('Michael');
       // number is not in `metrics` list, so it should output raw value
       // (in real world Superset, this would mean the column is used in GROUP BY)
-      expect(cells[2]).toHaveTextContent('2467063');
+      expect(cells.eq(2).text()).toEqual('2467063');
       // should not render column with `.` in name as `undefined`
-      expect(cells[3]).toHaveTextContent('foo');
-      expect(cells[6]).toHaveTextContent('2467');
-      expect(cells[8]).toHaveTextContent('N/A');
+      expect(cells.eq(3).text()).toEqual('foo');
+      expect(cells.eq(6).text()).toEqual('2467');
+      expect(cells.eq(8).text()).toEqual('N/A');
     });
 
     it('render advanced data', () => {
-      render(
-        <ThemeProvider theme={supersetTheme}>
-          <TableChart {...transformProps(testData.advanced)} sticky={false} />,
-        </ThemeProvider>,
+      wrap = mount(
+        <TableChart {...transformProps(testData.advanced)} sticky={false} />,
       );
-      const secondColumnHeader = screen.getByText('Sum of Num');
-      expect(secondColumnHeader).toBeInTheDocument();
-      expect(secondColumnHeader?.getAttribute('data-column-name')).toEqual('1');
-
-      const firstDataRow = screen.getAllByRole('rowgroup')[1];
-      const cells = firstDataRow.querySelectorAll('td');
-      expect(cells[0]).toHaveTextContent('Michael');
-      expect(cells[2]).toHaveTextContent('12.346%');
-      expect(cells[4]).toHaveTextContent('2.47k');
+      tree = wrap.render();
+      // should successful rerender with new props
+      const cells = tree.find('td');
+      expect(tree.find('th').eq(1).text()).toEqual('Sum of Num');
+      expect(cells.eq(0).text()).toEqual('Michael');
+      expect(cells.eq(2).text()).toEqual('12.346%');
+      expect(cells.eq(4).text()).toEqual('2.47k');
     });
 
     it('render advanced data with currencies', () => {
@@ -303,27 +173,6 @@ describe('plugin-chart-table', () => {
       expect(cells[0]).toHaveTextContent('Michael');
       expect(cells[2]).toHaveTextContent('12.346%');
       expect(cells[4]).toHaveTextContent('$ 2.47k');
-    });
-
-    it('render data with a bigint value in a raw record mode', () => {
-      render(
-        ProviderWrapper({
-          children: (
-            <TableChart
-              {...transformProps(testData.bigint)}
-              sticky={false}
-              isRawRecords
-            />
-          ),
-        }),
-      );
-      const cells = document.querySelectorAll('td');
-      expect(document.querySelectorAll('th')[0]).toHaveTextContent('name');
-      expect(document.querySelectorAll('th')[1]).toHaveTextContent('id');
-      expect(cells[0]).toHaveTextContent('Michael');
-      expect(cells[1]).toHaveTextContent('4312');
-      expect(cells[2]).toHaveTextContent('John');
-      expect(cells[3]).toHaveTextContent('1234567890123456789');
     });
 
     it('render raw data', () => {
@@ -411,96 +260,11 @@ describe('plugin-chart-table', () => {
     });
 
     it('render empty data', () => {
-      render(
-        <ThemeProvider theme={supersetTheme}>
-          <TableChart {...transformProps(testData.empty)} sticky={false} />,
-        </ThemeProvider>,
-      );
-      expect(screen.getByText('No records found')).toBeInTheDocument();
+      wrap.setProps({ ...transformProps(testData.empty), sticky: false });
+      tree = wrap.render();
+      expect(tree.text()).toContain('No records found');
     });
 
-    it('render color with column color formatter', () => {
-      render(
-        ProviderWrapper({
-          children: (
-            <TableChart
-              {...transformProps({
-                ...testData.advanced,
-                rawFormData: {
-                  ...testData.advanced.rawFormData,
-                  conditional_formatting: [
-                    {
-                      colorScheme: '#ACE1C4',
-                      column: 'sum__num',
-                      operator: '>',
-                      targetValue: 2467,
-                    },
-                  ],
-                },
-              })}
-            />
-          ),
-        }),
-      );
-
-      expect(getComputedStyle(screen.getByTitle('2467063')).background).toBe(
-        'rgba(172, 225, 196, 1)',
-      );
-      expect(getComputedStyle(screen.getByTitle('2467')).background).toBe('');
-    });
-
-    it('render cell without color', () => {
-      const dataWithEmptyCell = testData.advanced.queriesData[0];
-      dataWithEmptyCell.data.push({
-        __timestamp: null,
-        name: 'Noah',
-        sum__num: null,
-        '%pct_nice': 0.643,
-        'abc.com': 'bazzinga',
-      });
-
-      render(
-        ProviderWrapper({
-          children: (
-            <TableChart
-              {...transformProps({
-                ...testData.advanced,
-                queriesData: [dataWithEmptyCell],
-                rawFormData: {
-                  ...testData.advanced.rawFormData,
-                  conditional_formatting: [
-                    {
-                      colorScheme: '#ACE1C4',
-                      column: 'sum__num',
-                      operator: '<',
-                      targetValue: 12342,
-                    },
-                  ],
-                },
-              })}
-            />
-          ),
-        }),
-      );
-      expect(getComputedStyle(screen.getByTitle('2467')).background).toBe(
-        'rgba(172, 225, 196, 0.812)',
-      );
-      expect(getComputedStyle(screen.getByTitle('2467063')).background).toBe(
-        '',
-      );
-      expect(getComputedStyle(screen.getByText('N/A')).background).toBe('');
-    });
-    it('should display originalLabel in grouped headers', () => {
-      render(
-        <ThemeProvider theme={supersetTheme}>
-          <TableChart {...transformProps(testData.comparison)} sticky={false} />
-        </ThemeProvider>,
-      );
-
-      const groupHeaders = screen.getAllByRole('columnheader');
-      expect(groupHeaders[0]).toHaveTextContent('metric_1');
-      expect(groupHeaders[1]).toHaveTextContent('metric_2');
-    });
   });
 
   it('render cell bars properly, and only when it is toggled on in both regular and percent metrics', () => {

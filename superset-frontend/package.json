@@ -82,6 +82,7 @@
   ],
   "dependencies": {
     "@ant-design/icons": "^5.2.6",
+    "@deck.gl/widgets": "^9.1.0",
     "@emotion/cache": "^11.4.0",
     "@emotion/react": "^11.13.3",
     "@emotion/styled": "^11.3.0",
@@ -111,6 +112,7 @@
     "@superset-ui/plugin-chart-handlebars": "file:./plugins/plugin-chart-handlebars",
     "@superset-ui/plugin-chart-pivot-table": "file:./plugins/plugin-chart-pivot-table",
     "@superset-ui/plugin-chart-table": "file:./plugins/plugin-chart-table",
+    "@superset-ui/plugin-chart-table-v3": "file:./plugins/plugin-chart-tableV3",
     "@superset-ui/plugin-chart-word-cloud": "file:./plugins/plugin-chart-word-cloud",
     "@superset-ui/switchboard": "file:./packages/superset-ui-switchboard",
     "@types/d3-format": "^3.0.1",
@@ -384,7 +386,8 @@
     "jspdf": "^3.0.1",
     "fast-glob": {
       "micromatch": "^4.0.6"
-    }
+    },
+    "@deck.gl/widgets": "9.1.0"
   },
   "readme": "ERROR: No README data found!",
   "scarfSettings": {

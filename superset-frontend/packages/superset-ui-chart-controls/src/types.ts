@@ -17,7 +17,13 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { ReactElement, ReactNode, ReactText, ComponentType } from 'react';
+import {
+  ReactElement,
+  ReactNode,
+  ReactText,
+  ComponentType,
+  CSSProperties,
+} from 'react';
 
 import type {
   AdhocColumn,
@@ -84,13 +90,6 @@ export interface Dataset {
   filter_select?: boolean;
   filter_select_enabled?: boolean;
   column_names?: string[];
-  catalog?: string;
-  schema?: string;
-  table_name?: string;
-  database?: Record<string, unknown>;
-  normalize_columns?: boolean;
-  always_filter_main_dttm?: boolean;
-  extra?: object | string;
 }
 
 export interface ControlPanelState {
@@ -373,8 +372,8 @@ export type CustomControlItem = {
 export const isCustomControlItem = (obj: unknown): obj is CustomControlItem =>
   typeof obj === 'object' &&
   obj !== null &&
-  typeof ('name' in obj && obj.name) === 'string' &&
-  typeof ('config' in obj && obj.config) === 'object' &&
+  typeof (obj as CustomControlItem).name === 'string' &&
+  typeof (obj as CustomControlItem).config === 'object' &&
   (obj as CustomControlItem).config !== null;
 
 // use ReactElement instead of ReactNode because `string`, `number`, etc. may
@@ -452,6 +451,7 @@ export enum Comparator {
   GreaterOrEqual = '≥',
   LessOrEqual = '≤',
   Equal = '=',
+  Like = 'LIKE',
   NotEqual = '≠',
   Between = '< x <',
   BetweenOrEqual = '≤ x ≤',
@@ -468,16 +468,18 @@ export const MultipleValueComparators = [
 
 export type ConditionalFormattingConfig = {
   operator?: Comparator;
-  targetValue?: number;
-  targetValueLeft?: number;
-  targetValueRight?: number;
+  targetValue?: number | string;
+  targetValueLeft?: number | string;
+  targetValueRight?: number | string;
   column?: string;
   colorScheme?: string;
+  colorMode?: 'gradient' | 'uniform';
 };
 
 export type ColorFormatters = {
   column: string;
-  getColorFromValue: (value: number) => string | undefined;
+  // value can be number or string depending on column
+  getColorFromValue: (value: any) => string | undefined;
 }[];
 
 export default {};
@@ -590,4 +592,19 @@ export type ControlFormItemSpec<T extends ControlType = ControlType> = {
                 value?: Currency;
                 defaultValue?: Currency;
               }
-            : {});
+            : T extends 'TextAreaControl'
+              ? {
+                  minLines?: number;
+                  maxLines?: number;
+                  offerEditInModal?: boolean;
+                  language?:
+                    | null
+                    | 'json'
+                    | 'html'
+                    | 'sql'
+                    | 'markdown'
+                    | 'javascript';
+                  textAreaStyles?: CSSProperties;
+                  resize?: CSSProperties['resize'];
+                }
+              : {});

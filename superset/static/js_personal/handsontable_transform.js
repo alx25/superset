@@ -6,12 +6,36 @@
   // Inyectar CSS para encabezados sticky y scroll horizontal
   (function(){
     const css = `
-      .table-container { overflow-x: auto; }
-      .table-container .custom-table th {
-        position: sticky; top: 0;
-        background: #00BFC4; color: #fff; z-index: 2;
-      }
-    `;
+      .table-container { 
+      overflow-x: auto; 
+      position: relative;
+    }
+
+    .table-container .custom-table th {
+      position: sticky; 
+      top: 0;
+      background: #00BFC4; 
+      color: #fff; 
+      z-index: 3;
+    }
+
+    /* Fijar la primera columna (Proceso) */
+    .table-container .custom-table th:first-child,
+    .table-container .custom-table td:first-child {
+      position: sticky;
+      left: 0;
+      background: #00BFC4; /* Fondo neutro para que se distinga */
+      z-index: 4; /* Más alto para que quede por encima del scroll */
+      font-weight: bold;
+    }
+
+    /* Opcional: bordes para mejor separación */
+    .table-container .custom-table td,
+    .table-container .custom-table th {
+      border: 1px solid #ddd;
+      white-space: nowrap;
+    }
+  `;
     const style = document.createElement('style');
     style.appendChild(document.createTextNode(css));
     document.head.appendChild(style);
@@ -80,6 +104,15 @@
 
     // Filas de cada proceso
     const processes = ['BMP','BPT','Bodegas General','Proveeduría'];
+    
+    // Definir metas por categoría
+    const metasPorCategoria = {
+      'Proveeduría': { max: 9.07, sat: 7.78, min: 6.49 },
+      'BMP': { max: 3.64, sat: 3.44, min: 3.24 },
+      'BPT': { max: 3.64, sat: 3.44, min: 3.24 },
+      'Bodegas General': { max: 3.64, sat: 3.44, min: 3.24 }
+    };
+    
     processes.forEach(proc=>{
       html+=`<tr><td>${proc}</td>`;
       months.forEach(m=>{
@@ -87,7 +120,16 @@
         const kg = item ? item[proc] : 0;
         const totalKg = item ? item.totalKg : 0;
         const pnc = totalKg ? (kg/totalKg*10000).toFixed(3) : '0.000';
-        const bg = pnc>=5 ? '#f8696b' : (pnc>=2 ? '#9dc3e6' : '#c6efce');
+        
+        // Obtener metas según la categoría
+        const metas = metasPorCategoria[proc];
+        let bg = '#72adfaff'; // color por defecto (azul - mínimo)
+        if (pnc >= metas.max) {
+          bg = '#f8696b'; // rojo - máximo
+        } else if (pnc >= metas.sat) {
+          bg = '#eff171ff'; // amarillo - satisfactorio
+        }
+        
         html +=
           '<td></td>' +
           `<td style="text-align:right;">${Number(kg).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>`+

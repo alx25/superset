@@ -31,6 +31,7 @@ export type SharedColumnConfigProp =
   | 'alignPositiveNegative'
   | 'colorPositiveNegative'
   | 'columnWidth'
+  | 'displayName'
   | 'fractionDigits'
   | 'd3NumberFormat'
   | 'd3SmallNumberFormat'
@@ -38,7 +39,9 @@ export type SharedColumnConfigProp =
   | 'horizontalAlign'
   | 'truncateLongCells'
   | 'showCellBars'
-  | 'currencyFormat';
+  | 'currencyFormat'
+  | 'enableHtmlTemplate'
+  | 'htmlTemplate';
 
 const d3NumberFormat: ControlFormItemSpec<'Select'> = {
   allowNewOptions: true,
@@ -77,6 +80,16 @@ const fractionDigits: ControlFormItemSpec<'Slider'> = {
   step: 1,
   max: 100,
   defaultValue: 100,
+};
+
+const displayName: ControlFormItemSpec<'Input'> = {
+  controlType: 'Input',
+  label: t('Display name'),
+  description: t(
+    'Custom display name for the column header. Leave empty to use the original column name.',
+  ),
+  placeholder: t('Enter custom name...'),
+  debounceDelay: 500,
 };
 
 const columnWidth: ControlFormItemSpec<'InputNumber'> = {
@@ -152,10 +165,39 @@ const currencyFormat: ControlFormItemSpec<'CurrencyControl'> = {
   ),
   debounceDelay: 200,
 };
+
+const enableHtmlTemplate: ControlFormItemSpec<'Checkbox'> = {
+  controlType: 'Checkbox',
+  label: t('HTML render'),
+  description: t(
+    'Render this column using a custom HTML template defined below. The underlying data remains unchanged for downloads.',
+  ),
+  defaultValue: false,
+  debounceDelay: 200,
+};
+
+const htmlTemplate: ControlFormItemSpec<'TextAreaControl'> = {
+  controlType: 'TextAreaControl',
+  label: t('HTML template'),
+  description: t(
+    "Supports simple CASE logic and variables such as {{ value }} (formatted) or {{ raw_value }} (raw) alongside other columns like {{ column_name }}. Example:\nCASE WHEN {{ raw_value }} > 5000000\n  THEN <span class='pill pill--ok'>{{ value }}</span>\n  ELSE <span class='pill pill--warn'>{{ value }}</span>\nEND",
+  ),
+  placeholder:
+    '<span style="display:inline-flex;align-items:center;gap:4px;">{{ value }}</span>',
+  debounceDelay: 500,
+  language: 'html',
+  minLines: 6,
+  maxLines: 40,
+  offerEditInModal: true,
+  textAreaStyles: {
+    resize: 'vertical',
+  },
+};
 /**
  * All configurable column formatting properties.
  */
 export const SHARED_COLUMN_CONFIG_PROPS = {
+  displayName,
   d3NumberFormat,
   d3SmallNumberFormat: {
     ...d3NumberFormat,
@@ -174,20 +216,30 @@ export const SHARED_COLUMN_CONFIG_PROPS = {
   alignPositiveNegative,
   colorPositiveNegative,
   currencyFormat,
+  enableHtmlTemplate,
+  htmlTemplate,
 };
 
 export const DEFAULT_CONFIG_FORM_LAYOUT: ColumnConfigFormLayout = {
   [GenericDataType.String]: [
-    [
-      'columnWidth',
-      { name: 'horizontalAlign', override: { defaultValue: 'left' } },
-    ],
-    ['truncateLongCells'],
+    {
+      tab: t('Display'),
+      children: [
+        ['displayName'],
+        [
+          'columnWidth',
+          { name: 'horizontalAlign', override: { defaultValue: 'left' } },
+        ],
+        ['truncateLongCells'],
+      ],
+    },
+    { tab: t('HTML'), children: [['enableHtmlTemplate'], ['htmlTemplate']] },
   ],
   [GenericDataType.Numeric]: [
     {
       tab: t('Display'),
       children: [
+        ['displayName'],
         [
           'columnWidth',
           { name: 'horizontalAlign', override: { defaultValue: 'right' } },
@@ -205,18 +257,33 @@ export const DEFAULT_CONFIG_FORM_LAYOUT: ColumnConfigFormLayout = {
         ['currencyFormat'],
       ],
     },
+    { tab: t('HTML'), children: [['enableHtmlTemplate'], ['htmlTemplate']] },
   ],
   [GenericDataType.Temporal]: [
-    [
-      'columnWidth',
-      { name: 'horizontalAlign', override: { defaultValue: 'left' } },
-    ],
-    ['d3TimeFormat'],
+    {
+      tab: t('Display'),
+      children: [
+        ['displayName'],
+        [
+          'columnWidth',
+          { name: 'horizontalAlign', override: { defaultValue: 'left' } },
+        ],
+        ['d3TimeFormat'],
+      ],
+    },
+    { tab: t('HTML'), children: [['enableHtmlTemplate'], ['htmlTemplate']] },
   ],
   [GenericDataType.Boolean]: [
-    [
-      'columnWidth',
-      { name: 'horizontalAlign', override: { defaultValue: 'left' } },
-    ],
+    {
+      tab: t('Display'),
+      children: [
+        ['displayName'],
+        [
+          'columnWidth',
+          { name: 'horizontalAlign', override: { defaultValue: 'left' } },
+        ],
+      ],
+    },
+    { tab: t('HTML'), children: [['enableHtmlTemplate'], ['htmlTemplate']] },
   ],
 };

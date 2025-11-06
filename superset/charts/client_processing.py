@@ -24,7 +24,9 @@ data they would see on Explore.
 In order to do that, we reproduce the post-processing in Python for these chart types.
 """
 
+import re
 from io import StringIO
+from numbers import Number
 from typing import Any, Optional, TYPE_CHECKING, Union
 
 import numpy as np
@@ -42,6 +44,31 @@ from superset.utils.core import (
 if TYPE_CHECKING:
     from superset.connectors.sqla.models import BaseDatasource
     from superset.models.sql_lab import Query
+
+
+JINJA_PATTERN = re.compile(r"\{\{([^}]+)\}\}")
+
+
+def resolve_display_name(template: str, values: dict[str, Any]) -> str:
+    """Resolve simple Jinja-style placeholders present in display names."""
+
+    if not template or not isinstance(template, str):
+        return template
+
+    def replace(match: re.Match[str]) -> str:
+        expression = match.group(1).strip()
+        if expression in values:
+            value = values[expression]
+            if value is None or (isinstance(value, Number) and pd.isna(value)):
+                return "NULL"
+            if isinstance(value, bool):
+                return str(value)
+            if isinstance(value, Number):
+                return format(value, ",")
+            return str(value)
+        return match.group(0)
+
+    return JINJA_PATTERN.sub(replace, template)
 
 
 def get_column_key(label: tuple[str, ...], metrics: list[str]) -> tuple[Any, ...]:
@@ -277,6 +304,18 @@ def table(
     """
     # apply `d3NumberFormat` to columns, if present
     column_config = form_data.get("column_config", {})
+    raw_jinja_fields = form_data.get("jinja_fields") or []
+    datasource_data = getattr(datasource, "data", {}) or {}
+    verbose_map = datasource_data.get("verbose_map", {})
+    jinja_labels = get_metric_names(raw_jinja_fields, verbose_map)
+    jinja_values: dict[str, Any] = {}
+
+    if jinja_labels and not df.empty:
+        first_row = df.iloc[0]
+        for label in jinja_labels:
+            if label in df.columns:
+                jinja_values[label] = first_row[label]
+
     for column, config in column_config.items():
         if "d3NumberFormat" in config:
             format_ = "{:" + config["d3NumberFormat"] + "}"
@@ -285,6 +324,22 @@ def table(
             except Exception:  # pylint: disable=broad-except  # noqa: S110
                 # if we can't format the column for any reason, send as is
                 pass
+
+    # Remove helper jinja fields from the exported dataset
+    if jinja_labels:
+        drop_columns = [label for label in jinja_labels if label in df.columns]
+        if drop_columns:
+            df = df.drop(columns=drop_columns)
+
+    # Apply display name overrides, resolving Jinja placeholders when present
+    rename_map: dict[str, str] = {}
+    for column, config in column_config.items():
+        display_name = config.get("displayName")
+        if display_name:
+            rename_map[column] = resolve_display_name(display_name, jinja_values)
+
+    if rename_map:
+        df = df.rename(columns=rename_map)
 
     return df
 

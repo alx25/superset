@@ -23,17 +23,24 @@ import { Comparator, ControlComponentProps } from '@superset-ui/chart-controls';
 
 export type ConditionalFormattingConfig = {
   operator?: Comparator;
-  targetValue?: number;
-  targetValueLeft?: number;
-  targetValueRight?: number;
+  // For numeric comparisons these are numbers; for string comparisons they will be strings
+  targetValue?: number | string;
+  targetValueLeft?: number | string;
+  targetValueRight?: number | string;
   column?: string;
   colorScheme?: string;
+  colorMode?: 'gradient' | 'uniform';
 };
 
 export type ConditionalFormattingControlProps = ControlComponentProps<
   ConditionalFormattingConfig[]
 > & {
-  columnOptions: { label: string; value: string }[];
+  // column options; type is optional and can contain GenericDataType numeric code
+  columnOptions: {
+    label: string;
+    value: string;
+    type?: number;
+  }[];
   removeIrrelevantConditions: boolean;
   verboseMap: Record<string, string>;
   label: string;
@@ -42,7 +49,7 @@ export type ConditionalFormattingControlProps = ControlComponentProps<
 };
 
 export type FormattingPopoverProps = PopoverProps & {
-  columns: { label: string; value: string }[];
+  columns: { label: string; value: string; type?: number }[];
   onChange: (value: ConditionalFormattingConfig) => void;
   config?: ConditionalFormattingConfig;
   title: string;

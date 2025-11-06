@@ -18,9 +18,12 @@
  */
 import { supersetTheme } from '@superset-ui/core';
 import { Tooltip as AntdTooltip } from 'antd-v5';
-import { TooltipProps, TooltipPlacement } from 'antd-v5/lib/tooltip';
+import type {
+  TooltipProps,
+  TooltipPlacement,
+} from 'antd-v5/es/tooltip';
 
-export { TooltipProps, TooltipPlacement };
+export type { TooltipProps, TooltipPlacement };
 
 export const Tooltip = ({ overlayStyle, ...props }: TooltipProps) => (
   <>
