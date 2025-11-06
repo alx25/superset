@@ -44,14 +44,24 @@ const listViewCardTheme = {
 const StyledCard = styled(Card)`
   ${({ theme }) => `
     overflow: hidden;
+    border-radius: ${theme.borderRadius * 3}px;
+    background: ${theme.colors.grayscale.light5};
+    border: 1px solid ${theme.colors.grayscale.light3};
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+    transition: transform ${theme.transitionTiming}s ease,
+      box-shadow ${theme.transitionTiming}s ease,
+      border-color ${theme.transitionTiming}s ease;
 
     .gradient-container {
       position: relative;
       height: 100%;
     }
-    &:hover {
-      box-shadow: 8px 8px 28px 0px ${theme.colors.grayscale.light1};
-      transition: box-shadow ${theme.transitionTiming}s ease-in-out;
+
+    &:hover,
+    &:focus-within {
+      box-shadow: 0 14px 28px rgba(0, 0, 0, 0.12);
+      transform: translateY(-4px);
+      border-color: ${theme.colors.primary.base};
 
       .cover-footer {
         transform: translateY(0);
@@ -72,8 +82,8 @@ const Cover = styled.div`
 `;
 
 const TitleContainer = styled.div`
+  position: relative;
   display: flex;
-  justify-content: flex-start;
   flex-direction: column;
 
   .card-actions {
@@ -88,24 +98,52 @@ const TitleContainer = styled.div`
 
   .titleRow {
     display: flex;
-    justify-content: flex-start;
-    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: ${({ theme }) => theme.gridUnit * 2}px;
   }
 `;
 
 const TitleLink = styled.span`
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
   overflow: hidden;
-  text-overflow: ellipsis;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: normal;
+  line-height: 1.3;
+  max-height: calc(1.3em * 2);
+  font-weight: 600;
+  color: ${({ theme }) => theme.colors.grayscale.dark2};
+
   & a {
-    color: ${({ theme }) => theme.colors.grayscale.dark1} !important;
+    color: ${({ theme }) => theme.colors.grayscale.dark2};
+    text-decoration: none;
   }
 `;
 
 const TitleRight = styled.span`
-  position: absolute;
-  right: -1px;
-  font-weight: 400;
-  bottom: ${({ theme }) => theme.gridUnit}px;
+  display: inline-flex;
+  align-items: center;
+  margin-left: ${({ theme }) => theme.gridUnit * 2}px;
+  white-space: nowrap;
+`;
+
+const DescriptionRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: ${({ theme }) => theme.gridUnit * 2}px;
+  color: ${({ theme }) => theme.colors.grayscale.base};
+
+  span {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 `;
 
 const CoverFooter = styled.div`
@@ -274,14 +312,18 @@ function ListViewCard({
                       {title}
                     </TitleLink>
                   </Tooltip>
-                  {titleRight && <TitleRight>{titleRight}</TitleRight>}
                   <div className="card-actions" data-test="card-actions">
                     {actions}
                   </div>
                 </div>
               </TitleContainer>
             }
-            description={description}
+            description={
+              <DescriptionRow>
+                <span>{description}</span>
+                {titleRight && <TitleRight>{titleRight}</TitleRight>}
+              </DescriptionRow>
+            }
             avatar={avatar || null}
           />
         )}

@@ -362,17 +362,17 @@ export const CardContainer = styled.div<{
   showThumbnails?: boolean | undefined;
 }>`
   ${({ showThumbnails, theme }) => `
-    overflow: hidden;
+    overflow: visible;
     display: grid;
-    grid-gap: ${theme.gridUnit * 12}px ${theme.gridUnit * 4}px;
-    grid-template-columns: repeat(auto-fit, 300px);
-    max-height: ${showThumbnails ? '314' : '148'}px;
-    margin-top: ${theme.gridUnit * -6}px;
+    grid-gap: ${theme.gridUnit * 8}px ${theme.gridUnit * 4}px;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    margin-top: ${theme.gridUnit * -2}px;
     padding: ${
       showThumbnails
-        ? `${theme.gridUnit * 8 + 3}px ${theme.gridUnit * 9}px`
-        : `${theme.gridUnit * 8 + 1}px ${theme.gridUnit * 9}px`
+        ? `${theme.gridUnit * 7}px ${theme.gridUnit * 6}px`
+        : `${theme.gridUnit * 6}px ${theme.gridUnit * 6}px`
     };
+    background: transparent;
   `}
 `;
 
