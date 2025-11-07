@@ -172,12 +172,16 @@ class TagDAO(BaseDAO[Tag]):
         returns a list of tagged objects filtered by tag names and object types
         if no filters applied returns all tagged objects
         """
+        from superset import security_manager
+        from sqlalchemy.orm import joinedload
+        
         results: list[dict[str, Any]] = []
 
         # dashboards
         if (not obj_types) or ("dashboard" in obj_types):
             dashboards = (
                 db.session.query(Dashboard)
+                .options(joinedload(Dashboard.tags))  # Eager load tags
                 .join(
                     TaggedObject,
                     and_(
@@ -189,25 +193,42 @@ class TagDAO(BaseDAO[Tag]):
                 .filter(not tags or Tag.name.in_(tags))
             )
 
-            results.extend(
-                {
-                    "id": obj.id,
-                    "type": ObjectType.dashboard.name,
-                    "name": obj.dashboard_title,
-                    "url": obj.url,
-                    "changed_on": obj.changed_on,
-                    "created_by": obj.created_by_fk,
-                    "creator": obj.creator(),
-                    "tags": obj.tags,
-                    "owners": obj.owners,
-                }
-                for obj in dashboards
-            )
+            # Filtrar por permisos RBAC
+            for obj in dashboards:
+                try:
+                    # Verificar si el usuario tiene permiso para ver este dashboard
+                    if security_manager.can_access_dashboard(obj):
+                        # Serializar tags explícitamente
+                        tag_list = [
+                            {
+                                "id": tag.id,
+                                "name": tag.name,
+                                "type": tag.type,
+                            }
+                            for tag in obj.tags
+                        ] if obj.tags else []
+                        
+                        results.append({
+                            "id": obj.id,
+                            "type": ObjectType.dashboard.name,
+                            "name": obj.dashboard_title,
+                            "url": obj.url,
+                            "changed_on": obj.changed_on,
+                            "created_by": obj.created_by_fk,
+                            "creator": obj.creator(),
+                            "tags": tag_list,
+                            "owners": obj.owners,
+                        })
+                except Exception as ex:
+                    logger.warning(f"Error checking dashboard permissions: {ex}")
+                    # Si hay error verificando permisos, mejor no incluir el dashboard
+                    continue
 
         # charts
         if (not obj_types) or ("chart" in obj_types):
             charts = (
                 db.session.query(Slice)
+                .options(joinedload(Slice.tags))  # Eager load tags
                 .join(
                     TaggedObject,
                     and_(
@@ -218,20 +239,36 @@ class TagDAO(BaseDAO[Tag]):
                 .join(Tag, TaggedObject.tag_id == Tag.id)
                 .filter(not tags or Tag.name.in_(tags))
             )
-            results.extend(
-                {
-                    "id": obj.id,
-                    "type": ObjectType.chart.name,
-                    "name": obj.slice_name,
-                    "url": obj.url,
-                    "changed_on": obj.changed_on,
-                    "created_by": obj.created_by_fk,
-                    "creator": obj.creator(),
-                    "tags": obj.tags,
-                    "owners": obj.owners,
-                }
-                for obj in charts
-            )
+            
+            # Filtrar por permisos RBAC
+            for obj in charts:
+                try:
+                    # Verificar si el usuario tiene permiso para ver este chart
+                    if security_manager.can_access_chart(obj):
+                        # Serializar tags explícitamente
+                        tag_list = [
+                            {
+                                "id": tag.id,
+                                "name": tag.name,
+                                "type": tag.type,
+                            }
+                            for tag in obj.tags
+                        ] if obj.tags else []
+                        
+                        results.append({
+                            "id": obj.id,
+                            "type": ObjectType.chart.name,
+                            "name": obj.slice_name,
+                            "url": obj.url,
+                            "changed_on": obj.changed_on,
+                            "created_by": obj.created_by_fk,
+                            "creator": obj.creator(),
+                            "tags": tag_list,
+                            "owners": obj.owners,
+                        })
+                except Exception as ex:
+                    logger.warning(f"Error checking chart permissions: {ex}")
+                    continue
 
         # saved queries
         if (not obj_types) or ("query" in obj_types):

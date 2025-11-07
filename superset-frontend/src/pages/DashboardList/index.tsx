@@ -25,7 +25,7 @@ import {
 } from '@superset-ui/core';
 import { useSelector } from 'react-redux';
 import { useState, useMemo, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useHistory } from 'react-router-dom';
 import rison from 'rison';
 import {
   createFetchRelated,
@@ -56,6 +56,7 @@ import FaveStar from 'src/components/FaveStar';
 import PropertiesModal from 'src/dashboard/components/PropertiesModal';
 import { Tooltip } from 'src/components/Tooltip';
 import ImportModelsModal from 'src/components/ImportModal/index';
+import DashboardTagSidebar from 'src/features/dashboards/DashboardTagSidebar';
 
 import Dashboard from 'src/dashboard/containers/Dashboard';
 import {
@@ -112,6 +113,46 @@ const Actions = styled.div`
   color: ${({ theme }) => theme.colors.grayscale.base};
 `;
 
+const PageLayout = styled.div`
+  display: flex;
+  height: 100%;
+  width: 100%;
+`;
+
+const ListArea = styled.div`
+  flex: 1;
+  overflow-x: hidden;
+`;
+
+const ToggleSidebarButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: ${({ theme }) => theme.colors.primary.base};
+  color: white;
+  border: none;
+  border-radius: ${({ theme }) => theme.borderRadius}px;
+  padding: ${({ theme }) => theme.gridUnit * 1.5}px
+    ${({ theme }) => theme.gridUnit * 3}px;
+  font-size: ${({ theme }) => theme.typography.sizes.l}px;
+  font-weight: ${({ theme }) => theme.typography.weights.medium};
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-right: ${({ theme }) => theme.gridUnit * 3}px;
+  min-width: ${({ theme }) => theme.gridUnit * 10}px;
+  height: ${({ theme }) => theme.gridUnit * 10}px;
+
+  &:hover {
+    background: ${({ theme }) => theme.colors.primary.dark1};
+    transform: scale(1.05);
+  }
+
+  &:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px ${({ theme }) => theme.colors.primary.light3};
+  }
+`;
+
 const DASHBOARD_COLUMNS_TO_FETCH = [
   'id',
   'dashboard_title',
@@ -138,11 +179,66 @@ const DASHBOARD_COLUMNS_TO_FETCH = [
 
 function DashboardList(props: DashboardListProps) {
   const { addDangerToast, addSuccessToast, user } = props;
+  const location = useLocation();
+  const history = useHistory();
 
   const { roles } = useSelector<any, UserWithPermissionsAndRoles>(
     state => state.user,
   );
   const canReadTag = findPermission('can_read', 'Tag', roles);
+
+  // Estado para controlar la visibilidad del panel de tags
+  const [showTagSidebar, setShowTagSidebar] = useState(() => {
+    // En desktop, mostrar por defecto. En móvil, oculto por defecto
+    if (typeof window !== 'undefined') {
+      return window.innerWidth >= 1536; // 192 * 8px grid unit
+    }
+    return true;
+  });
+
+  // Obtener el tagId actual desde la URL
+  const getCurrentTagId = useCallback((): number | null => {
+    try {
+      const params = new URLSearchParams(location.search);
+      const filtersParam = params.get('filters');
+      
+      if (filtersParam) {
+        const decodedFilters = rison.decode(filtersParam);
+        
+        // Los filtros pueden venir como array o como objeto
+        let filters: any[] = [];
+        if (Array.isArray(decodedFilters)) {
+          filters = decodedFilters;
+        } else if (typeof decodedFilters === 'object' && decodedFilters !== null) {
+          // Si es un objeto, buscar directamente la propiedad 'tags'
+          const filtersObj = decodedFilters as any;
+          if (filtersObj.tags !== undefined) {
+            // El formato oficial es: {tags: {label: '...', value: 9}}
+            if (typeof filtersObj.tags === 'object' && filtersObj.tags.value !== undefined) {
+              return Number(filtersObj.tags.value);
+            }
+            // Formato alternativo: solo el valor
+            return Number(filtersObj.tags);
+          }
+          // Convertir objeto a array de filtros
+          filters = Object.entries(decodedFilters).map(([key, value]) => ({
+            id: key,
+            key,
+            value,
+          }));
+        }
+        
+        const tagsFilter = filters?.find((f: any) => f.id === 'tags' || f.key === 'tags');
+        
+        if (tagsFilter && tagsFilter.value !== undefined) {
+          return Number(tagsFilter.value);
+        }
+      }
+    } catch (error) {
+      console.error('Error parsing tag filter from URL:', error);
+    }
+    return null;
+  }, [location.search]);
 
   const {
     state: {
@@ -166,6 +262,62 @@ function DashboardList(props: DashboardListProps) {
     undefined,
     DASHBOARD_COLUMNS_TO_FETCH,
   );
+
+  // Actualizar el filtro de tags en la URL (después de useListViewResource para tener acceso a fetchData)
+  const handleTagSelect = useCallback(
+    (tagId: number | null, tagName?: string) => {
+      const params = new URLSearchParams(location.search);
+      const filtersParam = params.get('filters');
+
+      try {
+        let filters: any = filtersParam ? rison.decode(filtersParam) : {};
+        
+        // Asegurarse de que filters sea un objeto
+        if (Array.isArray(filters)) {
+          const newFilters: any = {};
+          filters.forEach((f: any) => {
+            if (f.id && f.id !== 'tags') {
+              newFilters[f.id] = f.value;
+            }
+          });
+          filters = newFilters;
+        }
+        
+        // Actualizar el filtro de tags
+        if (tagId !== null) {
+          // Usar el nombre del tag si está disponible
+          filters.tags = {
+            label: tagName || `Tag ${tagId}`,
+            value: tagId,
+          };
+        } else {
+          delete filters.tags;
+        }
+        
+        // Actualizar parámetros de URL
+        if (Object.keys(filters).length > 0) {
+          params.set('filters', rison.encode(filters));
+        } else {
+          params.delete('filters');
+        }
+        
+        // Resetear a página 1 cuando cambia el filtro
+        params.set('pageIndex', '0');
+        
+        const newSearch = params.toString();
+        
+        // Actualizar la URL sin recargar la página
+        history.push({
+          pathname: location.pathname,
+          search: newSearch,
+        });
+      } catch (error) {
+        console.error('Error updating tag filter:', error);
+      }
+    },
+    [location.pathname, location.search, history],
+  );
+  
   const dashboardIds = useMemo(() => dashboards.map(d => d.id), [dashboards]);
   const [saveFavoriteStatus, favoriteStatus] = useFavoriteStatus(
     'dashboard',
@@ -545,12 +697,12 @@ function DashboardList(props: DashboardListProps) {
       ...(isFeatureEnabled(FeatureFlag.TaggingSystem) && canReadTag
         ? [
             {
-              Header: t('Tag'),
+              Header: 'Categoría',
               key: 'tags',
               id: 'tags',
               input: 'select',
               operator: FilterOperator.DashboardTagById,
-              unfilteredLabel: t('All'),
+              unfilteredLabel: 'Todas',
               fetchSelects: loadTags,
             },
           ]
@@ -668,6 +820,7 @@ function DashboardList(props: DashboardListProps) {
   );
 
   const subMenuButtons: SubMenuProps['buttons'] = [];
+  
   if (canDelete || canExport) {
     subMenuButtons.push({
       name: t('Bulk select'),
@@ -703,9 +856,23 @@ function DashboardList(props: DashboardListProps) {
       onClick: openDashboardImportModal,
     });
   }
+  
+  // Crear el nombre del SubMenu con el botón de toggle a la izquierda
+  const subMenuName = isFeatureEnabled(FeatureFlag.TaggingSystem) && canReadTag ? (
+    <div style={{ display: 'flex', alignItems: 'center' }}>
+      <ToggleSidebarButton 
+        onClick={() => setShowTagSidebar(!showTagSidebar)}
+        title={showTagSidebar ? 'Ocultar categorías' : 'Mostrar categorías'}
+      >
+        📂
+      </ToggleSidebarButton>
+      {t('Dashboards')}
+    </div>
+  ) : t('Dashboards');
+  
   return (
     <>
-      <SubMenu name={t('Dashboards')} buttons={subMenuButtons} />
+      <SubMenu name={subMenuName} buttons={subMenuButtons} />
       <ConfirmStatusChange
         title={t('Please confirm')}
         description={t(
@@ -766,37 +933,50 @@ function DashboardList(props: DashboardListProps) {
                   title={t('Please confirm')}
                 />
               )}
-              <ListView<Dashboard>
-                bulkActions={bulkActions}
-                bulkSelectEnabled={bulkSelectEnabled}
-                cardSortSelectOptions={sortTypes}
-                className="dashboard-list-view"
-                columns={columns}
-                count={dashboardCount}
-                data={dashboards}
-                disableBulkSelect={toggleBulkSelect}
-                fetchData={fetchData}
-                refreshData={refreshData}
-                filters={filters}
-                initialSort={initialSort}
-                loading={loading}
-                pageSize={PAGE_SIZE}
-                addSuccessToast={addSuccessToast}
-                addDangerToast={addDangerToast}
-                showThumbnails={
-                  userKey
-                    ? userKey.thumbnails
-                    : isFeatureEnabled(FeatureFlag.Thumbnails)
-                }
-                renderCard={renderCard}
-                defaultViewMode={
-                  isFeatureEnabled(FeatureFlag.ListviewsDefaultCardView)
-                    ? 'card'
-                    : 'table'
-                }
-                enableBulkTag={enableBulkTag}
-                bulkTagResourceName="dashboard"
-              />
+              <PageLayout>
+                {isFeatureEnabled(FeatureFlag.TaggingSystem) && canReadTag && (
+                  <DashboardTagSidebar
+                    visible={showTagSidebar}
+                    onClose={() => setShowTagSidebar(false)}
+                    selectedTagId={getCurrentTagId()}
+                    onTagSelect={handleTagSelect}
+                  />
+                )}
+                <ListArea>
+                  <ListView<Dashboard>
+                    key={`dashboard-list-${getCurrentTagId() || 'all'}`}
+                    bulkActions={bulkActions}
+                    bulkSelectEnabled={bulkSelectEnabled}
+                    cardSortSelectOptions={sortTypes}
+                    className="dashboard-list-view"
+                    columns={columns}
+                    count={dashboardCount}
+                    data={dashboards}
+                    disableBulkSelect={toggleBulkSelect}
+                    fetchData={fetchData}
+                    refreshData={refreshData}
+                    filters={filters}
+                    initialSort={initialSort}
+                    loading={loading}
+                    pageSize={PAGE_SIZE}
+                    addSuccessToast={addSuccessToast}
+                    addDangerToast={addDangerToast}
+                    showThumbnails={
+                      userKey
+                        ? userKey.thumbnails
+                        : isFeatureEnabled(FeatureFlag.Thumbnails)
+                    }
+                    renderCard={renderCard}
+                    defaultViewMode={
+                      isFeatureEnabled(FeatureFlag.ListviewsDefaultCardView)
+                        ? 'card'
+                        : 'table'
+                    }
+                    enableBulkTag={enableBulkTag}
+                    bulkTagResourceName="dashboard"
+                  />
+                </ListArea>
+              </PageLayout>
             </>
           );
         }}
