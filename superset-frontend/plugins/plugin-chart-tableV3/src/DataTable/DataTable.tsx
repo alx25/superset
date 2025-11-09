@@ -71,6 +71,7 @@ export interface DataTableProps<D extends object> extends TableOptions<D> {
   onColumnOrderChange: () => void;
   renderGroupingHeaders?: () => JSX.Element;
   renderTimeComparisonDropdown?: () => JSX.Element;
+  topNControl?: ReactNode;
 }
 
 export interface RenderHTMLCellProps extends HTMLProps<HTMLTableCellElement> {
@@ -105,6 +106,7 @@ export default typedMemo(function DataTable<D extends object>({
   onColumnOrderChange,
   renderGroupingHeaders,
   renderTimeComparisonDropdown,
+  topNControl,
   ...moreUseTableOptions
 }: DataTableProps<D>): JSX.Element {
   const tableHooks: PluginHook<D>[] = [
@@ -122,7 +124,10 @@ export default typedMemo(function DataTable<D extends object>({
   const pageSizeRef = useRef([initialPageSize, resultsSize]);
   const hasPagination = initialPageSize > 0 && resultsSize > 0; // pageSize == 0 means no pagination
   const hasGlobalControl =
-    hasPagination || !!searchInput || renderTimeComparisonDropdown;
+    hasPagination ||
+    !!searchInput ||
+    renderTimeComparisonDropdown ||
+    topNControl;
   const initialState = {
     ...initialState_,
     // zero length means all pages, the `usePagination` plugin does not
@@ -401,6 +406,11 @@ export default typedMemo(function DataTable<D extends object>({
               </div>
             ) : null}
           </div>
+          {topNControl ? (
+            <div className="row dt-topn-row">
+              <div className="col-sm-12">{topNControl}</div>
+            </div>
+          ) : null}
         </div>
       ) : null}
       {wrapStickyTable ? wrapStickyTable(renderTable) : renderTable()}

@@ -60,6 +60,7 @@ from superset.utils.core import (
     get_base_axis_labels,
     get_column_names_from_columns,
     get_column_names_from_metrics,
+    get_metric_name,
     get_metric_names,
     get_x_axis_label,
     normalize_dttm_col,
@@ -647,10 +648,136 @@ class QueryContextProcessor:
     ) -> str | list[dict[str, Any]]:
         if self._query_context.result_format in ChartDataResultFormat.table_like():
             include_index = not isinstance(df.index, pd.RangeIndex)
+            column_type_by_name = {
+                column: column_type
+                for column, column_type in zip(df.columns, coltypes)
+            }
+            verbose_map = self._qc_datasource.data.get("verbose_map", {}) or {}
+            form_data = self._query_context.form_data or {}
+            column_config: dict[str, Any] = {}
+            jinja_field_labels: set[str] = set()
+            required_identifiers: set[str] = set()
+            context_df = df
+            if isinstance(form_data, dict):
+                config_candidate = form_data.get("column_config")
+                if isinstance(config_candidate, dict):
+                    column_config = config_candidate
+                    for raw_name, settings in column_config.items():
+                        if isinstance(settings, dict):
+                            track_identifier(raw_name)
+                            display_name_candidate = settings.get("displayName")
+                            if isinstance(display_name_candidate, str):
+                                track_identifier(display_name_candidate)
+
+                def track_identifier(label: str | None) -> None:
+                    if not label:
+                        return
+                    identifier = str(label)
+                    required_identifiers.add(identifier)
+                    mapped_verbose = verbose_map.get(identifier)
+                    if mapped_verbose is not None:
+                        required_identifiers.add(str(mapped_verbose))
+                    for raw_label, verbose_label in verbose_map.items():
+                        if str(verbose_label) == identifier:
+                            required_identifiers.add(str(raw_label))
+
+                metrics_candidate = form_data.get("metrics")
+                if isinstance(metrics_candidate, (list, tuple)):
+                    for metric in metrics_candidate:
+                        try:
+                            resolved_metric = get_metric_name(metric, verbose_map)
+                        except ValueError:
+                            resolved_metric = None
+                        if resolved_metric is not None:
+                            track_identifier(resolved_metric)
+                        if isinstance(metric, dict):
+                            track_identifier(metric.get("label"))
+                            track_identifier(metric.get("sqlExpression"))
+                            column_dict = metric.get("column")
+                            if isinstance(column_dict, dict):
+                                track_identifier(column_dict.get("column_name"))
+                        elif isinstance(metric, str):
+                            track_identifier(metric)
+
+                jinja_fields_candidate = form_data.get("jinja_fields")
+                if isinstance(jinja_fields_candidate, (list, tuple)):
+                    for entry in jinja_fields_candidate:
+                        label: str | None = None
+                        if isinstance(entry, str):
+                            label = entry
+                        elif isinstance(entry, dict):
+                            try:
+                                label = get_metric_name(entry, verbose_map)
+                            except ValueError:
+                                label = entry.get("label") or entry.get("sqlExpression")
+                        if label:
+                            jinja_field_labels.add(str(label))
+
+            if jinja_field_labels:
+                drop_columns: list[str] = []
+                for column in df.columns:
+                    verbose_label = verbose_map.get(column)
+                    if column in required_identifiers or verbose_label in required_identifiers:
+                        continue
+                    if column in jinja_field_labels or verbose_label in jinja_field_labels:
+                        drop_columns.append(column)
+                if drop_columns:
+                    df = df.drop(columns=drop_columns).copy()
+
             columns = list(df.columns)
-            verbose_map = self._qc_datasource.data.get("verbose_map", {})
-            if verbose_map:
-                df.columns = [verbose_map.get(column, column) for column in columns]
+            effective_column_types = [column_type_by_name.get(column) for column in columns]
+
+            jinja_context: dict[str, Any] = {}
+            # Use the original data frame (with Jinja fields) to resolve placeholders.
+            context_source = context_df if not context_df.empty else df
+            if not context_source.empty:
+                first_row = context_source.iloc[0].to_dict()
+                for column in context_source.columns:
+                    value = first_row.get(column)
+                    jinja_context[column] = value
+                    verbose_label = verbose_map.get(column)
+                    if verbose_label is not None:
+                        jinja_context[verbose_label] = value
+
+            jinja_pattern = re.compile(r"\{\{([^}]+)\}\}")
+
+            def resolve_display_name(template: str) -> str:
+                if not isinstance(template, str):
+                    return str(template)
+
+                def replace(match: re.Match) -> str:
+                    expression = match.group(1).strip()
+                    if expression in jinja_context:
+                        replacement = jinja_context[expression]
+                        if replacement is None:
+                            return "NULL"
+                        try:
+                            if pd.isna(replacement):
+                                return "NULL"
+                        except TypeError:
+                            # Non-numeric objects may not be compatible with pd.isna
+                            pass
+                        return str(replacement)
+                    return match.group(0)
+
+                return jinja_pattern.sub(replace, template)
+
+            renamed_columns = []
+            for column in columns:
+                resolved_value: Any = verbose_map.get(column, column)
+                column_settings = column_config.get(column) if column_config else None
+                if (
+                    isinstance(column_settings, dict)
+                    and column_settings.get("displayName") is not None
+                ):
+                    resolved_value = resolve_display_name(
+                        column_settings["displayName"]
+                    )
+                if resolved_value is None:
+                    resolved_value = column
+                renamed_columns.append(str(resolved_value))
+
+            df.columns = renamed_columns
 
             result = None
             if self._query_context.result_format == ChartDataResultFormat.CSV:
@@ -658,7 +785,7 @@ class QueryContextProcessor:
                     df, index=include_index, **config["CSV_EXPORT"]
                 )
             elif self._query_context.result_format == ChartDataResultFormat.XLSX:
-                excel.apply_column_types(df, coltypes)
+                excel.apply_column_types(df, effective_column_types)
                 result = excel.df_to_excel(df, **config["EXCEL_EXPORT"])
             return result or ""
 

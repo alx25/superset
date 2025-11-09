@@ -47,6 +47,7 @@ import {
 import { isEmpty } from 'lodash';
 import isEqualColumns from './utils/isEqualColumns';
 import DateWithFormatter from './utils/DateWithFormatter';
+import { processTopData } from './utils/topN';
 import {
   BasicColorFormatterType,
   ColorSchemeEnum,
@@ -473,199 +474,6 @@ const getPageSize = (
 const defaultServerPaginationData = {};
 const defaultColorFormatters = [] as ColorFormatters;
 
-/**
- * Process data for Top N functionality
- * @param data - Original data array
- * @param columns - Column metadata
- * @param topMetric - Metric to use for ranking
- * @param topCount - Number of top rows to keep (0 = all)
- * @returns Processed data with "Others" row if applicable
- */
-function processTopData(
-  data: DataRecord[],
-  columns: DataColumnMeta[],
-  topMetric: string,
-  topCount: number,
-): DataRecord[] {
-  if (!data || data.length === 0 || topCount === 0 || !topMetric) {
-    return data;
-  }
-
-  // If we have fewer rows than topCount, return original data
-  if (data.length <= topCount) {
-    return data;
-  }
-
-  // Sort data by the top metric (descending - highest first)
-  const sortedData = [...data].sort((a, b) => {
-    const aVal = Number(a[topMetric]) || 0;
-    const bVal = Number(b[topMetric]) || 0;
-    return bVal - aVal; // Descending order
-  });
-
-  // Take top N rows
-  const topRows = sortedData.slice(0, topCount);
-  const remainingRows = sortedData.slice(topCount);
-
-  // If no remaining rows, return top rows only
-  if (remainingRows.length === 0) {
-    return topRows;
-  }
-
-  // Create "Others" row by aggregating remaining data
-  const othersRow: DataRecord = {};
-
-  // Process each column to calculate appropriate aggregate
-  columns.forEach(column => {
-    const { key, isMetric, isNumeric } = column;
-
-    if (key === '#') {
-      // Skip row number column
-      return;
-    }
-
-    const remainingValues = remainingRows
-      .map(row => row[key])
-      .filter(val => val !== null && val !== undefined);
-
-    if (remainingValues.length === 0) {
-      othersRow[key] = null;
-      return;
-    }
-
-    // For dimensions (non-metrics), use "Otros"
-    if (!isMetric && !isNumeric) {
-      othersRow[key] = 'OTROS';
-      return;
-    }
-
-    // For metrics, determine if it's a ratio/percentage or simple metric
-    const isLikelyRatio = isRatioMetric(key, remainingRows);
-
-    if (isLikelyRatio) {
-      // For ratios, calculate weighted average or recalculate from components
-      othersRow[key] = calculateRatioAggregate(key, remainingRows, columns);
-    } else {
-      // For simple metrics, sum the values
-      othersRow[key] = remainingValues.reduce((sum: number, val) => {
-        const numVal = Number(val) || 0;
-        return sum + numVal;
-      }, 0);
-    }
-  });
-
-  return [...topRows, othersRow];
-}
-
-/**
- * Determine if a metric is likely a ratio/percentage that should be recalculated
- * rather than summed
- */
-function isRatioMetric(columnKey: string, data: DataRecord[]): boolean {
-  const key = columnKey.toLowerCase();
-
-  // Check for common ratio indicators in column name
-  const ratioIndicators = [
-    '/',
-    'ratio',
-    'rate',
-    'percent',
-    '%',
-    'vs',
-    'per',
-    'margin',
-    'efficiency',
-    'conversion',
-    'yield',
-  ];
-
-  if (ratioIndicators.some(indicator => key.includes(indicator))) {
-    return true;
-  }
-
-  // Check if values are typically between 0 and some reasonable ratio (like 10)
-  // Most ratios/percentages don't exceed these ranges
-  const numericValues = data
-    .map(row => Number(row[columnKey]))
-    .filter(val => !Number.isNaN(val) && val !== 0);
-
-  if (numericValues.length === 0) return false;
-
-  const max = Math.max(...numericValues);
-  const avg = numericValues.reduce((a, b) => a + b, 0) / numericValues.length;
-
-  // If most values are small decimals or reasonable ratios, likely a ratio
-  return max < 100 && avg < 10;
-}
-
-/**
- * Calculate appropriate aggregate for ratio metrics
- */
-function calculateRatioAggregate(
-  columnKey: string,
-  data: DataRecord[],
-  columns: DataColumnMeta[],
-): number {
-  // Try to find component columns for recalculation
-  // For example, if column is "venta/cuota", look for "venta" and "cuota" columns
-  const componentColumns = findComponentColumns(columnKey, columns);
-
-  if (componentColumns.length === 2) {
-    // Recalculate ratio from component sums
-    const [numeratorKey, denominatorKey] = componentColumns;
-
-    const numeratorSum = data.reduce(
-      (sum, row) => sum + (Number(row[numeratorKey]) || 0),
-      0,
-    );
-
-    const denominatorSum = data.reduce(
-      (sum, row) => sum + (Number(row[denominatorKey]) || 0),
-      0,
-    );
-
-    return denominatorSum === 0 ? 0 : numeratorSum / denominatorSum;
-  }
-
-  // Fallback: calculate weighted average
-  const values = data.map(row => Number(row[columnKey]) || 0);
-  return values.reduce((sum, val) => sum + val, 0) / values.length;
-}
-
-/**
- * Find component columns that might be used to recalculate a ratio
- */
-function findComponentColumns(
-  ratioColumnKey: string,
-  columns: DataColumnMeta[],
-): string[] {
-  // Look for patterns like "venta/cuota" or "venta vs cuota"
-  const separators = ['/', ' vs ', ' vs. ', ' / ', '_vs_', '-vs-'];
-  const columnKeys = columns.map(col => col.key);
-
-  for (const separator of separators) {
-    if (ratioColumnKey.includes(separator)) {
-      const parts = ratioColumnKey.split(separator);
-      if (parts.length === 2) {
-        const [part1, part2] = parts.map(p => p.trim());
-        // Check if both components exist as actual columns
-        const match1 = columnKeys.find(key =>
-          key.toLowerCase().includes(part1.toLowerCase()),
-        );
-        const match2 = columnKeys.find(key =>
-          key.toLowerCase().includes(part2.toLowerCase()),
-        );
-
-        if (match1 && match2) {
-          return [match1, match2];
-        }
-      }
-    }
-  }
-
-  return [];
-}
-
 const transformProps = (
   chartProps: TableChartProps,
 ): TableChartTransformedProps => {
@@ -881,27 +689,37 @@ const transformProps = (
     rowCount = baseQuery?.rowcount ?? 0;
   }
   const data = processDataRecords(baseQuery?.data, columns);
+  const topMetricLabel = top_metric ? getMetricLabel(top_metric) : undefined;
 
-  // Add row numbers to data if enabled
-  const dataWithRowNumbers = formData.show_row_numbers
+  const withRowNumbers = formData.show_row_numbers
     ? data.map((row, index) => ({ '#': index + 1, ...row }))
     : data;
 
-  // Apply Top N processing if enabled
-  let finalData = dataWithRowNumbers;
-  if (show_top && top_metric) {
-    const topMetricLabel = getMetricLabel(top_metric);
-    finalData = processTopData(
-      dataWithRowNumbers,
-      columns,
-      topMetricLabel,
-      top_count,
-    );
+  const topProcessed =
+    show_top && topMetricLabel
+      ? processTopData(data, columns, topMetricLabel, top_count)
+      : undefined;
 
-    // Re-apply row numbers if enabled after Top processing
-    if (formData.show_row_numbers) {
-      finalData = finalData.map((row, index) => ({ '#': index + 1, ...row }));
-    }
+  let finalData = topProcessed ?? data;
+  if (formData.show_row_numbers) {
+    finalData = finalData.map((row, index) => ({ '#': index + 1, ...row }));
+  }
+
+  const topConfig =
+    show_top && topMetricLabel
+      ? {
+          enabled: true,
+          metric: topMetricLabel,
+          defaultCount: top_count,
+          allowUserControl: Boolean(formData.top_show_in_chart),
+          baseData: data,
+          columns,
+          showRowNumbers: Boolean(formData.show_row_numbers),
+        }
+      : undefined;
+
+  if (!show_top) {
+    finalData = withRowNumbers;
   }
   const comparisonData = processComparisonDataRecords(
     baseQuery?.data,
@@ -966,6 +784,7 @@ const transformProps = (
     basicColorFormatters,
     startDateOffset,
     basicColorColumnFormatters,
+    topConfig,
   };
 };
 
