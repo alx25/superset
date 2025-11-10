@@ -387,7 +387,7 @@
     "fast-glob": {
       "micromatch": "^4.0.6"
     },
-    "@deck.gl/widgets": "9.1.0"
+    "@deck.gl/widgets": "^9.1.0"
   },
   "readme": "ERROR: No README data found!",
   "scarfSettings": {

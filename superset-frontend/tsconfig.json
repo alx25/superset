@@ -6,6 +6,7 @@
     "noImplicitThis": true,
     "noUnusedLocals": true,
     "strictNullChecks": true,
+    "skipLibCheck": true,
 
     /* Modules */
     "baseUrl": ".",
