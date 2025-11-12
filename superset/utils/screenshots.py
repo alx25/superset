@@ -273,6 +273,10 @@ class BaseScreenshot:
             logger.info("Caching thumbnail: %s", cache_key)
             with event_logger.log_context(f"screenshot.cache.{self.thumbnail_type}"):
                 cache_payload.update(image)
+        else:
+            # Si no hay imagen después del proceso, marcar como error
+            logger.warning("No image generated for thumbnail: %s", cache_key)
+            cache_payload.error()
         self.cache.set(cache_key, cache_payload.to_dict())
         logger.info("Updated thumbnail cache; Status: %s", cache_payload.get_status())
         return
