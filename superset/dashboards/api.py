@@ -1314,6 +1314,29 @@ class DashboardRestApi(BaseSupersetModelRestApi):
                 task_status=cache_payload.get_status(),
             )
 
+        # Si la imagen es None (error previo o corrupción), forzar regeneración
+        if cache_payload.get_image() is None:
+            self.incr_stats("async", self.thumbnail.__name__)
+            logger.warning(
+                "Thumbnail cache has None image (dashboard id: %s), forcing regeneration",
+                str(dashboard.id),
+            )
+            screenshot_obj.cache.set(cache_key, ScreenshotCachePayload().to_dict())
+            cache_dashboard_thumbnail.delay(
+                current_user=current_user,
+                dashboard_id=dashboard.id,
+                force=True,
+                cache_key=cache_key,
+            )
+            return self.response(
+                202,
+                cache_key=cache_key,
+                dashboard_url=dashboard_url,
+                image_url=image_url,
+                task_updated_at=cache_payload.get_timestamp(),
+                task_status="pending",
+            )
+
         self.incr_stats("from_cache", self.thumbnail.__name__)
         return Response(
             FileWrapper(cache_payload.get_image()),

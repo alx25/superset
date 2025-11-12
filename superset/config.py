@@ -38,7 +38,7 @@ from importlib.resources import files
 from typing import Any, Callable, Literal, TYPE_CHECKING, TypedDict
 from cachelib.redis import RedisCache
 import pkg_resources
-from celery.schedules import crontab
+from celery.schedules import crontab, timedelta
 from flask import Blueprint
 from flask_appbuilder.security.manager import AUTH_DB
 from flask_caching.backends.base import BaseCache
@@ -56,7 +56,7 @@ from superset.jinja_context import BaseTemplateProcessor
 from superset.key_value.types import JsonKeyValueCodec
 from superset.stats_logger import DummyStatsLogger
 from superset.superset_typing import CacheConfig
-from superset.tasks.types import ExecutorType
+from superset.tasks.types import ExecutorType, FixedExecutor
 from superset.utils import core as utils
 from superset.utils.core import is_test, NO_TIME_RANGE, parse_boolean_string
 from superset.utils.encrypt import SQLAlchemyUtilsAdapter
@@ -520,9 +520,9 @@ DEFAULT_FEATURE_FLAGS: dict[str, bool] = {
     # and doesn't work with all nested types.
     "PRESTO_EXPAND_DATA": False,
     # Exposes API endpoint to compute thumbnails
-    "THUMBNAILS": True,
-    "THUMBNAILS_SQLA_LISTENERS": True,
-    "ENABLE_DASHBOARD_SCREENSHOT_ENDPOINTS": True,
+    "THUMBNAILS": True,  # DESHABILITADO - Sobrecarga el servidor
+    "THUMBNAILS_SQLA_LISTENERS": True,  # DESHABILITADO
+    "ENABLE_DASHBOARD_SCREENSHOT_ENDPOINTS": False,  # DESHABILITADO
     "ENABLE_DASHBOARD_DOWNLOAD_WEBDRIVER_SCREENSHOT": False,
     "DASHBOARD_CACHE": True,  # deprecated
     "REMOVE_SLICE_LEVEL_LABEL_COLORS": False,  # deprecated
@@ -564,8 +564,12 @@ DEFAULT_FEATURE_FLAGS: dict[str, bool] = {
     # Apply RLS rules to SQL Lab queries. This requires parsing and manipulating the
     # query, and might break queries and/or allow users to bypass RLS. Use with care!
     "RLS_IN_SQLLAB": False,
+    # Try to optimize SQL queries — for now only predicate pushdown is supported.
+    "OPTIMIZE_SQL": True,
     # Enable caching per impersonation key (e.g username) in a datasource where user
     # impersonation is enabled
+    # When impersonating a user, use the email prefix instead of the username
+    "IMPERSONATE_WITH_EMAIL_PREFIX": False,
     "CACHE_IMPERSONATION": False,
     # Enable caching per user key for Superset cache (not database cache impersonation)
     "CACHE_QUERY_BY_USER": False,
@@ -598,7 +602,7 @@ DEFAULT_FEATURE_FLAGS: dict[str, bool] = {
     # Set to True to replace Selenium with Playwright to execute reports and thumbnails.
     # Unlike Selenium, Playwright reports support deck.gl visualizations
     # Enabling this feature flag requires installing "playwright" pip package
-    "PLAYWRIGHT_REPORTS_AND_THUMBNAILS": False,
+    "PLAYWRIGHT_REPORTS_AND_THUMBNAILS": True,  # ✅ HABILITADO - Más rápido y eficiente que Selenium
     "CHART_PLUGINS_EXPERIMENTAL": True,
     "SQLLAB_FORCE_RUN_ASYNC": False,
     # Set to True to to enable factory resent CLI command
@@ -735,6 +739,16 @@ THEME_OVERRIDES: dict[str, Any] = {}
 # This is merely a default
 EXTRA_SEQUENTIAL_COLOR_SCHEMES: list[dict[str, Any]] = []
 
+
+# User used to execute cache warmup tasks
+# By default, the cache is warmed up using the primary owner. To fall back to using
+# a fixed user (admin in this example), use the following configuration:
+#
+from superset.tasks.types import ExecutorType, FixedExecutor
+#
+CACHE_WARMUP_EXECUTORS = [ExecutorType.OWNER, FixedExecutor("admin")]
+#CACHE_WARMUP_EXECUTORS = [ExecutorType.OWNER]
+
 # ---------------------------------------------------
 # Thumbnail config (behind feature flag)
 # ---------------------------------------------------
@@ -747,7 +761,10 @@ EXTRA_SEQUENTIAL_COLOR_SCHEMES: list[dict[str, Any]] = []
 THUMBNAIL_SELENIUM_USER = "Admin"
 
 #THUMBNAIL_EXECUTE_AS = [ExecutorType.CURRENT_USER, ExecutorType.SELENIUM] # <- Para 4.1.0
-THUMBNAIL_EXECUTORS = [ExecutorType.CURRENT_USER] #<- Para 5.0.0
+# Configuración para generar thumbnails solo con usuario Admin (método recomendado en Superset 5.0)
+# Esto evita que cada usuario genere su propio thumbnail, reduciendo la carga del servidor
+# Todos los usuarios verán el mismo thumbnail generado por Admin
+THUMBNAIL_EXECUTORS = [FixedExecutor("Admin")] #<- Solo Admin genera thumbnails
 # By default, thumbnail digests are calculated based on various parameters in the
 # chart/dashboard metadata, and in the case of user-specific thumbnails, the
 # username. To specify a custom digest function, use the following config parameters
@@ -774,10 +791,10 @@ THUMBNAIL_CACHE_CONFIG = {
 
 # Time before selenium times out after trying to locate an element on the page and wait
 # for that element to load for a screenshot.
-SCREENSHOT_LOCATE_WAIT = int(timedelta(seconds=60).total_seconds())
+SCREENSHOT_LOCATE_WAIT = int(timedelta(minutes=3).total_seconds())  # Aumentado de 60s a 180s
 # Time before selenium times out after waiting for all DOM class elements named
 # "loading" are gone.
-SCREENSHOT_LOAD_WAIT = int(timedelta(minutes=2).total_seconds())
+SCREENSHOT_LOAD_WAIT = int(timedelta(minutes=5).total_seconds())  # Aumentado de 2min a 5min
 # Selenium destroy retries
 SCREENSHOT_SELENIUM_RETRIES = 2
 # Give selenium an headstart, in seconds
@@ -1067,76 +1084,159 @@ if os.environ.get("ASYNC_SQL_WORKER") == "1":
 # imports = ('superset.tasks.async_queries',"superset.tasks.thumbnails", "superset.tasks.cache", "superset.sql_lab", "superset.tasks.scheduler",)
 from kombu import Queue
 
-class CeleryConfig:  # pylint: disable=too-few-public-methods
+
+
+
+
+# class CeleryConfig:  # pylint: disable=too-few-public-methods
+#     broker_url = "redis://localhost:6379/8"
+#     result_backend = "redis://localhost:6379/9"
+
+#     # Módulos con tareas de Superset (añadí reports)
+#     imports = (
+#         "superset.tasks.cache",
+#         "superset.sql_lab",
+#         "superset.tasks.scheduler",
+#         "superset.tasks.async_queries",
+#         #"superset.tasks.reports",   # <— para reports.* del beat
+#         "superset.tasks.thumbnails",  # actívalo si usas miniaturas por Celery
+#     )
+
+#     # Colas
+#     task_default_queue = "celery"  # <— importante
+#     task_queues = (
+#         Queue("sql", routing_key="sql.#"),  # consultas asíncronas
+#         Queue("celery"),                    # resto (compatibilidad)
+#         # Queue("reports"),                 # opcional si separas reports
+#         # Queue("thumbnails"),              # opcional si separas thumbnails
+#     )
+
+#     # Rutas: manda SQL async a 'sql'
+#     task_routes = {
+#         # SQL Lab (por si aplica)
+#         "sql_lab.get_sql_results": {"queue": "sql", "routing_key": "sql.get"},
+
+#         # Async queries (nombres CORTOS que ves en Flower)
+#         "load_chart_data_into_cache":     {"queue": "sql", "routing_key": "sql.chart"},
+#         "load_explore_json_into_cache":   {"queue": "sql", "routing_key": "sql.explore"},
+#         "load_pandas_into_cache":         {"queue": "sql", "routing_key": "sql.pandas"},
+
+#         # Y por si en algún entorno aparece con prefijo de módulo:
+#         "superset.tasks.async_queries.load_chart_data_into_cache":   {"queue": "sql", "routing_key": "sql.chart"},
+#         "superset.tasks.async_queries.load_explore_json_into_cache": {"queue": "sql", "routing_key": "sql.explore"},
+#         "superset.tasks.async_queries.load_pandas_into_cache":       {"queue": "sql", "routing_key": "sql.pandas"},
+#     }
+
+#     # Políticas de consumo
+#     worker_prefetch_multiplier = 1
+#     task_acks_late = True
+#     worker_log_level = "INFO"  # o "DEBUG" si estás afinando
+
+#     # (Opcional) rate limit para no inundar el broker
+#     task_annotations = {
+#         "sql_lab.get_sql_results": {"rate_limit": "100/s"},
+#         # "email_reports.send": {
+#         #     "rate_limit": "1/s",
+#         #     "time_limit": int(timedelta(seconds=120).total_seconds()),
+#         #     "soft_time_limit": int(timedelta(seconds=150).total_seconds()),
+#         #     "ignore_result": True,
+#         # },
+#     }
+
+#     # Beat (si usas reports)
+#     # beat_schedule = {
+#     #     "reports.scheduler": {
+#     #         "task": "reports.scheduler",
+#     #         "schedule": crontab(minute="*", hour="*"),
+#     #     },
+#     #     "reports.prune_log": {
+#     #         "task": "reports.prune_log",
+#     #         "schedule": crontab(minute=0, hour=0),
+#     #     },
+#     # }
+
+#     timezone = "America/Costa_Rica"
+#     enable_utc = False
+class CeleryConfig:
     broker_url = "redis://localhost:6379/8"
     result_backend = "redis://localhost:6379/9"
 
-    # Módulos con tareas de Superset (añadí reports)
     imports = (
-        "superset.tasks.cache",
+        "superset.tasks.cache",        # ← aquí vive el warmup
         "superset.sql_lab",
         "superset.tasks.scheduler",
         "superset.tasks.async_queries",
-        #"superset.tasks.reports",   # <— para reports.* del beat
-        # "superset.tasks.thumbnails",  # actívalo si usas miniaturas por Celery
+        # "superset.tasks.reports",
+        "superset.tasks.thumbnails",
     )
 
     # Colas
-    task_default_queue = "celery"  # <— importante
+    task_default_queue = "celery"
     task_queues = (
-        Queue("sql", routing_key="sql.#"),  # consultas asíncronas
-        Queue("celery"),                    # resto (compatibilidad)
-        # Queue("reports"),                 # opcional si separas reports
-        # Queue("thumbnails"),              # opcional si separas thumbnails
+        Queue("sql", routing_key="sql.#"),
+        Queue("warmup", routing_key="warmup.#"),   # ← NUEVA cola dedicada
+        Queue("celery"),
+        # Queue("reports"),
+        # Queue("thumbnails"),
     )
 
-    # Rutas: manda SQL async a 'sql'
+    # Rutas (con nombres corto y fully-qualified por compatibilidad)
     task_routes = {
-        # SQL Lab (por si aplica)
+        # SQL async
         "sql_lab.get_sql_results": {"queue": "sql", "routing_key": "sql.get"},
-
-        # Async queries (nombres CORTOS que ves en Flower)
         "load_chart_data_into_cache":     {"queue": "sql", "routing_key": "sql.chart"},
         "load_explore_json_into_cache":   {"queue": "sql", "routing_key": "sql.explore"},
         "load_pandas_into_cache":         {"queue": "sql", "routing_key": "sql.pandas"},
-
-        # Y por si en algún entorno aparece con prefijo de módulo:
         "superset.tasks.async_queries.load_chart_data_into_cache":   {"queue": "sql", "routing_key": "sql.chart"},
         "superset.tasks.async_queries.load_explore_json_into_cache": {"queue": "sql", "routing_key": "sql.explore"},
         "superset.tasks.async_queries.load_pandas_into_cache":       {"queue": "sql", "routing_key": "sql.pandas"},
+
+        # Warmup (usa ambos por si cambia el nombre visible del task)
+        "cache-warmup": {"queue": "warmup", "routing_key": "warmup.run"},
+        "superset.tasks.cache.cache_warmup": {"queue": "warmup", "routing_key": "warmup.run"},
     }
 
-    # Políticas de consumo
     worker_prefetch_multiplier = 1
     task_acks_late = True
-    worker_log_level = "INFO"  # o "DEBUG" si estás afinando
+    worker_log_level = "INFO"
 
-    # (Opcional) rate limit para no inundar el broker
+    # (Opcional) limita ritmo si hace falta
     task_annotations = {
         "sql_lab.get_sql_results": {"rate_limit": "100/s"},
-        # "email_reports.send": {
-        #     "rate_limit": "1/s",
-        #     "time_limit": int(timedelta(seconds=120).total_seconds()),
-        #     "soft_time_limit": int(timedelta(seconds=150).total_seconds()),
-        #     "ignore_result": True,
-        # },
+        # "email_reports.send": { ... }
     }
 
-    # Beat (si usas reports)
-    # beat_schedule = {
-    #     "reports.scheduler": {
-    #         "task": "reports.scheduler",
-    #         "schedule": crontab(minute="*", hour="*"),
-    #     },
-    #     "reports.prune_log": {
-    #         "task": "reports.prune_log",
-    #         "schedule": crontab(minute=0, hour=0),
-    #     },
-    # }
+    # Programación: 2 jobs ligeros y escalonados
+    beat_schedule = {
+        # 1) Cada hora: recalienta los TOP 10 dashboards de últimos 7 días
+        "cache-warmup-top10-hourly": {
+            "task": "cache-warmup",  # o "superset.tasks.cache.cache_warmup"
+            "schedule": crontab(minute=7, hour="*"),
+            "kwargs": {
+                "strategy_name": "top_n_dashboards",
+                "top_n": 10,
+                "since": "7 days ago",
+                # "force": False,  # por si tu versión lo soporta
+            },
+            "options": {"queue": "warmup", "routing_key": "warmup.run"},
+        },
+
+        # 2) De madrugada: un barrido más amplio pero menos frecuente
+        "cache-warmup-top50-nightly": {
+            "task": "cache-warmup",
+            "schedule": crontab(minute=00, hour=5),  # 03:12 AM CR
+            "kwargs": {
+                "strategy_name": "top_n_dashboards",
+                "top_n": 50,
+                "since": "30 days ago",
+            },
+            "options": {"queue": "warmup", "routing_key": "warmup.run"},
+        },
+    }
 
     timezone = "America/Costa_Rica"
     enable_utc = False
-
+    
 CELERY_CONFIG = CeleryConfig  # pylint: disable=invalid-name
 
 
@@ -2018,30 +2118,30 @@ EXTRA_DYNAMIC_QUERY_FILTERS: ExtraDynamicQueryFilters = {}
 # # -------------------------------------------------------------------
 # # Don't add config values below this line since local configs won't be
 # # able to override them.
-# if CONFIG_PATH_ENV_VAR in os.environ:
-#     # Explicitly import config module that is not necessarily in pythonpath; useful
-#     # for case where app is being executed via pex.
-#     cfg_path = os.environ[CONFIG_PATH_ENV_VAR]
-#     try:
-#         module = sys.modules[__name__]
-#         override_conf = imp.load_source("superset_config", cfg_path)
-#         for key in dir(override_conf):
-#             if key.isupper():
-#                 setattr(module, key, getattr(override_conf, key))
+if CONFIG_PATH_ENV_VAR in os.environ:
+    # Explicitly import config module that is not necessarily in pythonpath; useful
+    # for case where app is being executed via pex.
+    cfg_path = os.environ[CONFIG_PATH_ENV_VAR]
+    try:
+        module = sys.modules[__name__]
+        override_conf = imp.load_source("superset_config", cfg_path)
+        for key in dir(override_conf):
+            if key.isupper():
+                setattr(module, key, getattr(override_conf, key))
 
-#         print(f"Loaded your LOCAL configuration at [{cfg_path}]")
-#     except Exception:
-#         logger.exception(
-#             "Failed to import config for %s=%s", CONFIG_PATH_ENV_VAR, cfg_path
-#         )
-#         raise
-# elif importlib.util.find_spec("superset_config") and not is_test():
-#     try:
-#         # pylint: disable=import-error,wildcard-import,unused-wildcard-import
-#         import superset_config
-#         from superset_config import *  # type: ignore
+        print(f"Loaded your LOCAL configuration at [{cfg_path}]")
+    except Exception:
+        logger.exception(
+            "Failed to import config for %s=%s", CONFIG_PATH_ENV_VAR, cfg_path
+        )
+        raise
+elif importlib.util.find_spec("superset_config") and not is_test():
+    try:
+        # pylint: disable=import-error,wildcard-import,unused-wildcard-import
+        import superset_config
+        from superset_config import *  # type: ignore
 
-#         print(f"Loaded your LOCAL configuration at [{superset_config.__file__}]")
-#     except Exception:
-#         logger.exception("Found but failed to import local superset_config")
-#         raise
+        print(f"Loaded your LOCAL configuration at [{superset_config.__file__}]")
+    except Exception:
+        logger.exception("Found but failed to import local superset_config")
+        raise
