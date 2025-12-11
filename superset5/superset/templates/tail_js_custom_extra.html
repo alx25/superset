@@ -1,0 +1,117 @@
+{#
+  Licensed to the Apache Software Foundation (ASF) under one
+  or more contributor license agreements.  See the NOTICE file
+  distributed with this work for additional information
+  regarding copyright ownership.  The ASF licenses this file
+  to you under the Apache License, Version 2.0 (the
+  "License"); you may not use this file except in compliance
+  with the License.  You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing,
+  software distributed under the License is distributed on an
+  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+  KIND, either express or implied.  See the License for the
+  specific language governing permissions and limitations
+  under the License.
+#}
+
+{#
+  This file may be overridden in your custom deployment.
+  It will be included in every view in superset and is a
+  good place to include your custom frontend code, such as
+  scripts to initialize google analytics, intercom, segment, etc.
+#}
+{#
+  Licensed to the Apache Software Foundation (ASF) under one
+  or more contributor license agreements.  See the NOTICE file
+  distributed with this work for additional information
+  regarding copyright ownership.  The ASF licenses this file
+  to you under the Apache License, Version 2.0 (the
+  "License"); you may not use this file except in compliance
+  with the License.  You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing,
+  software distributed under the License is distributed on an
+  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+  KIND, either express or implied.  See the License for the
+  specific language governing permissions and limitations
+  under the License.
+#}
+
+{#
+  This file may be overridden in your custom deployment.
+  It will be included in every view in superset and is a
+  good place to include your custom frontend code, such as
+  scripts to initialize google analytics, intercom, segment, etc.
+#}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Flotante</title>
+    <link rel="stylesheet" href="/static/customcss/estilos_chat.css?v=1.0.19">
+    
+    <link rel="stylesheet" href="/static/customcss/custom_css_dash.css?v=1.0.6">
+</head>
+<body>
+    <!-- Botón flotante del chat -->
+    <div class="chat-button" id="chatButton">
+        <img src="https://graficosbot.blob.core.windows.net/imagenesgenericas/Logo_ElDon (002).png" alt="Chat Icono">
+    </div>
+
+   <!-- Ventana de chat -->
+<div class="chat-window" id="chatWindow">
+    <div class="chat-header">
+        <img src="https://graficosbot.blob.core.windows.net/imagenesgenericas/Logo_ElDon (002).png" alt="Logo" class="logo">
+        <h3>Consúltele al don</h3>
+        <span class="close-chat" id="closeChat">&times;</span>
+    </div>
+    <div class="chat-body">
+        <div class="tab">
+            <button class="tablinks" onclick="openTab(event, 'Chatbot')">Chatbot</button>
+            <button class="tablinks" onclick="openTab(event, 'Marcadores')">Marcadores</button>
+            <!-- Nueva pestaña agregada -->
+            <button class="tablinks" id="statesTab" onclick="openTab(event, 'Estados')" style="display: none;">Estados PNC</button>
+        </div>
+
+        <div id="Chatbot" class="tabcontent">
+            <!-- Aquí irá el chatbot embebido -->
+            <iframe id="chatIframe" style="width: 100%; height: 100%; border: none;"></iframe>
+        </div>
+
+        <div id="Marcadores" class="tabcontent">
+            <div class="guardar-marcador-container">
+                <button class="guardar-marcador-button" onclick="guardarmarcador()">💾 Guardar Marcador</button>
+            </div>
+            <div class="saved-states-container-custom" id="savedStatesContainer">
+                <!-- Aquí se mostrarán los marcadores guardados -->
+            </div>
+        </div>
+
+        <!-- Contenido de la nueva pestaña Estados -->
+       <div id="Estados" class="tabcontent">
+            <button class="guardar-marcador-button" id="guardarEstadoButton">Guardar Estado</button>
+            <div id="loadingIndicator" style="display: none;">Guardando estado, por favor espere...</div>
+
+        </div>
+    </div>
+</div>
+
+
+    <script src="/static/js_personal/chat.js?v=7.0.0"></script>
+    <script src="/static/js_personal/fijar_total_row.js?v=1.9.2"></script>
+    <script src="/static/js_personal/tabla_hb.js?v=1.0.17"></script>
+    <script src="{{ url_for('static', filename='js_personal/handsontable_transform.js') }}?v=1.0.30"></script>
+    <script src="/static/js_personal/guardar_estado_plan.js?v=1.0.30"></script>
+    <script src="/static/js_personal/totals_transform.js?v=1.21"></script>
+    <script src="/static/js_personal/cargas_eventos_clientes.js?v=1.05"></script>
+    
+    <script src="/static/js_personal/dashboards.js?v=1.0.19"></script>
+    
+</body>
+</html>
