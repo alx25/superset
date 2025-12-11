@@ -756,7 +756,10 @@ class ChartRestApi(BaseSupersetModelRestApi):
             logger.info(
                 "Triggering thumbnail compute (chart id: %s) ASYNC", str(chart.id)
             )
-            screenshot_obj.cache.set(cache_key, ScreenshotCachePayload().to_dict())
+            # Marcar como Computing para evitar race condition con requests concurrentes
+            computing_payload = ScreenshotCachePayload()
+            computing_payload.computing()
+            screenshot_obj.cache.set(cache_key, computing_payload.to_dict())
             cache_chart_thumbnail.delay(
                 current_user=current_user,
                 chart_id=chart.id,
@@ -767,6 +770,25 @@ class ChartRestApi(BaseSupersetModelRestApi):
                 task_updated_at=cache_payload.get_timestamp(),
                 task_status=cache_payload.get_status(),
             )
+        
+        # Validar que la imagen existe antes de intentar leerla
+        if cache_payload.get_image() is None:
+            self.incr_stats("async", self.thumbnail.__name__)
+            logger.warning(
+                "Chart thumbnail image is None, triggering regeneration for chart %s",
+                chart.id,
+            )
+            cache_chart_thumbnail.delay(
+                current_user=current_user,
+                chart_id=chart.id,
+                force=True,
+            )
+            return self.response(
+                202,
+                task_updated_at=cache_payload.get_timestamp(),
+                task_status=cache_payload.get_status(),
+            )
+        
         self.incr_stats("from_cache", self.thumbnail.__name__)
         return Response(
             FileWrapper(cache_payload.get_image()),

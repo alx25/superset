@@ -59,6 +59,7 @@ def cache_chart_thumbnail(
         model=chart,
         current_user=current_user,
     )
+    logger.info("Generating thumbnail for chart %s with user: %s (requested by: %s)", chart.id, username, current_user)
     user = security_manager.find_user(username)
     with override_user(user):
         screenshot = ChartScreenshot(url, chart.digest)
@@ -96,6 +97,7 @@ def cache_dashboard_thumbnail(
         model=dashboard,
         current_user=current_user,
     )
+    logger.info("Generating thumbnail for dashboard %s with user: %s (requested by: %s)", dashboard.id, username, current_user)
     user = security_manager.find_user(username)
     with override_user(user):
         screenshot = DashboardScreenshot(url, dashboard.digest)
