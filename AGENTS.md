@@ -1,0 +1,1 @@
+todo cambio realizado escribelo en "Registro de cambios.md" anotar fecha y cambio realizado con los archivos afectados y que cambia o corrige.
