@@ -2,6 +2,67 @@
 
 Nota: anotar fecha y cambio realizado con los archivos afectados y que cambia o corrige.
 
+### 2026-04-24
+
+Cambio realizado:
+Ajuste de la configuracion de runtime de `superset.service` para que las miniaturas se capturen cuando el dashboard termina de cargar.
+
+Archivos afectados:
+- `/home/imercados/.superset/superset_config.py`
+
+Que cambia o corrige:
+- Se cambia `SCREENSHOT_PLAYWRIGHT_WAIT_EVENT` de `domcontentloaded` a `networkidle`.
+- Con Playwright, esto evita capturas demasiado tempranas que dejaban miniaturas vacias o incompletas en dashboards con carga lenta.
+- Se deshabilita `SCREENSHOT_TILED_ENABLED` para evitar que charts extremadamente altos entren en captura por mosaico y agoten el soft time limit de Celery.
+- El ajuste se aplica al archivo que realmente usa `superset.service`, no al perfil de Docker.
+
+Verificacion:
+- Pendiente de recargar `superset.service` y volver a validar una miniatura.
+
+### 2026-04-17
+
+Cambio realizado:
+Correccion final del tipado de `scopeCss.ts` en `plugin-chart-html-cards` para compatibilidad total con `postcss-selector-parser` durante `npm run build-dev`.
+
+Archivos afectados:
+- `superset_v6/superset-frontend/plugins/plugin-chart-html-cards/src/utils/scopeCss.ts`
+
+Que cambia o corrige:
+- `cloneScopeNodes` ahora devuelve `Selector['nodes']` en lugar del tipo amplio `Node[]`.
+- Esto corrige el error de compilacion donde `Selector.prepend()` rechazaba nodos con tipo potencial `Selector`.
+- Se mantiene intacta la logica de scoping CSS; el ajuste es estrictamente de compatibilidad de tipos.
+
+Verificacion:
+- `cd superset_v6/superset-frontend && npm run build-dev`
+- `cd superset_v6/superset-frontend && npx jest --runInBand plugins/plugin-chart-html-cards/test/plugin/styleControl.test.ts plugins/plugin-chart-html-cards/test/plugin/transformProps.test.ts plugins/plugin-chart-html-cards/test/HtmlCards.test.tsx plugins/plugin-chart-html-cards/test/components/CodeEditor.test.tsx`
+
+### 2026-04-17
+
+Cambio realizado:
+Correccion de errores de tipado y fixtures en `plugin-chart-html-cards` para que `npm run build-dev` y las pruebas del plugin vuelvan a compilar sin errores de TypeScript.
+
+Archivos afectados:
+- `superset_v6/superset-frontend/plugins/plugin-chart-html-cards/src/plugin/transformProps.ts`
+- `superset_v6/superset-frontend/plugins/plugin-chart-html-cards/src/types.ts`
+- `superset_v6/superset-frontend/plugins/plugin-chart-html-cards/src/utils/templateContext.ts`
+- `superset_v6/superset-frontend/plugins/plugin-chart-html-cards/src/utils/scopeCss.ts`
+- `superset_v6/superset-frontend/plugins/plugin-chart-html-cards/test/HtmlCards.test.tsx`
+- `superset_v6/superset-frontend/plugins/plugin-chart-html-cards/test/components/CodeEditor.test.tsx`
+- `superset_v6/superset-frontend/plugins/plugin-chart-html-cards/test/plugin/styleControl.test.ts`
+- `superset_v6/superset-frontend/plugins/plugin-chart-html-cards/test/plugin/transformProps.test.ts`
+
+Que cambia o corrige:
+- `transformProps` ahora consume `rawFormData` tipado como `HtmlCardsQueryFormData`, evitando el choque con `formData` camelCase generico de `ChartProps`.
+- El plugin deja de tipar sus datos como `TimeseriesDataRecord` y pasa a usar `DataRecord`, que corresponde mejor a tarjetas HTML y elimina la obligacion artificial de `__timestamp`.
+- `templateContext` ahora construye `displayRows` con `DataRecord` y mantiene los aliases sin exigir estructura de serie temporal.
+- `scopeCss` corrige incompatibilidades de tipos con `postcss` y `postcss-selector-parser`.
+- Los tests del plugin ahora usan `formData` valido con `datasource`, fixtures de datos acordes al contrato real y casts explicitos para los `ControlSetItem`.
+- Se corrige el fixture de metricas del test de `transformProps` para usar una metrica guardada valida por tipo.
+
+Verificacion:
+- `cd superset_v6/superset-frontend && npx jest --runInBand plugins/plugin-chart-html-cards/test/plugin/styleControl.test.ts plugins/plugin-chart-html-cards/test/plugin/transformProps.test.ts plugins/plugin-chart-html-cards/test/HtmlCards.test.tsx plugins/plugin-chart-html-cards/test/components/CodeEditor.test.tsx`
+- `cd superset_v6/superset-frontend && npm run build-dev`
+
 ### 2026-04-17
 
 Cambio realizado:
