@@ -2,6 +2,125 @@
 
 Nota: anotar fecha y cambio realizado con los archivos afectados y que cambia o corrige.
 
+### 2026-05-08
+
+Cambio realizado:
+Restauracion de encabezados verticales fijos en Pivot Table Rx1.
+
+Archivos afectados:
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/src/react-pivottable/Styles.js`
+
+Que cambia o corrige:
+- Los encabezados superiores vuelven a quedar fijos siempre, como era el comportamiento original.
+- La opcion `Sticky headers` queda limitada a fijar horizontalmente la primera columna/cuadrante.
+
+Verificacion:
+- `node -e "... @babel/parser ... Styles.js ..."` parse OK.
+- `git diff --check`
+- `npm test -- --runTestsByPath plugins/plugin-chart-pivot-tableRx1/test/plugin/transformProps.test.ts plugins/plugin-chart-pivot-tableRx1/test/plugin/buildQuery.test.ts plugins/plugin-chart-pivot-tableRx1/test/index.test.ts`
+
+### 2026-05-08
+
+Cambio realizado:
+Correccion de desplazamiento del cuadrante de filas en Pivot Table Rx1 con `Sticky headers`.
+
+Archivos afectados:
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/src/react-pivottable/Styles.js`
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/src/react-pivottable/TableRenderers.jsx`
+
+Que cambia o corrige:
+- El encabezado compacto de filas (`division / nombre_tc / nombre_tipo_gasto / responsable_cc`) ahora queda fijo horizontalmente al activar `Sticky headers`.
+- Se agrega una clase sticky especifica para ese cuadrante superior izquierdo.
+
+Verificacion:
+- `node -e "... @babel/parser ... Styles.js TableRenderers.jsx ..."` parse OK.
+- `git diff --check`
+- `npm test -- --runTestsByPath plugins/plugin-chart-pivot-tableRx1/test/plugin/transformProps.test.ts plugins/plugin-chart-pivot-tableRx1/test/plugin/buildQuery.test.ts plugins/plugin-chart-pivot-tableRx1/test/index.test.ts`
+
+### 2026-05-08
+
+Cambio realizado:
+Botones globales de expandir/colapsar y sticky opcional en Pivot Table Rx1.
+
+Archivos afectados:
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/src/types.ts`
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/src/plugin/controlPanel.tsx`
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/src/plugin/transformProps.ts`
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/src/PivotTableChart.tsx`
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/src/react-pivottable/TableRenderers.jsx`
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/src/react-pivottable/Styles.js`
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/test/plugin/transformProps.test.ts`
+
+Que cambia o corrige:
+- Se agrega una toolbar minimalista con botones `+` y `-` cuando hay subtotales de filas o columnas.
+- Los botones actualizan todos los grupos colapsables visibles de filas y columnas, respetando `Collapse rows by default`.
+- Se agrega el control `Sticky headers`, apagado por defecto.
+- Al activar `Sticky headers`, se fijan encabezados superiores, primera columna de encabezados de fila y etiqueta de total de columnas.
+- Se marcan y fijan explicitamente los nombres de ejes de columnas (`Métrica`, `ano`, `mes_id`, etc.) para que no desaparezcan con scroll horizontal.
+- Se agrega prueba para validar el valor por defecto y el encendido de `Sticky headers`.
+
+Verificacion:
+- `git diff --check`
+- `npm test -- --runTestsByPath plugins/plugin-chart-pivot-tableRx1/test/plugin/transformProps.test.ts plugins/plugin-chart-pivot-tableRx1/test/plugin/buildQuery.test.ts plugins/plugin-chart-pivot-tableRx1/test/index.test.ts`
+
+### 2026-05-08
+
+Cambio realizado:
+Tooltip enriquecido para celdas de Pivot Table Rx1.
+
+Archivos afectados:
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/src/types.ts`
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/src/plugin/controlPanel.tsx`
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/src/plugin/transformProps.ts`
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/src/PivotTableChart.tsx`
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/src/react-pivottable/TableRenderers.jsx`
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/test/plugin/transformProps.test.ts`
+
+Que cambia o corrige:
+- Se agrega el control `Show enriched cell tooltip`.
+- Las celdas de datos, totales de fila, totales de columna y gran total muestran tooltip con valor formateado, valor raw, contexto de filas/columnas y formula cuando aplica.
+- El tooltip se puede desactivar desde el panel de configuracion.
+- Se agrega prueba para validar el valor por defecto y el apagado del tooltip.
+
+Verificacion:
+- `git diff --check`
+- `npm test -- --runTestsByPath plugins/plugin-chart-pivot-tableRx1/test/plugin/transformProps.test.ts plugins/plugin-chart-pivot-tableRx1/test/plugin/buildQuery.test.ts plugins/plugin-chart-pivot-tableRx1/test/index.test.ts`
+
+### 2026-05-07
+
+Cambio realizado:
+Resaltado de fila completa al pasar el mouse en Pivot Table Rx1.
+
+Archivos afectados:
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/src/react-pivottable/Styles.js`
+
+Que cambia o corrige:
+- Al hacer hover sobre una fila del cuerpo de la tabla, se resaltan todas sus celdas: encabezados de fila, subtotales y valores.
+- Se excluye la fila final de totales para conservar su comportamiento visual fijo.
+
+Verificacion:
+- `node -e "... @babel/parser ... Styles.js ..."` parse OK.
+- `git diff --check`
+- `npm test -- --runTestsByPath plugins/plugin-chart-pivot-tableRx1/test/plugin/transformProps.test.ts plugins/plugin-chart-pivot-tableRx1/test/plugin/buildQuery.test.ts plugins/plugin-chart-pivot-tableRx1/test/index.test.ts`
+
+### 2026-05-07
+
+Cambio realizado:
+Correccion de alineacion en `Compact row tree` de Pivot Table Rx1.
+
+Archivos afectados:
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/src/react-pivottable/TableRenderers.jsx`
+
+Que cambia o corrige:
+- En vista compacta ya no se reserva la columna extra `Métrica` cuando existen columnas (`colAttrs`).
+- Evita que los valores se corran una columna y que la ultima quede vacia.
+- El header compacto y las filas de datos ahora cubren tambien la columna auxiliar del eje `Métrica`, manteniendo alineadas las metricas visibles.
+
+Verificacion:
+- `node -e "... @babel/parser ... TableRenderers.jsx ..."` parse OK.
+- `git diff --check`
+- `npm test -- --runTestsByPath plugins/plugin-chart-pivot-tableRx1/test/plugin/transformProps.test.ts plugins/plugin-chart-pivot-tableRx1/test/plugin/buildQuery.test.ts plugins/plugin-chart-pivot-tableRx1/test/index.test.ts`
+
 ### 2026-04-24
 
 Cambio realizado:
@@ -575,6 +694,73 @@ Verificacion:
 - `npx jest --runInBand src/explore/components/controls/MetricOrderControl/MetricOrderControl.test.tsx`
 - `npx jest --runInBand plugins/plugin-chart-tableV3/test/controlPanel.test.ts`
 - `npm run build-dev`
+
+### 2026-05-07
+
+Cambio realizado:
+Nuevas opciones tipo Matrix de Power BI para filas en `plugin-chart-pivot-tableRx1`.
+
+Archivos afectados:
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/src/plugin/controlPanel.tsx`
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/src/plugin/transformProps.ts`
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/src/PivotTableChart.tsx`
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/src/react-pivottable/TableRenderers.jsx`
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/src/types.ts`
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/test/plugin/transformProps.test.ts`
+
+Que cambia o corrige:
+- Se agregan controles `Collapse rows by default` y `Compact row tree`, visibles cuando `Show rows subtotal` esta activo.
+- `Collapse rows by default` inicia los grupos de filas colapsados, manteniendo la capacidad de expandir con las flechas.
+- `Compact row tree` muestra los campos de fila en una sola columna con indentacion tipo arbol.
+- Se ajusta el test de `transformProps` para cubrir las nuevas opciones y aceptar los campos actuales extra de Rx1.
+
+Verificacion:
+- `node -e "... @babel/parser ... TableRenderers.jsx ..."` parse OK.
+- `git diff --check`
+- `npm test -- --runTestsByPath plugins/plugin-chart-pivot-tableRx1/test/plugin/transformProps.test.ts plugins/plugin-chart-pivot-tableRx1/test/plugin/buildQuery.test.ts plugins/plugin-chart-pivot-tableRx1/test/index.test.ts`
+
+### 2026-05-07
+
+Cambio realizado:
+Correccion del ordenamiento interactivo de Pivot Table Rx1 para columnas de `Formula metrics (Jinja-like)`.
+
+Archivos afectados:
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/src/react-pivottable/TableRenderers.jsx`
+
+Que cambia o corrige:
+- El sorting de columnas ahora usa el valor evaluado por `getFormulaValue` cuando la columna/fila corresponde a una formula metric.
+- Antes el sorting tomaba el valor agregado base de `pivotData`, que para filas de formula era `0`, por eso no cambiaba el orden.
+
+Verificacion:
+- `node -e "... @babel/parser ... TableRenderers.jsx ..."` parse OK.
+- `git diff --check`
+- `npm test -- --runTestsByPath packages/superset-ui-core/test/time-format/TimeFormatter.test.ts`
+
+### 2026-05-07
+
+Cambio realizado:
+Port parcial de mejoras recientes de Pivot Table a `plugin-chart-pivot-tableRx1`.
+
+Archivos afectados:
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/src/react-pivottable/TableRenderers.jsx`
+- `superset_v6/superset-frontend/plugins/plugin-chart-pivot-tableRx1/package.json`
+- `superset_v6/superset-frontend/package-lock.json`
+- `superset_v6/superset-frontend/packages/superset-ui-core/src/time-format/TimeFormatter.ts`
+- `superset_v6/superset-frontend/packages/superset-ui-core/src/time-format/utils/stringifyTimeInput.ts`
+- `superset_v6/superset-frontend/packages/superset-ui-core/test/time-format/TimeFormatter.test.ts`
+
+Que cambia o corrige:
+- Se agrega ordenamiento interactivo en columnas de Pivot Table Rx1 basado en el PR upstream #36050.
+- Se agrega soporte de formato condicional sobre headers de filas/columnas cuando las reglas aplican a valores string, compatible con la estructura custom de Rx1.
+- Se corrige el formateo de fechas cuando Pivot Table recibe timestamps como string numerico, evitando encabezados `NaN`.
+- Se agrega `@react-icons/all-files` como peer dependency del plugin Rx1 para los iconos de ordenamiento.
+- Se agregan pruebas de `TimeFormatter` para string numerico e ISO date string.
+
+Verificacion:
+- `node -e "... @babel/parser ... TableRenderers.jsx ..."` parse OK.
+- `git diff --check`
+- `npm test -- --runTestsByPath packages/superset-ui-core/test/time-format/TimeFormatter.test.ts`
+- `npm test -- --runTestsByPath plugins/plugin-chart-pivot-tableRx1/test/plugin/transformProps.test.ts plugins/plugin-chart-pivot-tableRx1/test/plugin/buildQuery.test.ts plugins/plugin-chart-pivot-tableRx1/test/index.test.ts` falla solo en `transformProps.test.ts` por expectativa desactualizada que no contempla campos ya devueltos por Rx1.
 
 ### 2026-03-25
 
