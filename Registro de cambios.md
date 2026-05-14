@@ -2,6 +2,23 @@
 
 Nota: anotar fecha y cambio realizado con los archivos afectados y que cambia o corrige.
 
+### 2026-05-14
+
+Cambio realizado:
+Correccion del bug en filtros de dashboard con la opcion `Select first filter value by default` activa que impedía dejar el filtro vacío.
+
+Archivos afectados:
+- `superset_v6/superset-frontend/src/filters/components/Select/SelectFilterPlugin.tsx`
+- `superset_v6/superset-frontend/src/dashboard/components/nativeFilters/FilterBar/index.tsx`
+
+Que cambia o corrige:
+- En `SelectFilterPlugin.tsx`: el segundo `useEffect` tenía una condición de salida anticipada defectuosa. La condición `isChangedByUser.current && filterState.value && ...` fallaba cuando el usuario borraba el filtro porque `filterState.value = null` (falsy), y el early-return nunca se disparaba. Se simplificó a `if (isChangedByUser.current) return;` para respetar cualquier cambio explícito del usuario, incluyendo borrar el campo.
+- En `SelectFilterPlugin.tsx`: la condición principal del mismo `useEffect` usaba `filterState.value !== undefined`, que también pasa para `null`. Se corrigió a `filterState.value != null` para tratar tanto `null` (filtro borrado) como `undefined` (nunca asignado) como estado vacío y no re-seleccionar en esos casos.
+- En `FilterBar/index.tsx`: el efecto `setDataMaskSelected(() => dataMaskApplied)` reemplazaba completamente todo el estado de filtros seleccionados cada vez que cambiaba `dataMaskApplied`. Los filtros con `defaultToFirstItem: true` tienen `requiredFirst: true`, lo que provoca un `dispatch` automático a Redux al inicializarse, cambiando `dataMaskApplied` y disparando el efecto que sobreescribía el filtro que el usuario acababa de borrar. Se reemplazó por un merge inteligente que solo actualiza un filtro cuando su valor seleccionado coincide con el valor aplicado previo, preservando los cambios pendientes del usuario.
+
+Verificacion:
+- Sin pruebas automatizadas específicas para este bug. Requiere verificacion manual en dashboard con filtro `Select first filter value by default` activo: abrir dashboard, confirmar que el primer valor se selecciona, borrar el filtro con la X, confirmar que queda vacío.
+
 ### 2026-05-08
 
 Cambio realizado:
