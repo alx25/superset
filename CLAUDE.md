@@ -1,1 +1,2 @@
-AGENTS.md
+Lee AGENTS.md
+Lee PLUGINS.md

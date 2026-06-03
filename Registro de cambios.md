@@ -2,6 +2,371 @@
 
 Nota: anotar fecha y cambio realizado con los archivos afectados y que cambia o corrige.
 
+### 2026-05-29 (actualización 17)
+
+Documentacion del plugin html-cards actualizada (INSTRUCCIONES_PLUGIN_HTML_CARDS.md):
+- Corrección de version (v6 → v6.1.0)
+- Requisito previo HTML_SANITIZATION = False documentado
+- Transformacion snakeCase de templateKey documentada con tabla de ejemplos
+- Nueva sección de acceso por índice con data.[N] (reemplaza lookup rows N que falla)
+- firstRow documentado como alternativa confiable a firstDisplayRow
+- Tabla de variables raíz con descripción y guía de uso
+- Sección "Problemas conocidos en v6.1.0" con workarounds
+
+Nota de soporte: el error "Missing helper: numberFormatD3" se debe a usar el tipo de chart
+incorrecto (plugin-chart-handlebars en lugar de html_cards). El plugin-chart-handlebars nativo
+de Superset no tiene los helpers custom del html-cards (numberFormatD3, timeFormatD3, etc.).
+Asegurarse de que el chart tenga viz_type = html_cards.
+
+### 2026-05-29 (actualización 16)
+
+Fix imports en `HandlebarsViewer.tsx` del plugin `plugin-chart-html-cards`.
+
+Archivos afectados:
+- `custom-plugins/plugin-chart-html-cards/src/components/Handlebars/HandlebarsViewer.tsx`
+
+Qué cambia y por qué:
+- `styled` y `t` se importaban desde `@superset-ui/core`. En v6.1.0, eso causa una
+  dependencia circular (el step 3b agrega re-exports de `@apache-superset/core/*` en
+  `@superset-ui/core`), haciendo que `styled` sea `undefined` al inicializar el módulo.
+  Al fallar la definición de los styled-components, el módulo aborta antes de ejecutar
+  los `Handlebars.registerHelper(...)`, dando "Missing helper: numberFormatD3" en runtime.
+- Fix: importar `styled` desde `@apache-superset/core/theme` y `t` desde
+  `@apache-superset/core/translation`, igual que el resto de plugins en v6.1.0.
+- Requiere `npm run build` en `superset_v6_1_0/superset-frontend`.
+
+### 2026-05-29 (actualización 15)
+
+Aplicación del fix de 2026-05-14 a `superset_v6_1_0` (bug: filtro con `Select first filter value by default` no se podía dejar vacío).
+
+Archivos afectados en `superset_v6_1_0/`:
+- `superset-frontend/src/filters/components/Select/SelectFilterPlugin.tsx`:
+  - Agregado `const isChangedByUser = useRef(false)` (ref faltante)
+  - Agregado `isChangedByUser.current = true` en `handleChange` (marca cambio explícito del usuario)
+  - Agregado `isChangedByUser.current = false` en el efecto de cambio de datos upstream
+  - Agregado early return `if (isChangedByUser.current) return` en el useEffect de resync
+  - Cambiado `filterState.value !== undefined` → `filterState.value != null` en la condición de resync
+- `superset-frontend/src/dashboard/components/nativeFilters/FilterBar/index.tsx`:
+  - Reemplazada la condición `if (appliedChanged || notInitialized)` por lógica que distingue
+    filtros no inicializados (siempre actualizar) de filtros con cambio aplicado: solo actualiza
+    si `isEqual(selectedValue, prevValue)` (el usuario no modificó el filtro manualmente).
+
+Nota: este fix no se agrega a `migrate-plugins.sh` ya que puede ser corregido por Superset en versiones futuras.
+
+### 2026-05-29 (actualización 14)
+
+Migración de personalización de pantalla de dashboards (v6 → v6_1_0).
+
+Archivos canónicos agregados a `custom-src/`:
+- `custom-src/FavoritesBanner/FavoritesBanner.tsx` — barra horizontal de favoritos con scroll
+  lateral, que aparece sobre la lista de dashboards. Muestra los dashboards marcados como
+  favoritos por el usuario con tarjetas compactas.
+- `custom-src/DashboardTagSidebar/DashboardTagSidebar.tsx` — barra lateral izquierda con
+  filtro de dashboards por categoría (tags de tipo "custom"). En desktop se muestra por
+  defecto; en móvil es un drawer colapsable.
+- `custom-src/patch_dashboard_list.py` — script Python que parchea
+  `src/pages/DashboardList/index.tsx` para integrar los dos componentes anteriores.
+
+- `custom-src/ListViewCard/index.tsx` — tarjetas en layout horizontal (thumbnail
+  cuadrado 120×120 a la izquierda, body con título/descripción/acciones a la derecha).
+
+Archivos resultantes en `superset_v6_1_0/`:
+- `superset-frontend/src/features/dashboards/FavoritesBanner.tsx` ← symlink a custom-src
+- `superset-frontend/src/features/dashboards/DashboardTagSidebar.tsx` ← symlink a custom-src
+- `superset-frontend/packages/superset-ui-core/src/components/ListViewCard/index.tsx` ← symlink a custom-src (layout horizontal, thumbnail cuadrado izquierda)
+- `superset-frontend/src/pages/DashboardList/index.tsx` — parcheado con 5 cambios:
+    A. Imports de useHistory, useLocation, FavoritesBanner, DashboardTagSidebar
+    B. Styled components PageLayout, ListArea, ToggleSidebarButton
+    C. Estado showTagSidebar + callbacks getCurrentTagId y handleTagSelect
+    D. Variable subMenuName con botón de toggle de sidebar
+    E. Render: envuelve ListView con PageLayout/ListArea, agrega DashboardTagSidebar arriba
+       y FavoritesBanner sobre la lista
+- `superset-frontend/src/components/ListView/CardCollection.tsx` — grid cambiado de
+  `repeat(auto-fit, 300px)` a `repeat(auto-fill, minmax(340px, 1fr))` con breakpoints
+  responsive (≤1800px→300px, ≤1400px→280px, ≤1200px→240px): da 5 tarjetas/fila en
+  pantallas típicas de escritorio en lugar de 6.
+
+`migrate-plugins.sh` actualizado con paso 10 (10a, 10b, 10c).
+`PLUGINS.md` actualizado con las nuevas reglas de workflow para estos componentes.
+
+### 2026-05-28 (actualización 13)
+
+Cambio realizado:
+Fix de 2 bugs en el export CSV/Excel de Formula metrics del pivot_table_rx1.
+
+Bug 1 — Sort rows by no se respetaba en el CSV/Excel:
+  pivot_df (que usa pd.DataFrame.pivot_table) ordena el índice alfabéticamente,
+  destruyendo el orden definido por "Sort rows by". Fix: antes de llamar a pivot_df
+  se captura el orden original de los valores únicos del índice de fila tal como
+  viene del DB, y después del pivot se restaura ese orden con df.loc[reindex].
+
+Bug 2 — Fórmula con dependencia de otra oculta salía vacía:
+  _get_pivot_rx1_export_formulas filtraba las fórmulas ocultas (hidden=True), pero
+  otras fórmulas podían depender de ellas (ej: 80_20 usa {{peso}} y peso estaba oculta).
+  Fix: ahora se computan TODAS las fórmulas (visibles + ocultas) en _apply_pivot_rx1_formulas.
+  Las ocultas se agregan a excluded_columns → se eliminan del CSV antes de devolver el resultado.
+  En pivot_table_rx1 solo se incluyen las visibles como métricas del pivot.
+
+Archivos afectados:
+- `superset_v6_1_0/superset/charts/client_processing.py` — pivot_table_rx1 con restauración de orden
+- `superset_v6_1_0/superset/common/query_context_processor.py` — _get_pivot_rx1_export_formulas
+  ahora devuelve todas las fórmulas + lista de etiquetas a excluir (ocultas + jinja fields)
+
+### 2026-05-28 (actualización 12)
+
+Cambio realizado:
+Fix definitivo del export CSV/Excel de Formula metrics en pivot_table_rx1.
+
+Causa raíz encontrada con logs: get_data sí añadía las columnas de fórmulas al DataFrame
+y las serializaba en el CSV. Pero apply_client_processing (para result_type=post_processed)
+re-leía ese CSV como DataFrame y lo re-pivoteaba con pivot_table_v2, que solo pivotea las
+métricas de form_data["metrics"] — ignorando completamente las columnas de fórmulas.
+
+Archivos afectados:
+- `superset_v6_1_0/superset/charts/client_processing.py`
+  — Nueva función pivot_table_rx1(): idéntica a pivot_table_v2() pero agrega las formula
+    metrics visibles (metricFormulas no hidden que existan como columna en el df) a la
+    lista de métricas antes de llamar a pivot_df().
+  — post_processors: "pivot_table_rx1" ahora apunta a pivot_table_rx1 (antes a pivot_table_v2)
+
+- `superset_v6_1_0/superset/common/query_context_processor.py`
+  — _irex_log, _evaluate_pivot_formula_for_row, _apply_pivot_rx1_formulas,
+    _get_pivot_rx1_export_formulas: métodos de soporte (algunos temporales de debug)
+
+Script migrate-plugins.sh actualizado: paso 8c reescrito con el post-processor correcto.
+
+### 2026-05-28 (actualización 11)
+
+Cambio realizado:
+Segunda iteración del fix de exports CSV/Excel para Formula metrics del pivot-tableRx1.
+En lugar de depender de extras.calculated_columns_export (cadena de serialización compleja
+y propensa a fallos), ahora el backend lee metricFormulas y jinja_fields directamente
+desde form_data, que siempre está disponible en el QueryContext.
+
+Archivo afectado:
+- `superset_v6_1_0/superset/common/query_context_processor.py`
+  — `_SCOPED_REF_RE`: regex de clase para detectar referencias con scope
+  — `_get_pivot_rx1_export_formulas()`: nuevo método que lee form_data.metricFormulas,
+    filtra ocultas y fórmulas con scope, y también devuelve los jinja fields a excluir
+  — `get_data`: usa _get_pivot_rx1_export_formulas() en lugar de extras para pivot_table_rx1
+
+### 2026-05-28 (actualización 10)
+
+Cambio realizado:
+Fix del bug que impedía ver las fórmulas de Formula metrics en los exports CSV/Excel.
+
+Causa raíz: en `get_data` de `query_context_processor.py`, el `verbose_map` (que renombra
+columnas de nombres internos de BD a nombres visibles como "Venta") se aplicaba AL FINAL,
+DESPUÉS de computar las fórmulas. Las fórmulas como `{{Venta}}/{{Plan}}` buscaban la columna
+"Venta" en el dataframe, pero en ese punto aún se llamaba "sum__ventas" (nombre interno),
+por lo que no encontraban nada y devolvían null.
+
+Archivo afectado:
+- `superset_v6_1_0/superset/common/query_context_processor.py`
+  — `get_data`: `verbose_map` ahora se aplica PRIMERO (renombra todas las columnas a sus
+    nombres visibles), y LUEGO se computan las fórmulas, se excluyen columnas y se aplican
+    los `column_display_names`. De esta forma `{{Venta}}` siempre encuentra la columna
+    correcta independientemente del nombre interno usado por la BD.
+
+### 2026-05-28 (actualización 9)
+
+Cambio realizado:
+Fix de exports CSV/Excel en plugin pivot-tableRx1: las formula metrics visibles (no auxiliares)
+ahora se incluyen en el export. Los Jinja fields se excluyen del export automáticamente.
+
+Archivo afectado:
+- `custom-plugins/plugin-chart-pivot-tableRx1/src/plugin/buildQuery.ts`
+  — exportableFormulas: formula metrics visibles y sin referencias con scope (total./row./col./
+    previous./next.) se envían como extras.calculated_columns_export al backend.
+    El backend ya tiene el evaluador (_evaluate_export_formula) que las computa sobre
+    los datos planos antes de serializar a CSV/Excel.
+  — jinjaFieldLabels: los Jinja fields se envían como extras.excluded_columns para que
+    no aparezcan en el export (son métricas auxiliares de la BD).
+
+Notas técnicas:
+- Las fórmulas con referencias de scope (total.{{X}}, row.{{X}}, etc.) NO se incluyen en
+  el export porque dependen de la estructura pivoteada que no existe en los datos planos.
+  Se excluyen con SCOPED_REF_PATTERN antes de enviarlas al backend.
+- El mecanismo calculated_columns_export ya existía en query_context_processor.py (agregado
+  para el plugin tableV3), se reutiliza aquí sin cambios de backend.
+
+### 2026-05-28 (actualización 8)
+
+Cambio realizado:
+Nueva funcionalidad "Auxiliar (no mostrar en tabla)" en Formula metrics (Jinja-like) del
+plugin pivot-tableRx1. Permite usar una fórmula como variable intermedia en otras fórmulas
+sin que aparezca como columna en la tabla ni en exports CSV/Excel.
+También corregido el problema de symlinks con webpack (resolve.symlinks: false).
+
+Archivos afectados:
+- `custom-plugins/plugin-chart-pivot-tableRx1/src/types.ts`
+  — hidden?: boolean agregado a FormulaMetric
+- `custom-plugins/plugin-chart-pivot-tableRx1/src/plugin/controlPanel.tsx`
+  — hidden en MetricFormulaItem, normalizeMetricFormulasValue preserva hidden,
+    buildMetricOrderOptions filtra métricas ocultas (no aparecen en Metric order)
+- `custom-plugins/plugin-chart-pivot-tableRx1/src/plugin/transformProps.ts`
+  — parseFormulaMetrics preserva el campo hidden
+- `custom-plugins/plugin-chart-pivot-tableRx1/src/PivotTableChart.tsx`
+  — normalizedFormulaMetrics preserva hidden
+  — visibleFormulaMetricNames = solo las no ocultas
+  — metricNames y unpivotedData usan visibleFormulaMetricNames (ocultas no se renderizan)
+  — formulaMetricNames (todas, incluidas ocultas) sigue usándose para excluir de jinjaFields
+- `custom-src/FormulaMetricControl/index.tsx`
+  — hidden en props, state y defaultProps
+  — Checkbox "Auxiliar (no mostrar en tabla)" en el popover
+  — textSummary muestra "[aux]" como prefijo cuando hidden=true
+  — onSave envía hidden al onChange
+- `superset_v6_1_0/superset-frontend/webpack.config.js`
+  — resolve.symlinks: false para que babel-loader y módulos npm se resuelvan
+    correctamente con plugins/controles en directorios symlinkeados
+
+Scripts/docs actualizados:
+- `migrate-plugins.sh` — paso 1b: parchea webpack.config.js
+- `PLUGINS.md` — documenta resolve.symlinks: false
+
+### 2026-05-28 (actualización 7)
+
+Cambio realizado:
+Documentación de previous.{{}} y next.{{}} en FormulaMetricControl del plugin pivot-tableRx1.
+También corregido un bug de path relativo en el symlink del control.
+
+Archivos afectados:
+- `custom-src/FormulaMetricControl/index.tsx`
+  - Intellisense: agregados previous.{{Metric}} y next.{{Metric}} en getKeywords()
+  - Tooltip del campo Formula: menciona previous y next como scopes disponibles
+  - Ejemplos en el popover: agregado "{{Venta}} - previous.{{Venta}}" y línea "Scopes"
+  - Modal de ayuda: sección Scopes con previous y next documentados con ejemplos
+  - Fix: import de ControlPopover cambiado de relativo '../...' a absoluto
+    'src/explore/components/controls/ControlPopover/ControlPopover' para que funcione
+    correctamente cuando el archivo se carga desde el symlink en custom-src/.
+
+### 2026-05-28 (actualización 6)
+
+Cambio realizado:
+Reestructuración de la arquitectura de plugins para evitar duplicación de lógica.
+Conversión de copias a symlinks para plugins y controles custom.
+Reescritura completa del script de migración con todos los pasos acumulados.
+Creación de PLUGINS.md con instrucciones para herramientas IA.
+
+Cambios estructurales:
+- Los directorios plugin-chart-tableV3, plugin-chart-pivot-tableRx1, plugin-chart-html-cards
+  dentro de superset_v6_1_0/superset-frontend/plugins/ ahora son SYMLINKS a custom-plugins/.
+- FormulaMetricControl y MetricOrderControl dentro de
+  superset_v6_1_0/superset-frontend/src/explore/components/controls/ son SYMLINKS a custom-src/.
+- ColumnConfigControl sigue siendo una copia (5 archivos individuales dentro de un directorio
+  de Superset, no se puede symlink completo).
+
+Archivos creados/modificados:
+- `migrate-plugins.sh` — reescrito completo con 9 pasos (incluye HTML_SANITIZATION y symlinks)
+- `PLUGINS.md` — guía de arquitectura y workflow para herramientas IA
+- `CLAUDE.md` — referencia a PLUGINS.md
+- `AGENTS.md` — referencia a PLUGINS.md
+
+### 2026-05-28 (actualización 5)
+
+Cambio realizado:
+Fix del error React #130 en plugin-chart-pivot-tableRx1. Los controles FormulaMetricControl y
+MetricOrderControl no existían en v6.1.0, causando que el componente se resolviera como `undefined`.
+
+Archivos creados en superset_v6_1_0:
+- `superset_v6_1_0/superset-frontend/src/explore/components/controls/FormulaMetricControl/index.tsx`
+- `superset_v6_1_0/superset-frontend/src/explore/components/controls/MetricOrderControl/index.tsx`
+
+Archivos modificados en superset_v6_1_0:
+- `superset_v6_1_0/superset-frontend/src/explore/components/controls/index.ts` — imports y exports
+  de FormulaMetricControl y MetricOrderControl agregados al mapa de controles.
+
+Archivos creados en custom-src/:
+- `custom-src/FormulaMetricControl/index.tsx`
+- `custom-src/MetricOrderControl/index.tsx`
+
+Script migrate-plugins.sh actualizado: paso 6b.
+
+### 2026-05-28 (actualización 4)
+
+Cambio realizado:
+Fix de pivot-tableRx1 en v6.1.0: Jinja fields, Formula metrics y Metric order no funcionaban porque
+el backend no reconocía el viz_type "pivot_table_rx1" en dos lugares críticos.
+
+Archivos afectados en superset_v6_1_0:
+- `superset_v6_1_0/superset/charts/client_processing.py` — agregado "pivot_table_rx1": pivot_table_v2
+  al dict post_processors. Sin esto el servidor no aplicaba la operación de pivoteo y devolvía
+  datos planos en vez de la estructura de tabla pivoteada que el frontend espera.
+- `superset_v6_1_0/superset/common/query_context_factory.py` — extendido el check de viz_type
+  para incluir "pivot_table_rx1" junto a "pivot_table_v2" en la inyección de currency_code_column.
+
+Nota: Jinja fields, formula metrics y metric order son procesamiento 100% frontend
+(transformProps.ts + PivotTableChart.tsx). El único backend necesario es el pivoteo del dataframe,
+que ahora sí se aplica al Rx1.
+
+Script migrate-plugins.sh actualizado: pasos 7c y 7d en la sección de backend Python.
+
+### 2026-05-28 (actualización 3)
+
+Cambio realizado:
+Fix del error "Unknown field" en v6.1.0 para los campos Jinja (column_display_names, excluded_columns,
+calculated_columns_export, column_export_order) del plugin TableV3. El backend de v6.1.0 no conocía
+estos campos en la validación Marshmallow ni tenía la lógica de procesamiento para exports.
+
+Archivos afectados en superset_v6_1_0:
+- `superset_v6_1_0/superset/charts/schemas.py` — 4 campos nuevos agregados a ChartDataExtrasSchema
+- `superset_v6_1_0/superset/common/query_context_processor.py` — imports ast/numpy, 3 helpers
+  (_evaluate_export_formula, _apply_export_calculated_columns, _apply_export_column_order) y
+  método get_data extendido con la lógica completa de procesamiento de columnas custom
+
+Script migrate-plugins.sh actualizado: agrega paso 7 (parches de backend Python).
+
+### 2026-05-28 (actualización 2)
+
+Cambio realizado:
+Corrección de imports rotos en v6.1.0: t, tn, addLocaleData, css, styled, useTheme, GenericDataType se movieron
+de @superset-ui/core a @apache-superset/core en v6.1.0. Se agregaron re-exports en @superset-ui/core/index.ts
+para mantener compatibilidad sin tocar los plugins. También se restauró el "Customize columns" del TableV3
+(Display name + pestaña HTML con htmlTemplate y htmlCss) copiando 5 archivos de ColumnConfigControl desde v6.
+
+Archivos afectados en superset_v6_1_0:
+- `superset_v6_1_0/superset-frontend/packages/superset-ui-core/src/index.ts` — re-exports de compatibilidad
+- `superset_v6_1_0/superset-frontend/src/explore/components/controls/ColumnConfigControl/constants.tsx` — Display name + HTML tab + HTML_TEMPLATE_EXAMPLES + HTML_TEMPLATE_AI_PROMPT
+- `superset_v6_1_0/superset-frontend/src/explore/components/controls/ColumnConfigControl/ColumnConfigPopover.tsx` — HtmlTemplateHelpPanel
+- `superset_v6_1_0/superset-frontend/src/explore/components/controls/ColumnConfigControl/types.ts` — tipos SharedColumnConfigProp actualizados
+- `superset_v6_1_0/superset-frontend/src/explore/components/controls/ColumnConfigControl/ControlForm/controls.ts` — TextAreaControl agregado
+- `superset_v6_1_0/superset-frontend/src/explore/components/controls/ColumnConfigControl/ControlForm/index.tsx` — imports
+
+Archivos creados en el proyecto raíz:
+- `custom-src/ColumnConfigControl/` — copia de los 5 archivos para uso del script de migración
+
+Script migrate-plugins.sh actualizado: agrega paso 3b (re-exports) y paso 6 (ColumnConfigControl).
+
+### 2026-05-28
+
+Cambio realizado:
+Migración de plugins personalizados irex (tableV3, pivot-tableRx1, html-cards) a superset_v6_1_0.
+Creación de script reutilizable `migrate-plugins.sh` para automatizar migraciones futuras.
+
+Archivos creados/afectados en superset_v6_1_0:
+- `superset_v6_1_0/superset-frontend/plugins/plugin-chart-tableV3/` (copiado)
+- `superset_v6_1_0/superset-frontend/plugins/plugin-chart-pivot-tableRx1/` (copiado)
+- `superset_v6_1_0/superset-frontend/plugins/plugin-chart-html-cards/` (copiado)
+- `superset_v6_1_0/superset-frontend/package.json` — agregadas 3 entradas file: para los plugins personalizados
+- `superset_v6_1_0/superset-frontend/packages/superset-ui-core/src/chart/types/VizType.ts` — agregados HtmlCards, PivotTableRx1, TableV3 al enum
+- `superset_v6_1_0/superset-frontend/src/setup/setupPluginsExtra.ts` — registro de los 3 plugins (reemplaza el patrón de modificar MainPreset.ts)
+- `superset_v6_1_0/superset-frontend/src/explore/components/useExploreAdditionalActionsMenu/index.tsx` — agrega VizType.PivotTableRx1 a VIZ_TYPES_PIVOTABLE
+- `superset_v6_1_0/superset-frontend/src/dashboard/components/SliceHeaderControls/index.tsx` — agrega VizType.PivotTableRx1 a isPivotTable
+- `superset_v6_1_0/superset-frontend/src/features/reports/ReportModal/index.tsx` — agrega VizType.PivotTableRx1 a TEXT_BASED_VISUALIZATION_TYPES
+- `superset_v6_1_0/superset-frontend/src/features/alerts/AlertReportModal.tsx` — agrega VizType.PivotTableRx1 a TEXT_BASED_VISUALIZATION_TYPES
+
+Archivos creados en el proyecto raíz:
+- `custom-plugins/` — directorio con los 3 plugins fuera del repo de Superset (fuente canónica para futuras migraciones)
+- `migrate-plugins.sh` — script que automatiza todos los pasos anteriores para cualquier versión futura de Superset
+
+Que cambia o corrige:
+- Los plugins personalizados quedan disponibles en v6.1.0 sin modificar MainPreset.ts (se usa setupPluginsExtra.ts en su lugar).
+- Para migrar a futuras versiones: copiar nuevo repo Superset y ejecutar `./migrate-plugins.sh /ruta/superset_vX_Y_Z`.
+
+Pendiente:
+- Ejecutar `npm install` en superset_v6_1_0/superset-frontend para instalar las dependencias nuevas.
+- Verificar que los 3 plugins aparecen en el selector de visualizaciones tras el build.
+
 ### 2026-05-14
 
 Cambio realizado:

@@ -1,5 +1,9 @@
 todo cambio realizado escribelo en "Registro de cambios.md" anotar fecha y cambio realizado con los archivos afectados y que cambia o corrige.
-Superset no corre en docker, corre usando el servicio superset.service
+Superset no corre en docker, corre usando el servicio superset.service (v6 prod) o "superset run -p 9050 -h 0.0.0.0 --with-threads --reload --debugger" (v6.1.0 debug).
+
+**IMPORTANTE — Plugins personalizados irex**: Lee PLUGINS.md antes de modificar cualquier plugin
+o componente relacionado. Las fuentes canónicas son custom-plugins/ y custom-src/, NO las carpetas
+dentro de superset_v*/. Ver PLUGINS.md para el workflow completo.
 
 
 # LLM Context Guide for Apache Superset
