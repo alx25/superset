@@ -97,6 +97,112 @@
     });
   }
 
+  /* ── Recordar usuario ──────────────────────────────────────── */
+  var REMEMBER_USER_KEY = 'superset-remember-username';
+  var REMEMBER_ACTIVE_KEY = 'superset-remember-active';
+  var REMEMBER_PROMPT_SEEN_KEY = 'superset-remember-prompt-seen';
+
+  function safeGetItem(key) {
+    try {
+      return localStorage.getItem(key);
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function safeSetItem(key, value) {
+    try {
+      localStorage.setItem(key, value);
+    } catch (_e) {
+      // ignore
+    }
+  }
+
+  function safeRemoveItem(key) {
+    try {
+      localStorage.removeItem(key);
+    } catch (_e) {
+      // ignore
+    }
+  }
+
+  function initRememberUsername() {
+    var usernameInput = document.getElementById('username');
+    var rememberCheckbox = document.getElementById('rememberUsername');
+    var loginForm = safeQuery('.login-form');
+    var promptModal = document.getElementById('rememberPromptModal');
+
+    if (!usernameInput || !rememberCheckbox || !loginForm) return;
+
+    var isActive = safeGetItem(REMEMBER_ACTIVE_KEY) === '1';
+    var savedUsername = safeGetItem(REMEMBER_USER_KEY);
+
+    if (isActive && savedUsername && !usernameInput.value) {
+      usernameInput.value = savedUsername;
+      rememberCheckbox.checked = true;
+    }
+
+    function persistPreference() {
+      if (rememberCheckbox.checked) {
+        safeSetItem(REMEMBER_ACTIVE_KEY, '1');
+        safeSetItem(REMEMBER_USER_KEY, usernameInput.value.trim());
+      } else {
+        safeSetItem(REMEMBER_ACTIVE_KEY, '0');
+        safeRemoveItem(REMEMBER_USER_KEY);
+      }
+    }
+
+    function closePromptModal() {
+      if (!promptModal) return;
+      promptModal.style.display = 'none';
+      document.body.style.overflow = 'auto';
+    }
+
+    // El usuario ya tomó una decisión explícita (vía checkbox o vía el
+    // mensaje): no volver a preguntar en futuras sesiones.
+    rememberCheckbox.addEventListener('change', function () {
+      safeSetItem(REMEMBER_PROMPT_SEEN_KEY, '1');
+    });
+
+    loginForm.addEventListener('submit', function (event) {
+      var promptSeen = safeGetItem(REMEMBER_PROMPT_SEEN_KEY) === '1';
+
+      if (!rememberCheckbox.checked && !promptSeen && promptModal) {
+        event.preventDefault();
+        promptModal.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+        return;
+      }
+
+      persistPreference();
+    });
+
+    if (promptModal) {
+      var acceptBtn = promptModal.querySelector('.remember-accept');
+      var declineBtn = promptModal.querySelector('.remember-decline');
+
+      if (acceptBtn) {
+        acceptBtn.addEventListener('click', function () {
+          rememberCheckbox.checked = true;
+          safeSetItem(REMEMBER_PROMPT_SEEN_KEY, '1');
+          persistPreference();
+          closePromptModal();
+          loginForm.submit();
+        });
+      }
+
+      if (declineBtn) {
+        declineBtn.addEventListener('click', function () {
+          rememberCheckbox.checked = false;
+          safeSetItem(REMEMBER_PROMPT_SEEN_KEY, '1');
+          persistPreference();
+          closePromptModal();
+          loginForm.submit();
+        });
+      }
+    }
+  }
+
   /* ── Toggle contraseña ─────────────────────────────────────── */
   var passwordInput = document.getElementById('password');
   var togglePasswordBtn = safeQuery('.toggle-password');
@@ -141,6 +247,7 @@
     updateThemeLabel(getCurrentTheme());
 
     initializeAnimation();
+    initRememberUsername();
   }
 
   if (document.readyState === 'loading') {

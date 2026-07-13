@@ -48,6 +48,15 @@
 #  13.  Pestañas en barra de filtros del dashboard (Filtros / Marcadores):
 #       13a. Symlink FilterBarTabs/ → src/dashboard/components/nativeFilters/FilterBar/
 #       13b. Patch Vertical.tsx: import FilterBarTabs + reemplazar scroll div
+#  14.  MCP: campo 'description' en filtros nativos de get_dashboard_info
+#  15.  exploreReducer.ts: sincronizar calculated_columns con column_config/column_order
+#  16.  Puente de tema para el widget de chat (ThemeAgentBridge):
+#       16a. Symlink ThemeAgentBridge.tsx → src/theme/
+#       16b. Patch RootContextProviders.tsx: import + montaje de <ThemeAgentBridge />
+#  17.  Widget de chat (mcp_widget.py):
+#       17a. Symlink mcp_widget.py → superset/security/
+#       17b. Recordatorio: registrar mcp_widget_bp + inject_chat_widget en el
+#            superset_config.py de PRODUCCIÓN (fuera de este repo, ver CLAUDE.md)
 
 set -euo pipefail
 
@@ -1157,6 +1166,89 @@ else:
     print("  [warn] 15 exploreReducer.ts: patrones no encontrados, verificar manualmente")
 PYEOF
 fi
+
+# ── 16. Puente de tema para el widget de chat (ThemeAgentBridge) ────────────
+echo "[16] Puente de tema para el widget de chat (ThemeAgentBridge)..."
+
+# 16a. Symlink ThemeAgentBridge.tsx
+TAB_SRC="$CUSTOM_SRC/ThemeAgentBridge/ThemeAgentBridge.tsx"
+TAB_DEST="$FRONTEND/src/theme/ThemeAgentBridge.tsx"
+[[ -f "$TAB_SRC" ]] || { echo "  ERROR: ThemeAgentBridge.tsx no encontrado en custom-src/"; exit 1; }
+if [[ -L "$TAB_DEST" ]]; then
+  echo "  [skip] ThemeAgentBridge.tsx ya es symlink"
+elif [[ -f "$TAB_DEST" ]]; then
+  echo "  [warn] ThemeAgentBridge.tsx ya existe (no es symlink), verificar manualmente"
+else
+  ln -sfn "$TAB_SRC" "$TAB_DEST"
+  echo "  [ok] ThemeAgentBridge.tsx"
+fi
+
+# 16b. Montarlo en RootContextProviders.tsx (raíz de la app, dentro del
+# contexto de tema de Emotion) para que use useTheme() y republique el tema
+# ya resuelto de Superset (incluyendo temas CRUD personalizados) como
+# CustomEvent hacia el widget de chat externo, montado fuera del árbol React.
+# No se usa patch_file: su chequeo de idempotencia (grep -F multilínea) da
+# falso positivo acá porque la 1ra línea del replace del import es idéntica
+# al search completo — se detecta "ya aplicado" antes de aplicarlo.
+RCP_FILE="$FRONTEND/src/views/RootContextProviders.tsx"
+if grep -q "ThemeAgentBridge" "$RCP_FILE" 2>/dev/null; then
+  echo "  [skip] RootContextProviders.tsx ya tiene ThemeAgentBridge"
+else
+  python3 - "$RCP_FILE" <<'PYEOF'
+import sys
+f = sys.argv[1]
+c = open(f).read()
+
+old_import = "import { ThemeController } from 'src/theme/ThemeController';"
+new_import = (
+    "import { ThemeController } from 'src/theme/ThemeController';\n"
+    "import { ThemeAgentBridge } from 'src/theme/ThemeAgentBridge';"
+)
+
+old_mount = (
+    "    <SupersetThemeProvider themeController={themeController}>\n"
+    "      <ReduxProvider store={store}>"
+)
+new_mount = (
+    "    <SupersetThemeProvider themeController={themeController}>\n"
+    "      <ThemeAgentBridge />\n"
+    "      <ReduxProvider store={store}>"
+)
+
+if old_import in c and old_mount in c:
+    c = c.replace(old_import, new_import, 1).replace(old_mount, new_mount, 1)
+    open(f, 'w').write(c)
+    print("  [ok] RootContextProviders.tsx (import + montaje de ThemeAgentBridge)")
+else:
+    print("  [warn] RootContextProviders.tsx: patrones no encontrados, verificar manualmente")
+PYEOF
+fi
+
+# ── 17. Widget de chat (mcp_widget.py) ───────────────────────────────────────
+echo "[17] Widget de chat (mcp_widget.py)..."
+
+# 17a. Symlink mcp_widget.py — blueprint Flask con el proxy de widget.js/API,
+# el token JWT del MCP y el after-request hook que inyecta el widget + el
+# script que republica 'superset-agent:theme-change' hacia data-theme.
+MCP_WIDGET_SRC="$CUSTOM_SRC/login/mcp_widget.py"
+MCP_WIDGET_DEST="$TARGET/superset/security/mcp_widget.py"
+[[ -f "$MCP_WIDGET_SRC" ]] || { echo "  ERROR: custom-src/login/mcp_widget.py no encontrado"; exit 1; }
+if [[ -L "$MCP_WIDGET_DEST" ]]; then
+  echo "  [skip] mcp_widget.py ya es symlink"
+elif [[ -f "$MCP_WIDGET_DEST" ]]; then
+  echo "  [warn] mcp_widget.py ya existe (no es symlink), verificar manualmente"
+else
+  ln -sfn "$MCP_WIDGET_SRC" "$MCP_WIDGET_DEST"
+  echo "  [ok] superset/security/mcp_widget.py"
+fi
+
+# 17b. Esto NO alcanza para activar el widget: mcp_widget_bp (BLUEPRINTS) y
+# el after-request inject_chat_widget se registran a mano en el
+# superset_config.py de PRODUCCIÓN (/home/imercados/.superset/, fuera de
+# este repo) junto con MCP_JWT_SECRET, CHAT_WIDGET_URL, etc. Ver CLAUDE.md.
+echo "  [reminder] Falta registrar mcp_widget_bp + inject_chat_widget y sus"
+echo "             variables (MCP_JWT_SECRET, CHAT_WIDGET_URL, ...) en el"
+echo "             superset_config.py de producción — no lo hace este script."
 
 echo ""
 echo "=== Migración completada ==="
