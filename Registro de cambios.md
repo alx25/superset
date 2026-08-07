@@ -1,5 +1,39 @@
 ## Registro de cambios
 
+### 2026-07-21 (2)
+
+Cambio realizado:
+Mejora #3 en `irex.compare_periods`: cambio absoluto (delta) y contribución al cambio total, para responder "¿qué explica la caída/subida?" por magnitud real y no solo por % individual. Sin duplicar tools.
+
+Archivos afectados:
+- `backend/src/irex/irex_mcp_tools/compare_periods.py` (fuente y dist vía .supx)
+- `extensions/irex-mcp-tools-0.1.0.supx` (reempaquetado)
+
+Que cambia o corrige:
+- **Delta por fila**: cada fila de `rows` ahora incluye `{metric}_delta` = cambio absoluto (B − A). Un lado ausente cuenta como 0 (una combinación que aparece/desaparece = cambio completo). Helper `_delta()`.
+- **Contribución al cambio total**: para métricas ADITIVAS (SUM/COUNT — detectadas con `_is_additive_metric()`), cada fila incluye `{metric}_contribution_pct` = delta_fila / delta_total × 100. Signo negativo = la fila se movió en sentido contrario al total (lo amortiguó). El denominador se expone en `change_totals` (suma de deltas de TODAS las combinaciones, incluidas las bajo umbral). AVG/MIN/MAX/ratios/COUNT_DISTINCT no llevan contribución (el total no es la suma de los grupos), solo delta.
+- **`sort_by`** (nuevo campo): `"variation_pct"` (default, comportamiento previo) o `"abs_delta"` (ordena `rows` y aplica row_limit por magnitud absoluta del cambio). Para "¿qué movió más el total?" usar `abs_delta`.
+- **Nivel agregado (`aggregate_by`)**: `_aggregate_by_direction` ahora acumula `{metric}_total_delta` por grupo (solo aditivas) y expone `top_by_delta` (grupos que más movieron el total en magnitud) y `delta_hint`. Complementa los ya existentes `top_increases`/`top_decreases` (cantidad) y `top_by_variation` (% promedio).
+- Retrocompatible: los campos nuevos son aditivos; el orden por defecto y todos los campos previos se mantienen. La descripción del tool y `rows_note` se actualizaron para guiar al modelo.
+- Validado en aislamiento: contribuciones suman ~100%, `top_by_delta` elige el grupo correcto, no-aditivas sin contribución. No requiere paso 6 (no hay tool nuevo).
+- Pendiente relacionado: paridad en `irex.export_to_excel` (su modo comparación recalcula variación inline y aún no expone delta/contribución).
+
+### 2026-07-21
+
+Cambio realizado:
+Mejoras de capacidad analítica en `irex.query_dataset_sql` (motor DuckDB) — 3 mejoras sobre la herramienta existente, sin duplicar tools: (#1) JOINs multi-fuente, (#2) guard de truncamiento del fetch, (#5) dtypes en la respuesta + docstring ampliado de funciones DuckDB.
+
+Archivos afectados:
+- `backend/src/irex/irex_mcp_tools/sql_analysis.py` (fuente y dist vía .supx)
+- `extensions/irex-mcp-tools-0.1.0.supx` (reempaquetado)
+
+Que cambia o corrige:
+- **#1 Multi-fuente (`extra_tables`)**: nuevo campo opcional `extra_tables: [{name, dataset_id, metrics, groupby, filters, fetch_row_limit, jinja_filters}]` en `query_dataset_sql`. Cada fuente extra se consulta a Superset por separado (respetando RLS) y se registra como una tabla adicional (`data2`, etc.) junto a `data`, para hacer JOINs entre datasets/granularidades distintos en un mismo SQL (ej. ventas vs PNS por producto). La lógica de fetch de una fuente se extrajo a `_fetch_source_rows()` y se reutiliza para la principal y las extra. Nombres validados (`_validate_extra_table_name`): identificador SQL válido, distinto de `data`, sin duplicados. Retrocompatible (si no se pasa, funciona igual).
+- **#2 Guard de truncamiento**: `_fetch_source_rows` devuelve un flag `truncated` cuando el fetch alcanza `fetch_row_limit`. La respuesta ahora incluye `source_truncated` y, si aplica a cualquier fuente, `source_truncated_warning` — antes un STDDEV/percentil/correlación sobre un subconjunto truncado se devolvía como exacto sin aviso.
+- **#5 Dtypes + docstring**: la respuesta incluye `source_column_types` (number/text/datetime por columna) para que el modelo elija bien qué agregar antes de escribir el SQL. La descripción del campo `sql` ahora publicita funciones ya soportadas por DuckDB 1.4.2 pero antes no mencionadas: QUALIFY, LAG/LEAD, PERCENTILE_CONT/MEDIAN/MODE/ENTROPY/MAD/SKEWNESS/KURTOSIS, REGR_SLOPE/REGR_INTERCEPT/REGR_R2, HISTOGRAM y ASOF JOIN.
+- Compartido con `irex.export_to_excel` (modo SQL) vía `execute_sql_analysis` — hereda el guard de truncamiento automáticamente; `extra_tables` por ahora solo se expone en `query_dataset_sql` (paridad en export pendiente).
+- No requiere el paso 6 (`always_visible`): no hay tool nuevo, solo se amplió `query_dataset_sql` ya registrado.
+
 ### 2026-06-26 (3)
 
 Cambio realizado:
@@ -1791,6 +1825,26 @@ Verificacion:
 
 ### 2026-06-19
 
+### 2026-07-17
+
+Cambio realizado:
+Se agregó cache temporal en memoria para análisis de `irex.compare_periods` y soporte de `report_id` en `irex.export_to_excel`, además de mejoras puntuales de comparación y alias de métricas fórmula.
+
+Archivos afectados:
+- `superset_v6_1_0/irex-mcp-tools/backend/src/irex/irex_mcp_tools/report_cache.py`
+- `superset_v6_1_0/irex-mcp-tools/backend/src/irex/irex_mcp_tools/compare_periods.py`
+- `superset_v6_1_0/irex-mcp-tools/backend/src/irex/irex_mcp_tools/export_excel.py`
+- `superset_v6_1_0/irex-mcp-tools/backend/src/irex/irex_mcp_tools/query_dataset.py`
+
+Que cambia o corrige:
+- Nuevo helper `report_cache.py` con store en memoria por usuario, TTL 2 horas, limpieza perezosa y detección de llamadas recientes con filtros A/B invertidos.
+- `irex.compare_periods` ahora valida que `aggregate_by` sea subconjunto estricto de `groupby`, puede calcular `totals`, reclasifica filtros de dashboard a `jinja_filters`, advierte repeticiones invertidas y devuelve `report_id`.
+- `irex.export_to_excel` acepta `report_id`, recupera los parámetros guardados del análisis y exporta exactamente esa comparación sin reconstruir filtros manualmente.
+- `_parse_metric` genera alias automáticos legibles para métricas fórmula sin alias explícito y sanea alias explícitos corruptos.
+
+Verificacion:
+- `python3 -m py_compile` ejecutado correctamente sobre `report_cache.py`, `compare_periods.py`, `export_excel.py` y `query_dataset.py`.
+
 Cambio realizado:
 `get_dashboard_info` (MCP) no exponía el campo `description` de los filtros nativos del dashboard, aunque Superset sí lo soporta al crear/editar un filtro.
 
@@ -1831,3 +1885,115 @@ Verificacion:
 - Se extrajo el bloque Python del paso 15 de `migrate-plugins.sh` y se corrió standalone contra una copia limpia (`git show HEAD:...exploreReducer.ts`) de v6.1.0 — el resultado es byte-a-byte idéntico al parche aplicado a mano, confirmando que el script reproduce el fix correctamente para futuras migraciones.
 - No se pudo correr `npx jest` sobre `exploreReducer.test.ts` — falla preexistente y no relacionada: Jest no resuelve el symlink de `custom-src/ListViewCard/index.tsx` con la misma lógica que `resolve.symlinks: false` de webpack, y sus imports relativos (`../Skeleton`) rompen la resolución de módulos ni bien algo importa `exploreReducer.ts`. Se confirmó que la falla ya existía antes de este cambio (mismo error con `git stash` del archivo).
 - Pendiente: `npm run build` del frontend y prueba manual en Explore (editar un dataset con calculated columns ya definidas y confirmar que sobreviven).
+
+### 2026-07-24
+
+Cambio realizado:
+Mejoras de confiabilidad en los análisis de brechas y rankings Top-N por grupo del MCP irex, a raíz de la sesión `58ead3f6-6564-4670-b8f2-c2fd101ac47f` del chat: un desglose por área usó SQL libre con `plan - proyeccion` sin COALESCE sobre una fuente truncada en `fetch_row_limit=5000`, haciendo desaparecer combinaciones presentes en una sola métrica (ej. omitió una caída de -844,032 kg en SELECTO-LAVAP. CREMA) y presentando totales/rankings incompletos como exactos.
+
+Archivos afectados:
+- `superset_v6_1_0/irex-mcp-tools/backend/src/irex/irex_mcp_tools/rank_partitions.py` (nuevo — tool `irex.rank_partitions`)
+- `superset_v6_1_0/irex-mcp-tools/backend/src/irex/irex_mcp_tools/partition_ranking_core.py` (nuevo — núcleo de cálculo sin imports de Superset, testeable standalone)
+- `superset_v6_1_0/irex-mcp-tools/backend/src/irex/irex_mcp_tools/sql_analysis.py` (campos `result_exact`/`incomplete_reason` + reglas de SQL correcto en la descripción)
+- `superset_v6_1_0/irex-mcp-tools/backend/src/irex/irex_mcp_tools/entrypoint.py` (registro del módulo nuevo)
+- `superset_v6_1_0/irex-mcp-tools/backend/tests/test_partition_ranking_core.py` (nuevo — 18 tests sintéticos)
+- `/home/imercados/.superset/superset_config.py` (paso 6: `irex.rank_partitions` en `always_visible`)
+- `extensions/irex-mcp-tools-0.1.0.supx` + copia sincronizada en `superset_v6_1_0/irex-mcp-tools/`
+
+Que cambia o corrige:
+- Nueva tool `irex.rank_partitions` (aditiva, no cambia contratos existentes): ranking Top-N POR PARTICIÓN de la brecha entre dos métricas, con semántica fija que el LLM no puede degradar: (1) preagregación obligatoria en Superset (metrics + partition_by + detail_by, respetando RLS — reutiliza `_fetch_source_rows`); (2) brecha SIEMPRE `COALESCE(a,0)-COALESCE(b,0)` — combinaciones presentes en una sola métrica valen +A o -B y nunca desaparecen por NULL; (3) `ROW_NUMBER() OVER (PARTITION BY ...)` con desempate determinístico — el top_n se aplica dentro de cada partición; (4) `partition_totals` calculados sobre el universo completo antes del top_n, con `top_n_delta_sum`/`remaining_delta` para explicitar lo que queda fuera; (5) `reconciliation` que verifica detalle vs `metric_a_total - metric_b_total`; (6) `null_diagnostics` (filas solo-en-A, solo-en-B, ambas nulas); (7) compuerta de truncamiento: si la fuente alcanza `fetch_row_limit`, devuelve `status="incomplete"` sin ranking (default `require_complete_source=true`; con false devuelve marcado `result_exact=false`).
+- Se eligió tool dedicada (y no un input estructurado dentro de `query_dataset_sql`) por enrutamiento: para un LLM la señal más fuerte es la elección de tool por nombre/descripción; un parámetro opcional anidado no lo desvía del SQL libre. Además evita un contrato con `sql` condicionalmente requerido.
+- `irex.query_dataset_sql` (retrocompatible): la respuesta ahora incluye `result_exact` (true/false) de primer nivel e `incomplete_reason="source_truncated"` cuando cualquier fuente (data o extra_tables) quedó truncada — `status` sigue siendo "success" para no romper llamadas existentes. La descripción suma reglas de SQL correcto (COALESCE en brechas, QUALIFY para top-N por grupo, y puntero a `irex.rank_partitions`).
+- Fase 2 (pendiente, solo si se valida la necesidad): `contribution_pct`, modos `variation_pct` de rank_by, heurísticas sobre SQL libre.
+
+Verificacion:
+- 18/18 tests sintéticos pasan (`.venv/bin/python -m pytest backend/tests/ -q`), incluido el caso base de la propuesta: plan/proy 130/170, delta_total -40, Top-2 por abs_delta = Y(-50) y Z(+30), total de partición intacto en -40 con top_n=2 (`top_n_delta_sum=-20`, `remaining_delta=-20`); más: varias particiones, empate determinístico, denominador cero (variation_pct=None), ambas métricas nulas, top_n > filas, partición global, nombres con espacios/paréntesis, validaciones de columnas/tipos.
+- `py_compile` OK sobre los 4 módulos tocados; paths dentro del ZIP verificados (`backend/src/...`); ambos `.supx` con el mismo md5.
+- Los flujos de fetch/RLS/jinja_filters/truncamiento reutilizan `_fetch_source_rows` ya probado en producción — no se duplicó motor DuckDB ni lógica de filtros.
+- Pendiente al momento de escribir: reinicio de `superset_mcp.service` (requiere sudo) y verificación en journalctl + prueba end-to-end desde el chat.
+
+### 2026-07-24 (segunda entrega — naming de columnas en irex.rank_partitions)
+
+Cambio realizado:
+Feedback de la sesión `619d22e4-cd96-4878-9e22-8bc189ac85df` (primer uso end-to-end exitoso de `irex.rank_partitions` tras el fix del validador del chat): la tabla renderizada mostraba columnas genéricas `metric_a`/`metric_b`/`metric_a_total`/`metric_b_total`, ilegibles para el usuario final — no se sabe qué métrica es cuál sin mirar el bloque `ranking`, que el widget no muestra.
+
+Archivos afectados:
+- `superset_v6_1_0/irex-mcp-tools/backend/src/irex/irex_mcp_tools/partition_ranking_core.py`
+- `superset_v6_1_0/irex-mcp-tools/backend/src/irex/irex_mcp_tools/rank_partitions.py` (solo descripción)
+- `superset_v6_1_0/irex-mcp-tools/backend/tests/test_partition_ranking_core.py` (+6 tests, total 24)
+- `extensions/irex-mcp-tools-0.1.0.supx` + copia sincronizada
+
+Que cambia o corrige:
+- CAMBIO DE CONTRATO (la tool tiene <1 día, único consumidor avisado): en `rows`, las dos métricas ahora salen como columnas con su ALIAS REAL (ej. `plan_2027`, `proy_cierre_2026`) en vez de `metric_a`/`metric_b`; en `partition_totals`, los totales se llaman `<alias>_total` (ej. `plan_2027_total`) en vez de `metric_a_total`/`metric_b_total`. `delta`, `abs_delta`, `rank`, `delta_total`, `variation_pct`, `detail_row_count`, `top_n_*` y `remaining_delta` no cambian. `reconciliation.details` también usa los alias reales; `null_diagnostics` mantiene claves genéricas (es un bloque diagnóstico y el bloque `ranking` mapea a/b → alias).
+- Internamente el SQL usa prefijo `__pr_` para evitar colisiones; nueva validación: dimensiones y aliases no pueden llamarse `delta`/`abs_delta`/`rank` ni empezar con `__pr_` (error accionable sugiriendo otro alias).
+
+Verificacion:
+- 24/24 tests pasan, incluyendo nuevos: rows con alias reales (y ausencia de claves genéricas), totales con alias de caracteres especiales (`SUM(plan)_total`), rechazo de nombres reservados.
+- `py_compile` OK; paths del ZIP verificados; ambos `.supx` con mismo md5.
+- Pendiente: reinicio de `superset_mcp.service` (sudo) y re-prueba desde el chat.
+
+### 2026-07-29
+
+Cambio realizado:
+Salvaguardas de ordenamiento en `irex.query_dataset` (y `irex.export_to_excel`), a raíz de la sesión `32bf35fa-3524-47b9-8181-cbea055f20b9`: el LLM del chat pidió un desglose de brechas con `orderby` SIN marcador de dirección (= ascendente) y `row_limit=10`, por lo que el cliente con la brecha positiva más alta (EL CRISTO) quedó cortado por el límite y el usuario final lo detectó. El MCP devolvió lo que se le pidió (incluidos `truncated:true` y el warning genérico, que el modelo ignoró) — el fix apunta a que la dirección sea visible y el warning nombre exactamente qué quedó fuera.
+
+Archivos afectados:
+- `superset_v6_1_0/irex-mcp-tools/backend/src/irex/irex_mcp_tools/query_dataset.py`
+- `superset_v6_1_0/irex-mcp-tools/backend/src/irex/irex_mcp_tools/export_excel.py` (pasa metrics a `_parse_orderby` para resolución de alias)
+- `superset_v6_1_0/irex-mcp-tools/backend/tests/test_orderby_parsing.py` (nuevo — 12 tests con stub de superset_core)
+- `extensions/irex-mcp-tools-0.1.0.supx` + copia sincronizada
+
+Que cambia o corrige (todo aditivo/retrocompatible):
+- `_parse_orderby` acepta sufijo ' DESC'/' ASC' estilo SQL (lo que un LLM escribe naturalmente) además del prefijo '-'; y resuelve el ALIAS de una métrica ya definida en `metrics` (ej. orderby:['Brecha DESC'] con metrics:['SUM(a)-SUM(b) AS "Brecha"']) — antes un alias suelto se mandaba a Superset como métrica guardada y fallaba. Alias citado ('"Brecha"') también soportado.
+- Respuesta de `query_dataset` suma: `ordered_by` (eco de [{by, direction}] aplicado), `result_exact` (consistente con query_dataset_sql/rank_partitions).
+- Cuando el resultado trunca Y hay orderby, el warning ahora nombra el extremo que quedó fuera: "el orden es ASCENDENTE por 'Brecha' → los valores más ALTOS de 'Brecha' quedaron FUERA", con instrucción de invertir la dirección. Es la combinación que produjo la omisión de EL CRISTO.
+- Descripción del campo `orderby` reescrita con la regla crítica orden+límite.
+- NO se implementó la "validación de ambigüedad expr-vs-alias en AS" propuesta por el agente del chat: ordenar por la expresión o por su alias produce el mismo orden — no hay ambigüedad semántica.
+
+Verificacion:
+- 36/36 tests pasan (12 nuevos de orderby: prefijo '-', sufijos DESC/ASC, alias con/sin comillas, alias desconocido pasa como métrica guardada, eco de dirección, y el caso literal de la sesión 32bf35fa).
+- `py_compile` OK; paths del ZIP verificados; ambos `.supx` con mismo md5.
+- Pendiente: reinicio de `superset_mcp.service` (sudo) y re-prueba desde el chat.
+
+### 2026-07-29 (chat legacy vs chat MCP)
+
+Cambio realizado:
+El chat legacy ("Consúltele al don" — botón flotante #chatButton + ventana #chatWindow) y el widget del chat MCP se mostraban simultáneamente para los usuarios con acceso al chat nuevo. Ahora el legacy se oculta por completo cuando el chat MCP se muestra; los usuarios SIN el rol del chat MCP (CHAT_WIDGET_REQUIRED_ROLE) siguen viendo el legacy sin cambios. Decisión confirmada con el usuario: se oculta TODO el botón flotante, incluyendo las pestañas Marcadores y Estados PNC que viven dentro de esa ventana.
+
+Archivos afectados:
+- `custom-src/login/mcp_widget.py` (symlink activo en `superset_v6_1_0/superset/security/mcp_widget.py`)
+- `superset_v6_1_0/superset/static/js_personal/chat.js` (v7.1.2)
+- `superset_v6_1_0/superset/templates/tail_js_custom_extra.html` (bump de versión para bustear caché)
+
+Que cambia o corrige:
+- `inject_chat_widget` (el after_request que inyecta el widget MCP, y que SOLO corre para usuarios autenticados con `_user_has_chat_access()`) ahora agrega al <style> inyectado: `#chatButton,#chatWindow{display:none !important;}` — el gating por permiso es el mismo que decide si el chat MCP se muestra, no hay lógica nueva de roles.
+- El mismo inline script marca `window.__MCP_CHAT_ACTIVE__ = true` durante el parseo del body (antes de DOMContentLoaded, sin carrera posible).
+- `chat.js` hace early-return si ese flag está presente — sin esto, aunque oculto, el auto-click de la primera pestaña cargaba el iframe del bot viejo (botframework) en background.
+
+Verificacion:
+- `py_compile` OK sobre mcp_widget.py; `node --check` OK sobre chat.js.
+- El pyc de `custom-src/login/__pycache__` se regenera solo — no requiere acción.
+- Requiere reiniciar `superset.service` (no el MCP) para tomar el cambio de mcp_widget.py; el bump v7.1.2 fuerza el refetch de chat.js en los navegadores.
+- Prueba manual pendiente: (1) usuario CON rol → no debe verse el botón "El Don" y el widget MCP sí; (2) usuario SIN rol → el botón "El Don" debe seguir funcionando con sus 3 pestañas.
+
+### 2026-07-29 (extra_tables en export_to_excel)
+
+Cambio realizado:
+Sesión `470f2e8d-009e-4685-bec0-8281c06665ba`: un Pareto multi-granularidad validado en `irex.query_dataset_sql` con `extra_tables` (data + data2, dataset 62) falló al exportarse con `irex.export_to_excel` usando el mismo request: "Table with name data2 does not exist". Causa: el modo SQL de export llamaba a `execute_sql_analysis` sin pasar `extra_tables`, y como `ExportToExcelRequest` no tenía ese campo, Pydantic ignoraba el input en silencio — la tool aparentaba aceptar el parámetro pero nunca materializaba las tablas extra.
+
+Archivos afectados:
+- `superset_v6_1_0/irex-mcp-tools/backend/src/irex/irex_mcp_tools/export_excel.py`
+- `superset_v6_1_0/irex-mcp-tools/backend/tests/test_sql_analysis_extra_tables.py` (nuevo — 7 tests, fetch mockeado)
+- `extensions/irex-mcp-tools-0.1.0.supx` + copia sincronizada
+
+Que cambia o corrige (aditivo):
+- `ExportToExcelRequest` suma `extra_tables` (mismo modelo `ExtraTable` de sql_analysis) y lo pasa al motor compartido `execute_sql_analysis` — mismas garantías por fuente que en query_dataset_sql: metrics/groupby/filters/jinja_filters/fetch_row_limit propios y RLS. La paridad es estructural: es la MISMA función, no una reimplementación.
+- `extra_tables` sin `sql` → error explícito inmediato (antes: ignorado en silencio).
+- La respuesta del export ahora propaga los diagnósticos del modo SQL: `result_exact`, `source_row_count`, `source_truncated`, `source_truncated_warning`, `incomplete_reason`, `extra_sources`.
+- Si alguna fuente quedó truncada, el caveat se inserta ADEMÁS como sección "⚠️ Datos posiblemente incompletos" al inicio de la hoja Resumen del Excel (creándola si no había summary_text) — el archivo circula fuera del chat y debe ser autocontenido; y el `message` de la respuesta instruye a no presentarlo como exacto.
+- `split_by` sobre aliases del SQL ya funcionaba (valida contra las columnas del resultado) — sin cambios.
+
+Verificacion:
+- 43/43 tests pasan (7 nuevos sobre `execute_sql_analysis` con `_fetch_source_rows` mockeado: JOIN data+data2 con diagnósticos, extra truncada → result_exact=false/incomplete_reason, principal truncada, nombre 'data' reservado, nombre inválido, duplicado, y SQL referenciando tabla no declarada).
+- `py_compile` OK; paths del ZIP verificados; ambos `.supx` con mismo md5.
+- Pendiente: reinicio de `superset_mcp.service` (sudo) y repetir el export de la sesión 470f2e8d desde el chat.

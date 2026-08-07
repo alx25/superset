@@ -367,6 +367,12 @@ def inject_chat_widget(response: Response) -> Response:
     # (ver TALISMAN_CONFIG), no hace falta nonce acá (a diferencia del <script>).
     dock_style = (
         "\n<style>\n"
+        # Chat legacy ("Consúltele al don": #chatButton/#chatWindow en
+        # tail_js_custom_extra.html + chat.js) — se oculta COMPLETO cuando este
+        # widget se inyecta, porque este hook solo corre para usuarios con
+        # acceso al chat MCP (_user_has_chat_access). Los usuarios sin ese rol
+        # no reciben esta inyección y siguen viendo el chat legacy intacto.
+        "  #chatButton,#chatWindow{display:none !important;}\n"
         # height:100vh FIJO (no min-height) + align-items:stretch (default,
         # implícito) — le da a .mcp-dashboard-dock-main una altura DEFINIDA
         # de verdad. Con min-height, el wrapper crecía junto con el contenido
@@ -386,26 +392,66 @@ def inject_chat_widget(response: Response) -> Response:
         # reales. overflow:hidden acá evita que Superset compita por el
         # scroll con el :host del widget. Ya no hace falta position:sticky —
         # el wrapper está fijo a 100vh, no hay scroll de página que seguir.\n"
-        "  #mcp-chat-dock{display:none;flex:0 0 auto;width:min(460px,34vw);"
-        "min-width:380px;max-width:620px;height:100%;overflow:hidden;}\n"
+        # 'display' no se puede animar — para que acoplar/desacoplar tenga
+        # transición, el dock queda SIEMPRE en el layout (display:block) y lo
+        # que colapsa es 'width'/'min-width' (instantáneo, SIN transition) +
+        # 'opacity' (animado). Nada de transición en el ancho a propósito: el
+        # widget mismo (widget.css, ':host([data-layout=docked])') usa
+        # width:100% fijo y anima su entrada/salida con un fade puro
+        # ('layout-fade', solo opacity 0->1, sin transform) — este fade
+        # replica esa misma animación en vez de un slide horizontal, para que
+        # el contenedor y el contenido de adentro se sientan como una sola
+        # transición. El ancho elegido por el usuario (JS) se guarda en la
+        # variable --mcp-dock-width en vez de en 'width' inline — así la
+        # regla de acá abajo (que sí lee esa variable) es la ÚNICA
+        # responsable del ancho real, y el estado desacoplado (width:0, sin
+        # la variable en juego) nunca queda pisado por un 'width' inline de
+        # una sesión de resize anterior.
+        "  #mcp-chat-dock{display:block;flex:0 0 auto;width:0;min-width:0;"
+        "max-width:50vw;height:100%;overflow:hidden;opacity:0;"
+        "pointer-events:none;transition:opacity .18s ease-out;}\n"
         # El :host del widget usa height:100% y espera resolverlo contra un
         # padre con alto definido — reforzar el hijo directo no está de más.
         "  #mcp-chat-dock > *{height:100%;box-sizing:border-box;}\n"
-        "  body.superset-agent-docked #mcp-chat-dock{display:block;}\n"
+        "  body.superset-agent-docked #mcp-chat-dock{"
+        "width:var(--mcp-dock-width,min(460px,34vw));min-width:380px;"
+        "opacity:1;pointer-events:auto;}\n"
         # Handle de resize entre el dashboard/página y el dock — franja
-        # angosta, mismo alto que sus hermanos en el wrapper fijo.
-        "  .mcp-chat-dock-resizer{display:none;flex:0 0 auto;width:6px;"
+        # angosta, mismo alto que sus hermanos en el wrapper fijo. Aparece/
+        # desaparece con el mismo fade que el dock (sin transición de ancho).
+        # position:relative para poder centrar el grip visual (::after) adentro.
+        "  .mcp-chat-dock-resizer{display:block;flex:0 0 auto;width:0;"
         "cursor:col-resize;height:100%;background:transparent;"
-        "touch-action:none;}\n"
+        "touch-action:none;position:relative;overflow:hidden;opacity:0;"
+        "transition:opacity .18s ease-out;}\n"
+        "  body.superset-agent-docked .mcp-chat-dock-resizer{width:6px;"
+        "opacity:1;}\n"
         "  .mcp-chat-dock-resizer:hover,.mcp-chat-dock-resizer.mcp-resizing"
         "{background:rgba(0,0,0,.12);}\n"
-        "  body.superset-agent-docked .mcp-chat-dock-resizer{display:block;}\n"
+        # Grip visual — puntitos verticales centrados en la franja, para que
+        # se note de entrada que es arrastrable (antes solo se veía al pasar
+        # el mouse encima). Gris neutro semitransparente en vez de negro puro
+        # para que se distinga razonablemente en tema claro y oscuro sin
+        # necesidad de detectar el tema.
+        "  .mcp-chat-dock-resizer::after{content:'';position:absolute;"
+        "top:50%;left:50%;transform:translate(-50%,-50%);width:4px;"
+        "height:28px;border-radius:2px;background:repeating-linear-gradient("
+        "to bottom,rgba(128,128,128,.55) 0,rgba(128,128,128,.55) 2px,"
+        "transparent 2px,transparent 5px);pointer-events:none;}\n"
+        "  .mcp-chat-dock-resizer:hover::after,"
+        ".mcp-chat-dock-resizer.mcp-resizing::after{background:"
+        "repeating-linear-gradient(to bottom,rgba(128,128,128,.9) 0,"
+        "rgba(128,128,128,.9) 2px,transparent 2px,transparent 5px);}\n"
         "</style>\n"
     )
 
     inline = (
         f"{dock_style}\n<script{nonce_attr}>\n"
         "(function(){\n"
+        "  // Marca global para que chat.js (chat legacy) no se inicialice —\n"
+        "  // este inline corre durante el parseo del body, garantizado ANTES\n"
+        "  // del DOMContentLoaded que chat.js espera, así que no hay carrera.\n"
+        "  window.__MCP_CHAT_ACTIVE__ = true;\n"
         "  var THEME_KEY='superset-theme-mode';\n"
         "  // THEME_KEY guarda el ThemeMode crudo de Superset ('default'|'dark'|\n"
         "  // 'system'), no 'light'/'dark' — con 'system' el widget no sabe a qué\n"
@@ -443,24 +489,33 @@ def inject_chat_widget(response: Response) -> Response:
         "    wrapper.appendChild(resizer);\n"
         "    wrapper.appendChild(dock);\n"
         "    setupDockResize(dock, resizer);\n"
+        "    watchDockForFlash(dock);\n"
         "  }\n"
-        "  // Arrastrar el handle cambia el ancho del dock (clamp 380-620px, "
-        "mismo\n"
-        "  // rango que el CSS por si el JS no llegara a correr). El ancho "
+        "  // Arrastrar el handle cambia el ancho del dock (clamp entre "
+        "380px y\n"
+        "  // el 50% del ancho de la ventana — mismo rango que el CSS "
+        "max-width:50vw\n"
+        "  // por si el JS no llegara a correr). El máximo se recalcula en "
+        "cada\n"
+        "  // drag para reflejar el tamaño actual de la ventana. El ancho "
         "elegido\n"
         "  // se recuerda en localStorage — persiste entre recargas.\n"
         "  function setupDockResize(dock, resizer){\n"
         "    var WIDTH_KEY='mcp-chat-dock-width';\n"
-        "    var MIN=380, MAX=620;\n"
-        "    var saved=parseInt(localStorage.getItem(WIDTH_KEY), 10);\n"
-        "    if (saved && saved >= MIN && saved <= MAX) {\n"
-        "      dock.style.width = saved + 'px';\n"
+        "    var MIN=380;\n"
+        "    function maxWidth(){\n"
+        "      return Math.max(MIN, Math.round(window.innerWidth * 0.5));\n"
         "    }\n"
-        "    var dragging=false, startX=0, startWidth=0;\n"
+        "    var saved=parseInt(localStorage.getItem(WIDTH_KEY), 10);\n"
+        "    if (saved && saved >= MIN && saved <= maxWidth()) {\n"
+        "      dock.style.setProperty('--mcp-dock-width', saved + 'px');\n"
+        "    }\n"
+        "    var dragging=false, startX=0, startWidth=0, dragMax=maxWidth();\n"
         "    resizer.addEventListener('mousedown', function(ev){\n"
         "      dragging=true;\n"
         "      startX=ev.clientX;\n"
         "      startWidth=dock.getBoundingClientRect().width;\n"
+        "      dragMax=maxWidth();\n"
         "      resizer.classList.add('mcp-resizing');\n"
         "      document.body.style.userSelect='none';\n"
         "      ev.preventDefault();\n"
@@ -471,8 +526,8 @@ def inject_chat_widget(response: Response) -> Response:
         "lo agranda\n"
         "      var next=startWidth + (startX - ev.clientX);\n"
         "      if (next < MIN) next = MIN;\n"
-        "      if (next > MAX) next = MAX;\n"
-        "      dock.style.width = next + 'px';\n"
+        "      if (next > dragMax) next = dragMax;\n"
+        "      dock.style.setProperty('--mcp-dock-width', next + 'px');\n"
         "    });\n"
         "    window.addEventListener('mouseup', function(){\n"
         "      if (!dragging) return;\n"
@@ -480,8 +535,9 @@ def inject_chat_widget(response: Response) -> Response:
         "      resizer.classList.remove('mcp-resizing');\n"
         "      document.body.style.userSelect='';\n"
         "      try {\n"
-        "        localStorage.setItem(WIDTH_KEY, parseInt(dock.style.width, "
-        "10));\n"
+        "        var current=parseInt(dock.style.getPropertyValue("
+        "'--mcp-dock-width'), 10);\n"
+        "        if (current) localStorage.setItem(WIDTH_KEY, current);\n"
         "      } catch (e) {}\n"
         "    });\n"
         "  }\n"
@@ -549,6 +605,34 @@ def inject_chat_widget(response: Response) -> Response:
         "subtree:true});\n"
         "    }\n"
         "    setTimeout(reveal, 2000);\n"
+        "  }\n"
+        "  // Lo de arriba cubre el flash de la carga inicial, pero el mismo\n"
+        "  // flash reaparece al pasar de desacoplado a acoplado: el widget "
+        "toca\n"
+        "  // su shadow root otra vez (re-crea/reinserta el <link> de CSS) al\n"
+        "  // moverse adentro de #mcp-chat-dock, y para entonces "
+        "widgetHostObserver\n"
+        "  // ya se desconectó (solo corre una vez). Un observer scoped a\n"
+        "  // #mcp-chat-dock (no a document.body entero, para no reaccionar a\n"
+        "  // cada mensaje nuevo del chat — eso vive DENTRO del shadow root y "
+        "no\n"
+        "  // dispara childList acá afuera) reaplica la misma protección "
+        "cada vez\n"
+        "  // que el host aparece ahí adentro. A diferencia de "
+        "widgetHostObserver,\n"
+        "  // este NO se desconecta — el usuario puede acoplar/desacoplar "
+        "muchas\n"
+        "  // veces en la misma sesión.\n"
+        "  function watchDockForFlash(dock){\n"
+        "    var observer=new MutationObserver(function(){\n"
+        "      var host=dock.querySelector('#superset-agent-widget') || "
+        "document.getElementById('superset-agent-widget');\n"
+        "      if (host && host.shadowRoot) {\n"
+        "        patchWidgetShadowFix(host);\n"
+        "        hideUntilStyled(host);\n"
+        "      }\n"
+        "    });\n"
+        "    observer.observe(dock, {childList:true, subtree:true});\n"
         "  }\n"
         "  // El shadow host del widget ('#superset-agent-widget') se crea "
         "recién\n"
