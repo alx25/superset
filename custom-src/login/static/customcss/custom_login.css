@@ -148,13 +148,17 @@ body {
 /* ==================== PANEL IZQUIERDO - BRAND ====================  */
 
 .brand-panel {
-    background: linear-gradient(160deg, var(--irex-blue) 0%, var(--irex-blue-dark) 100%);
-    color: var(--text-white);
+    /* background: linear-gradient(160deg, var(--irex-blue) 0%, var(--irex-blue-dark) 100%); */
+    color: var(--text-primary);
     padding: clamp(2rem, 4vh, 3rem) clamp(1.5rem, 3vw, 2.5rem);
     display: flex;
     flex-direction: column;
     position: relative;
     overflow: hidden;
+}
+
+[data-theme="dark"] .brand-panel {
+    color: var(--text-white);
 }
 
 /* Efecto de fondo decorativo */
@@ -174,13 +178,13 @@ body {
 .brand-panel::after {
     content: '';
     position: absolute;
-    bottom: -20%;
-    left: -10%;
-    width: 300px;
-    height: 300px;
-    background: var(--irex-blue-light);
+    bottom: -30%;
+    left: -15%;
+    width: 500px;
+    height: 500px;
+    background: var(--irex-blue);
     border-radius: 50%;
-    opacity: 0.05;
+    opacity: 0.20;
     filter: blur(60px);
 }
 
@@ -201,7 +205,7 @@ body {
 }
 
 .logo-wrapper {
-    background: var(--bg-black);
+    /* background: var(--bg-black); */
     /* Much tighter padding for a near-flush look */
     padding: clamp(0.125rem, 0.4vh, 0.25rem) clamp(0.25rem, 0.6vw, 0.5rem);
     border-radius: 16px;
@@ -252,7 +256,7 @@ body {
     font-weight: 700;
     line-height: 1.2;
     margin-bottom: 0.75rem;
-    color: var(--text-white);
+    color: inherit;
 }
 
 .brand-title .highlight {
@@ -264,7 +268,7 @@ body {
 .brand-subtitle {
     font-size: clamp(0.9375rem, 1.6vw, 1.0625rem);
     line-height: 1.6;
-    color: rgba(255, 255, 255, 0.9);
+    color: inherit;
     font-weight: 400;
     max-width: 90%;
 }
@@ -302,9 +306,9 @@ body {
 }
 
 .feature-badge {
-    background: rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.16);
     backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.24);
     padding: 0.875rem 1.125rem;
     border-radius: 12px;
     display: flex;
@@ -313,9 +317,46 @@ body {
     transition: all 0.3s ease;
 }
 
+[data-theme="light"] .feature-badge,
+:root .feature-badge {
+    background: rgba(255, 255, 255, 0.92);
+    border-color: rgba(0, 102, 204, 0.12);
+    box-shadow: var(--shadow-sm);
+}
+
+[data-theme="light"] .feature-badge svg,
+:root .feature-badge svg,
+[data-theme="light"] .feature-badge span,
+:root .feature-badge span {
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .feature-badge {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.22);
+}
+
 .feature-badge:hover {
     background: rgba(255, 255, 255, 0.15);
     transform: translateX(4px);
+}
+
+[data-theme="dark"] .feature-badge:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.3);
+    box-shadow: var(--shadow-sm);
+}
+
+[data-theme="dark"] .feature-badge:hover svg,
+[data-theme="dark"] .feature-badge:hover span {
+    color: var(--text-white);
+}
+
+[data-theme="light"] .feature-badge:hover,
+:root .feature-badge:hover {
+    background: rgba(255, 255, 255, 1);
+    border-color: rgba(0, 102, 204, 0.2);
+    box-shadow: var(--shadow-md);
 }
 
 .feature-badge svg {
@@ -326,7 +367,7 @@ body {
 .feature-badge span {
     font-size: 0.875rem;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.95);
+    color: inherit;
     line-height: 1.4;
 }
 

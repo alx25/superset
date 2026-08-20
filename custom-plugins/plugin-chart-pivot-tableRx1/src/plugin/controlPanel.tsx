@@ -411,7 +411,14 @@ const config: ControlPanelConfig = {
                 ) as QueryFormMetric[];
                 return {
                   value: normalizeMetricFormulasValue(rawValue),
-                  columns: explore?.datasource?.columns || [],
+                  // NOTE: do not name this prop `columns` — exploreReducer's
+                  // UPDATE_FORM_DATA_BY_DATASOURCE treats any control whose
+                  // state has a `columns` key as a column-selecting control
+                  // and revalidates its value against the datasource on every
+                  // dataset edit, wiping out metricFormulas entirely since its
+                  // items ({key, label, expression}) never match a real
+                  // column/metric shape.
+                  datasourceColumns: explore?.datasource?.columns || [],
                   metrics: mergeMetricLists(baseMetrics, jinjaFields),
                 };
               },

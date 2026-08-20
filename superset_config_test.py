@@ -400,6 +400,10 @@ WTF_CSRF_EXEMPT_LIST = [
     "superset.views.core.explore_json",
     "superset.views.core.log",
     "superset.views.datasource.views.samples",
+    # Proxy del chat widget: el fetch lo hace widget.js (origen externo en su
+    # diseño original), no el formulario/JS de Superset — nunca tendría el
+    # token CSRF de Superset.
+    "superset.security.mcp_widget.chat_widget_api_proxy",
 ]
 
 # Whether to run the web server in debug mode or not
@@ -538,7 +542,7 @@ LANGUAGES = {
 #     "decimal": ".",           # - decimal place string (e.g., ".").
 #     "thousands": ",",         # - group separator string (e.g., ",").
 #     "grouping": [3],          # - array of group sizes (e.g., [3]), cycled as needed.
-#     "currency": ["$", ""]     # - currency prefix/suffix strings (e.g., ["$", ""])
+#     "currency": ["₡", ""]     # - currency prefix/suffix strings (e.g., ["$", ""])
 # }
 # https://github.com/d3/d3-format/blob/main/README.md#formatLocale
 class D3Format(TypedDict, total=False):
@@ -548,7 +552,13 @@ class D3Format(TypedDict, total=False):
     currency: list[str]
 
 
-D3_FORMAT: D3Format = {}
+# MODIFICA ESTA LÍNEA ASÍ:
+D3_FORMAT: D3Format = {
+    "decimal": ".",
+    "thousands": ",",
+    "grouping": [3],
+    "currency": ["₡", ""]
+}
 
 # Override the default mapbox tiles
 # Default values are equivalent to
@@ -656,7 +666,7 @@ DEFAULT_FEATURE_FLAGS: dict[str, bool] = {
     "ENABLE_ADVANCED_DATA_TYPES": False,
     # Enable Superset extensions for custom functionality without modifying core
     # @lifecycle: development
-    "ENABLE_EXTENSIONS": False,
+    "ENABLE_EXTENSIONS": True,
     # Enable Matrixify feature for matrix-style chart layouts
     # @lifecycle: development
     "MATRIXIFY": True,
@@ -1712,7 +1722,9 @@ EXTENSION_STARTUP_LOCK_TIMEOUT = 30  # Timeout in seconds for extension update l
 # a reference to the Flask app. This can be used to alter the Flask app
 # in whatever way.
 # example: FLASK_APP_MUTATOR = lambda x: x.before_request = f
-FLASK_APP_MUTATOR = None
+def FLASK_APP_MUTATOR(app):  # type: ignore[misc]
+    from superset.security.mcp_widget import inject_chat_widget
+    app.after_request(inject_chat_widget)
 
 # smtp server configuration
 SMTP_HOST = "localhost"
@@ -1751,7 +1763,31 @@ PERMISSION_INSTRUCTIONS_LINK = ""
 
 # Integrate external Blueprints to the app by passing them to your
 # configuration. These blueprints will get integrated in the app
-BLUEPRINTS: list[Blueprint] = []
+# === Chat Widget — integración MCP ===
+# URL del JS del widget (servido desde el servidor del chat)
+CHAT_WIDGET_URL = "http://186.177.26.27:8008/web/widget.js"
+# URL base de la API del widget (backend del chat)
+CHAT_WIDGET_API_URL = "http://186.177.26.27:8008"
+# URL del MCP de Superset TEST al que el backend del chat hace llamadas
+MCP_WIDGET_URL = "http://192.168.76.11:5009"
+# Si está configurado, el widget de chat SOLO aparece para usuarios que
+# tengan este rol asignado. Vacío/None = visible para todos los autenticados.
+CHAT_WIDGET_REQUIRED_ROLE = "acceso chat"
+
+from superset.security.mcp_widget import mcp_widget_bp  # noqa: E402
+
+BLUEPRINTS: list[Blueprint] = [mcp_widget_bp]
+
+# Bug de Flask-AppBuilder: el endpoint /api/v1/security/permissions-resources/
+# no permite filtrar por 'id' por defecto, y el selector de "Permisos" en la
+# página de editar rol depende de ese filtro para mostrar las etiquetas de
+# los permisos ya asignados — sin esto, roles con varios permisos granulares
+# (ej. datasource_access por dataset) se ven como números sueltos en la UI.
+from flask_appbuilder.security.sqla.apis.permission_view_menu.api import (  # noqa: E402
+    PermissionViewMenuApi,
+)
+
+PermissionViewMenuApi.search_columns = ["id", "permission", "view_menu"]
 
 # Provide a callable that receives a tracking_url and returns another
 # URL. This is used to translate internal Hadoop job tracker URL
@@ -2128,8 +2164,10 @@ WEBDRIVER_OPTION_ARGS = ["--headless"]
 
 # The base URL to query for accessing the user interface
 WEBDRIVER_BASEURL = "http://0.0.0.0:8080/"
-# The base URL for the email report hyperlinks.
-WEBDRIVER_BASEURL_USER_FRIENDLY = WEBDRIVER_BASEURL
+# The base URL for the email report hyperlinks (y para explore_url de
+# generate_chart/generate_explore_link/irex.create_chart) — debe ser la URL
+# accesible externamente, no la interna del webdriver.
+WEBDRIVER_BASEURL_USER_FRIENDLY = "http://192.168.76.11:9090/"
 # Time selenium will wait for the page to load and render for the email report.
 EMAIL_PAGE_RENDER_WAIT = int(timedelta(seconds=30).total_seconds())
 
@@ -2582,8 +2620,8 @@ except ImportError:
 
 
 LOCAL_EXTENSIONS: list[str] = []
-EXTENSIONS_PATH: str | None = None
-
+#EXTENSIONS_PATH: str | None = None
+EXTENSIONS_PATH = "/home/imercados/superset_proyecto/extensions"
 # Default polling interval for tasks (seconds)
 TASK_ABORT_POLLING_DEFAULT_INTERVAL = 10
 
@@ -2642,10 +2680,56 @@ DISTRIBUTED_LOCK_DEFAULT_TTL = 30
 # Channel prefix for task abort pub/sub messages
 TASKS_ABORT_CHANNEL_PREFIX = "gtf:abort:"
 
-# Development (single-user, local testing):
-MCP_DEV_USERNAME = "admin"  # User for MCP authentication
-MCP_SERVICE_HOST = "localhost"
-MCP_SERVICE_PORT = 5008
+# MCP Service — Test (JWT HS256, multi-usuario)
+# El chat widget (186.177.26.27:8008) genera tokens firmados con este secreto.
+# Cada token debe tener sub=<usuario_superset>, iss="superset-chat-widget",
+# aud="superset-mcp".
+MCP_AUTH_ENABLED = True
+MCP_JWT_ALGORITHM = "HS256"
+MCP_JWT_SECRET = "DdUuo8ZwM5iQ_DtwoegoMdNI0FPD40PmShBej4ur6UJvDFRzNndWlmIU"
+MCP_JWT_ISSUER = "superset-chat-widget"
+MCP_JWT_AUDIENCE = "superset-mcp"
+# Secret compartido servidor-a-servidor: Superset → backend del chat.
+# El proxy de Superset lo envía en X-Service-Secret; el chat debe validarlo.
+CHAT_BACKEND_SECRET = "38XGSse8fVSoDpstSicvwYGjjjEesnnJ60DCAuBaPI6Iqu44rX_KBQ"
+MCP_SERVICE_HOST = "0.0.0.0"
+MCP_SERVICE_PORT = 5009
+
+# Pinea la tool de glosario de negocio para que el LLM la vea SIEMPRE
+# en tools/list, sin depender de que decida llamar search_tools primero.
+from superset.mcp_service.mcp_config import MCP_FACTORY_CONFIG as _MCP_FC  # noqa: E402
+from superset.mcp_service.mcp_config import MCP_TOOL_SEARCH_CONFIG as _MCP_TS  # noqa: E402
+
+# Solo carga tools con el tag "irex" — oculta todos los tools nativos de Superset
+# (list_charts, list_dashboards, execute_sql, generate_chart, etc.) para eliminar
+# la confusión del modelo entre tools nativas e IREX.
+MCP_FACTORY_CONFIG = {
+    **_MCP_FC,
+    "include_tags": ["irex"],
+    "exclude_tags": ["guardar"],  # Deshabilita irex.create_chart (escribe en Superset DB)
+}
+
+MCP_TOOL_SEARCH_CONFIG = {
+    **_MCP_TS,
+    "always_visible": [
+        # Tools nativos excluidos por include_tags=["irex"] en MCP_FACTORY_CONFIG.
+        # irex.create_chart excluido por exclude_tags=["guardar"] (escribe en Superset DB).
+        "extensions.irex.irex-mcp-tools.irex.get_query_context",
+        "extensions.irex.irex-mcp-tools.irex.business_context",
+        "extensions.irex.irex-mcp-tools.irex.query_dataset",
+        "extensions.irex.irex-mcp-tools.irex.chart_option",
+        "extensions.irex.irex-mcp-tools.irex.forecast",
+        "extensions.irex.irex-mcp-tools.irex.get_applied_filters",
+        "extensions.irex.irex-mcp-tools.irex.list_column_values",
+        "extensions.irex.irex-mcp-tools.irex.get_dashboard_dataset_context",
+        "extensions.irex.irex-mcp-tools.irex.search_dashboards",
+        "extensions.irex.irex-mcp-tools.irex.compare_periods",
+        "extensions.irex.irex-mcp-tools.irex.export_to_excel",
+        "extensions.irex.irex-mcp-tools.irex.query_dataset_sql",
+    ],
+}
+
+MCP_EXPORT_BASE_URL = "http://192.168.76.11"
 
 # -------------------------------------------------------------------
 # *                WARNING:  STOP EDITING  HERE                    *

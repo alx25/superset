@@ -1,0 +1,33 @@
+[Unit]
+Description=Apache Superset MCP Service (test) — puerto 5009
+After=network.target superset_test.service
+Wants=superset_test.service
+
+[Service]
+Type=simple
+User=imercados
+Group=www-data
+WorkingDirectory=/home/imercados/superset_proyecto
+
+EnvironmentFile=/home/imercados/superset_proyecto/.env_superset_mcp_test
+
+ExecStartPre=/bin/bash -c 'test -x "$SUPERSET_DIR/.venv/bin/superset"'
+ExecStartPre=/bin/bash -c 'test -f "$SUPERSET_CONFIG_PATH"'
+
+ExecStart=/bin/bash -c '\
+cd "$SUPERSET_DIR" && \
+export PATH="$SUPERSET_DIR/.venv/bin:/usr/local/bin:/usr/bin:/bin" && \
+export PYTHONPATH="$SUPERSET_DIR" && \
+export SUPERSET_CONFIG_PATH="$SUPERSET_CONFIG_PATH" && \
+exec "$SUPERSET_DIR/.venv/bin/superset" mcp run \
+  --host 0.0.0.0 \
+  --port ${MCP_PORT} \
+  --debug'
+
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

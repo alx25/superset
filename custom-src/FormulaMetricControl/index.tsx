@@ -107,7 +107,7 @@ type FormulaMetricControlProps = {
     d3format?: string;
     hidden: boolean;
   }) => void;
-  columns?: any[];
+  datasourceColumns?: any[];
   metrics?: Array<string | MetricLike>;
 };
 
@@ -125,7 +125,7 @@ const propTypes = {
   expression: PropTypes.string,
   d3format: PropTypes.string,
   onChange: PropTypes.func,
-  columns: PropTypes.array,
+  datasourceColumns: PropTypes.array,
   metrics: PropTypes.array,
 };
 
@@ -135,7 +135,7 @@ const defaultProps: FormulaMetricControlProps = {
   d3format: '',
   hidden: false,
   onChange: () => {},
-  columns: [],
+  datasourceColumns: [],
   metrics: [],
 };
 
@@ -415,7 +415,7 @@ export default class FormulaMetricControl extends Component<
     ];
 
     return sqlKeywords.concat(
-      getColumnKeywords(this.props.columns || []),
+      getColumnKeywords(this.props.datasourceColumns || []),
       metricKeywords,
       scopedMetricKeywords,
       functionKeywords,

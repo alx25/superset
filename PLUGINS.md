@@ -24,6 +24,7 @@ superset_proyecto/
 │       ├── templates/
 │       │   ├── custom_login.html        (página de login con diseño Irex)
 │       │   ├── novedades.html           (modal de novedades incluido en custom_login.html)
+│       │   ├── general/model/message.html (pantalla de mensaje del flujo de recuperación)
 │       │   └── password/
 │       │       ├── request.html         (solicitar enlace de recuperación)
 │       │       ├── reset.html           (nueva contraseña)
@@ -150,6 +151,27 @@ Este script parchea `src/pages/DashboardList/index.tsx` mediante reemplazos de t
 Si en una versión nueva de Superset el archivo cambió demasiado, el script emite `[warn]`
 y hay que actualizar los anchors del script manualmente.
 
+### Al cambiar el parche de exploreReducer.ts (sync de Calculated columns / Formula metrics)
+`src/explore/reducers/exploreReducer.ts` es un archivo core de Superset (no symlink) que se
+parchea in-place (paso 15 del script) para que, al renombrar el `label` de una `Calculated
+columns (Jinja-like)` (tableV3) o `Formula metrics (Jinja-like)` (pivot-tableRx1), el
+`column_config` y el `column_order` se actualicen con el nuevo label en vez de quedar huérfanos.
+Sin este parche, tanto el orden guardado como la configuración de "Customize columns" (display
+name, d3 format, HTML template, etc.) de la columna calculada se pierden al renombrarla.
+Si el archivo cambió demasiado en una versión nueva de Superset, el paso 15 emite `[warn]` y
+hay que reaplicar el bloque manualmente comparando con `superset_v6_1_0/.../exploreReducer.ts`.
+
+**Importante — no relacionado con lo anterior:** el `mapStateToProps` de los controles
+`calculated_columns` (tableV3) y `metricFormulas` (pivot-tableRx1) en sus respectivos
+`controlPanel.tsx` **nunca debe devolver una prop llamada `columns`**. El reducer
+`UPDATE_FORM_DATA_BY_DATASOURCE` (se dispara al editar el dataset desde Explore) trata
+cualquier control cuyo estado tenga una key `columns` como un control de selección de
+columnas y revalida su valor contra el datasource — como los items de estos controles
+(`{key, label, expression}`) nunca calzan con la forma de una columna/métrica real, el
+control completo se vacía (vuelve a `default: []`), sin importar qué se haya editado del
+dataset. Usar `datasourceColumns` (ya aplicado en ambos plugins y en
+`custom-src/FormulaMetricControl/index.tsx`).
+
 ---
 
 ## Agregar una nueva funcionalidad
@@ -180,6 +202,7 @@ control, nuevo campo en el schema del backend, nueva constante VizType, etc.), h
 | CSS y JS del login | `custom-src/login/static/` | Sí — paso 11c |
 | Pestañas Filtros/Marcadores en FilterBar | `custom-src/FilterBarTabs/FilterBarTabs.tsx` | Sí — paso 13 |
 | UI de marcadores (lista, guardar, eliminar, detalles) | `custom-src/FilterBarTabs/BookmarksTab.tsx` | Incluido en paso 13 (directorio symlink) |
+| Sync de Calculated columns/Formula metrics en exploreReducer.ts | Parche in-place, sin fuente canónica (ver sección arriba) | Sí — paso 15 |
 
 ---
 

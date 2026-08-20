@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SERVICES=(superset.service celery.service celery-beat.service flower.service)
+SERVICES=(superset.service celery.service celery-beat.service flower.service superset_mcp.service superset_mcp_test.service)
 
 echo "=== Desplegando servicios de producción ==="
 echo ""
@@ -15,12 +15,16 @@ for svc in "${SERVICES[@]}"; do
     fi
 done
 
-# Verificar que el archivo .env_superset existe
-ENV_FILE="/home/imercados/superset_proyecto/.env_superset"
-if [[ ! -f "$ENV_FILE" ]]; then
-    echo "ERROR: No se encuentra $ENV_FILE"
-    exit 1
-fi
+# Verificar que los archivos de entorno existen
+for env_file in \
+    "/home/imercados/superset_proyecto/.env_superset" \
+    "/home/imercados/superset_proyecto/.env_superset_mcp" \
+    "/home/imercados/superset_proyecto/.env_superset_mcp_test"; do
+    if [[ ! -f "$env_file" ]]; then
+        echo "ERROR: No se encuentra $env_file"
+        exit 1
+    fi
+done
 
 # Copiar los servicios
 for svc in "${SERVICES[@]}"; do
@@ -37,7 +41,7 @@ echo "=== Reiniciando servicios ==="
 for svc in "${SERVICES[@]}"; do
     svc_name="${svc%.service}"
     echo "  Reiniciando $svc_name..."
-    sudo systemctl restart "$svc_name"
+    sudo systemctl restart "$svc_name" || echo "  [warn] $svc_name no pudo reiniciarse (puede no estar habilitado aún)"
 done
 
 echo ""
@@ -53,4 +57,6 @@ for svc in "${SERVICES[@]}"; do
 done
 
 echo ""
-echo "Listo. Para ver logs: journalctl -u superset -f"
+echo "Listo."
+echo "  Logs prod MCP:  journalctl -u superset_mcp -f"
+echo "  Logs test MCP:  journalctl -u superset_mcp_test -f"

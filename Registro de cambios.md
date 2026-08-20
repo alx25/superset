@@ -1,6 +1,310 @@
 ## Registro de cambios
 
+### 2026-06-26 (3)
+
+Cambio realizado:
+Reducción de llamadas MCP innecesarias: multi-lookup en `list_column_values` y resolución de valores ambiguos integrada en `get_query_context`.
+
+Archivos afectados:
+- `backend/src/irex/irex_mcp_tools/column_values.py` (fuente y dist)
+- `backend/src/irex/irex_mcp_tools/query_context.py` (fuente y dist)
+- `extensions/irex-mcp-tools-0.1.0.supx` (reempaquetado)
+
+Que cambia o corrige:
+- **`irex.list_column_values` multi-lookup**: nuevo campo `lookups: [{column, search, row_limit}]`. Permite resolver N columnas en 1 sola llamada al tool en lugar de N llamadas separadas. Los campos `column`/`search`/`row_limit` de nivel superior siguen funcionando (backward compatible). La lógica de query se extrajo a `_query_single_column()` para ser reutilizable.
+- **`irex.get_query_context` con `value_hints`**: nuevo campo `value_hints: [{column, search}]`. Cuando el usuario menciona términos ambiguos (ej. "detergente", "Irex"), se pueden pasar en la misma llamada que inicializa el contexto. El tool resuelve los valores reales del dataset y los devuelve en `suggested_filters`, eliminando el ciclo get_query_context → list_column_values (×N) → query_dataset que costaba 3-7 llamadas. Requiere que `dataset_id` ya esté resuelto (por dashboard o domain).
+
+### 2026-06-26 (2)
+
+Cambio realizado:
+Mejoras de seguridad JWT en el widget de chat MCP (`mcp_widget.py`).
+
+Archivos afectados:
+- `custom-src/login/mcp_widget.py`
+- `superset_config_test.py`
+- `/home/imercados/.superset/superset_config.py` (producción)
+
+Que cambia o corrige:
+- **`nbf` añadido al payload JWT**: el token no es válido antes de su emisión (`nbf = iat`). Cumple el criterio de validación estricta.
+- **`jti` añadido al payload JWT**: cada token tiene un UUID único, lo que permite revocar o detectar replays en el futuro.
+- **Authorization strip en proxy**: `chat_widget_api_proxy()` ya no reenvía el header `Authorization: Bearer {JWT}` del usuario al backend del chat. `"authorization"` se añadió a `_PROXY_EXCLUDED_REQUEST_HEADERS`.
+- **Autenticación servidor-a-servidor**: el proxy agrega `X-Service-Secret` (nuevo secret `CHAT_BACKEND_SECRET`) para que el backend del chat valide que la petición viene de Superset, y `X-Superset-User` para identificar al usuario sin necesidad del JWT.
+- **`CHAT_BACKEND_SECRET`** añadido a ambos configs (test y producción).
+- El backend del chat debe adaptarse para dejar de usar el JWT del usuario y validar en su lugar el header `X-Service-Secret`. Ver resumen en el registro.
+
+### 2026-06-26
+
+Cambio realizado:
+Se añade el tipo de gráfico `gauge` (notómetro/KPI) a `irex.chart_option`.
+
+Archivos afectados:
+- `backend/src/irex/irex_mcp_tools/chart_option.py` (fuente y dist)
+- `extensions/irex-mcp-tools-0.1.0.supx` (reempaquetado)
+
+Que cambia o corrige:
+- Nuevo `chart_type="gauge"`: muestra un notómetro circular con aguja y escala de color rojo (0–60%) / amarillo (60–80%) / azul (80–100%). Diseñado para responder preguntas del tipo "¿cuál es el % de cumplimiento global?".
+- Para gauge, la query se ejecuta sin dimensiones (agregado puro, `dims = []`) → 1 sola fila resultado → 1 solo KPI.
+- Auto-escalado: si la métrica devuelve un ratio en escala 0–1 (ej. 0.88), se multiplica automáticamente por 100 para mostrar 88%.
+- `max` del gauge se fija en 100 para métricas porcentuales (≤110), o en 125% del valor real para magnitudes absolutas.
+- `x` se ignora para gauge (el modelo debe pasar cualquier columna válida del dataset).
+- Descripción del tool actualizada para guiar al modelo sobre cuándo usar gauge vs heatmap/bar.
+
+### 2026-06-25 (4)
+
+Cambio realizado:
+Fix en `irex.chart_option` (heatmap): cambio de formato de datos de `[xi, yi, val]` a `[xCategory, yCategory, val]` para que el modelo pueda leer el resultado del tool directamente sin mapear índices numéricos a nombres de categoría.
+
+Archivos afectados:
+- `backend/src/irex/irex_mcp_tools/chart_option.py` (fuente y dist)
+- `extensions/irex-mcp-tools-0.1.0.supx` (reempaquetado)
+
+Que cambia o corrige:
+- **Problema**: ECharts heatmap usaba `[xi, yi, val]` (índices enteros) en los datos. Cuando el modelo leía el echarts_option devuelto por el tool para escribir el análisis, tenía que mapear mentalmente `xi=1 → xAxis.data[1] = "3-Automercado"`. En la sesión db2e6cfa el modelo confundió xi=1 ("3-Automercado") con xi=2 ("4-Megasuper"), produciendo un análisis incorrecto.
+- **Fix**: ECharts 5 acepta strings de categoría en datos de heatmap con ejes tipo `category`. Ahora los datos se guardan como `["3-Automercado", "Axion", 3180]` en vez de `[1, 0, 3180]`. El tool result es auto-descriptivo — el modelo puede leer directamente qué cadena y qué marca corresponde a cada valor sin hacer ningún mapeo.
+- Issues de timeout del LLM (líneas de output limit / modelo lento) en la misma sesión son problemas del backend del chat, no del MCP.
+
+### 2026-06-25 (3)
+
+Cambio realizado:
+Bug fix en heatmap de `irex.chart_option`: las etiquetas de cada celda mostraban los tres componentes del punto de dato (`x_idx / y_idx / valor`) en vez del valor real de la métrica.
+
+Archivos afectados:
+- `backend/src/irex/irex_mcp_tools/chart_option.py` (fuente y dist)
+- `extensions/irex-mcp-tools-0.1.0.supx` (reempaquetado)
+
+Que cambia o corrige:
+- **Bug crítico**: ECharts heatmap usa formato `[x_idx, y_idx, valor]` por punto. Sin formatter explícito, `label: {show: true}` renderizaba los tres números separados por `/` (ej. `0 / 4 / 12,021`). Fix: `"formatter": "{c[2]}"` muestra solo el valor real de la métrica.
+- `visualMap.min` ahora usa el mínimo real de los datos en vez de `0` fijo — hace la escala de color más útil para métricas de ratio/porcentaje.
+- Y-axis agrega `axisLabel: {overflow: "truncate", width: 150}` y `grid.left: "20%"` para que los nombres largos de clientes no se corten sin aviso.
+- Descripción del tool actualizada: indica al modelo que para comparar dos métricas en un heatmap (ej. sell_in vs enfirme) debe pasar la expresión calculada como métrica única (`SUM(sell_in)/NULLIF(SUM(enfirme),0)*100`), no dos métricas separadas.
+
+### 2026-06-25 (2)
+
+Cambio realizado:
+Se añade la herramienta `irex.search_dashboards` al paquete de extensiones MCP para permitir cruzar datos entre dashboards.
+
+Archivos afectados:
+- `extensions/irex-mcp-tools-0.1.0.supx` (reempaquetado)
+- `backend/src/irex/irex_mcp_tools/search_dashboards.py` (nuevo, dentro del supx)
+- `backend/src/irex/irex_mcp_tools/entrypoint.py` (nuevo import)
+
+Que cambia o corrige:
+- Nuevo tool `irex.search_dashboards(title, max_results)` que busca dashboards por título parcial (ILIKE, case-insensitive).
+- Devuelve lista de `{id, title}` con una nota que indica al modelo qué hacer según el número de coincidencias: 0 → pedir corrección al usuario; 1 → proceder directamente; N → mostrar lista y esperar confirmación del usuario antes de cruzar datos.
+- Corrige el fallo en cadena observado en el log 4abbe8d4 donde el modelo intentaba cruzar con "Reporte Actividades Comerciales" sin tener el ID numérico.
+
+### 2026-06-25
+
+Cambio realizado:
+Se añaden nombre y apellidos del usuario al JWT del widget de chat y a los data-attributes del script.
+
+Archivos afectados:
+- `custom-src/login/mcp_widget.py`
+
+Que cambia o corrige:
+- `_generate_mcp_token` ahora acepta `first_name` y `last_name` e incluye los claims estándar `given_name`, `family_name` y `name` (nombre completo) en el payload JWT.
+- El endpoint `/api/mcp-token` y el hook `inject_chat_widget` leen `current_user.first_name` / `current_user.last_name` y los pasan a `_generate_mcp_token`.
+- `inject_chat_widget` añade `data-first-name` y `data-last-name` al elemento `<script>` del widget para que el chat tenga acceso directo al nombre sin necesidad de decodificar el JWT.
+
 Nota: anotar fecha y cambio realizado con los archivos afectados y que cambia o corrige.
+
+### 2026-06-17 (2)
+
+Cambio realizado:
+Se completó la migración de la plantilla de mensaje del flujo de recuperación de contraseña.
+
+Archivos afectados:
+- `custom-src/login/templates/general/model/message.html`
+- `superset_v6_1_0/superset/templates/appbuilder/general/model/message.html`
+- `custom-src/login/password_reset.py`
+- `superset_v6_1_0/superset/security/password_reset.py`
+- `migrate-plugins.sh`
+- `PLUGINS.md`
+
+Que cambia o corrige:
+- Se agregó a `custom-src` la plantilla `appbuilder/general/model/message.html` que existía en `superset_v6`.
+- Se copió la plantilla a v6.1.0 para evitar el 500 al mostrar la pantalla posterior al envío del correo o al cambio de contraseña.
+- Se ajustó `migrate-plugins.sh` para copiar esa plantilla en futuras migraciones.
+- Se documentó la plantilla en `PLUGINS.md` dentro del árbol canónico de login.
+- `PasswordResetView._render_message()` vuelve a renderizar la pantalla de mensaje, ahora que la plantilla existe.
+
+### 2026-06-17 (1)
+
+Cambio realizado:
+Intento inicial de corrección del 500 posterior al envío del correo de recuperación y al guardado de nueva contraseña.
+
+Archivos afectados:
+- `custom-src/login/password_reset.py`
+- `superset_v6_1_0/superset/security/password_reset.py`
+
+Que cambia o corrige:
+- Se detectó que `PasswordResetView._render_message()` fallaba porque `appbuilder/general/model/message.html` no estaba migrada a v6.1.0.
+- Nota: este intento fue reemplazado por la actualización `2026-06-17 (2)`, que conserva el render de la plantilla y agrega el archivo faltante al flujo de migración.
+
+### 2026-06-11 (1)
+
+Cambio realizado:
+Se corrigió un bug del servicio MCP de Superset que hacía fallar la herramienta
+`get_dashboard_info` (y potencialmente `list_dashboards`) para cualquier dashboard con roles
+asignados.
+
+Archivos afectados:
+- `superset_v6_1_0/superset/mcp_service/dashboard/schemas.py`
+
+Que cambia o corrige:
+- En `dashboard_serializer` y `serialize_dashboard_object`, se reemplazó
+  `RoleInfo.model_validate(role, from_attributes=True)` por una lista construida con
+  `serialize_role_object(role)` (filtrando `None`), igual que ya se hacía con `owners`/
+  `serialize_user_object`. El `model_validate` directo intentaba mapear `role.permissions`
+  (objetos `PermissionView` de SQLAlchemy) al campo `RoleInfo.permissions: List[str]`, lo cual
+  fallaba con ~140 errores de validación Pydantic por cada permiso del rol.
+- En `serialize_role_object`, se cambió `perm.name` por `str(perm)`, ya que `PermissionView` no
+  tiene atributo `name` — su `__repr__` (usado por `str()`) devuelve el formato
+  `"<permission> on <view_menu>"` (ej. "can read on Dashboard"), que es el string esperado en
+  `RoleInfo.permissions`.
+- Nota: también se reinició manualmente el proceso `superset mcp run --host 0.0.0.0 --port 5008
+  --debug` (no usa `--reload`) para que tomara los cambios.
+
+### 2026-06-10 (7)
+
+Cambio realizado:
+Se otorgó el permiso `can_read on CurrentUserRestApi` (API `/api/v1/me/`) al rol **"Permiso
+basico"** (id=54, ~166 usuarios) en la base de datos de producción.
+
+Archivos/BD afectados:
+- BD Postgres `superset` (producción) — tablas `ab_permission_view` (nueva fila id=905:
+  `can_read` + `CurrentUserRestApi`) y `ab_permission_view_role` (nueva fila: permission_view_id=905,
+  role_id=54).
+
+Contexto / causa raíz investigada:
+- En `superset_v6` (producción), `CurrentUserRestApi.get_me` / `get_my_roles` **no** tienen los
+  decoradores `@protect()` + `@permission_name("read")`; solo `@expose` + `@safe`. Por eso FAB
+  calcula `base_permissions = []` para esa vista y `superset init` no crea ni recrea los
+  permission_view de `can_read`/`can_write on CurrentUserRestApi` (de hecho una limpieza previa de
+  "permisos faltantes" los había eliminado, dejando solo el `ab_view_menu` id=27 huérfano).
+- En `superset_v6_1_0` (test, 9090) esos mismos métodos **sí** tienen `@protect()` +
+  `@permission_name("read")` (cambio real de Superset 6.0 → 6.1.0), por lo que en 6.1.0
+  `/api/v1/me/` y `/api/v1/me/roles/` exigen `can_read on CurrentUserRestApi` y un rol sin ese
+  permiso recibe 403.
+- "Permiso basico" solo existe en la BD de producción (no en la sqlite de test), por lo que se
+  decidió aplicar el grant únicamente en producción, como **preparación** para cuando se actualice
+  a 6.1.0. Hoy no tiene efecto funcional inmediato (el código actual de `superset_v6` no valida
+  ese permiso), por lo que no se reinició `superset.service`.
+
+Que cambia o corrige:
+- Cuando producción se actualice a una versión que valide `can_read on CurrentUserRestApi` (como
+  6.1.0), los ~166 usuarios del rol "Permiso basico" ya tendrán acceso a `/api/v1/me/` sin recibir
+  403.
+
+Nota técnica adicional:
+- Se detectó que `ab_permission_view.id` y `ab_permission_view_role.id` no tienen `DEFAULT
+  nextval(...)` configurado en Postgres (aunque las secuencias `ab_permission_view_id_seq` /
+  `ab_permission_view_role_id_seq` sí existen y están sincronizadas con el `MAX(id)` actual). Por
+  eso el INSERT se hizo indicando explícitamente `nextval('...')` para el `id`. Si en el futuro se
+  necesitan más inserciones manuales en estas tablas, hay que seguir el mismo patrón (o reparar el
+  `DEFAULT` de la columna).
+
+### 2026-06-10 (6)
+
+Cambio realizado:
+Se ajustó el banner de sugerencia de zoom (`#zoom-suggestion-banner`) para que no quede fijo
+ocupando espacio de trabajo cuando los usuarios no interactúan con él.
+
+Archivos afectados:
+- `superset_v6_1_0/superset/templates/head_custom_extra.html`
+
+Que cambia o corrige:
+- Se agrega un timer de 30s que oculta el banner automáticamente si el usuario no hace clic en
+  "Entendido" ni en "✕".
+- El cierre (manual o automático) ya no se guarda como permanente, sino con la fecha del día
+  actual (`getTodayKey()`). Al día siguiente, si se cumple la condición de zoom (>= 100%), el
+  banner vuelve a mostrarse.
+- El timer se cancela con `clearTimeout` si el usuario cierra el banner manualmente antes de los 30s.
+- Nota: este archivo no está en el workflow de `migrate-plugins.sh` / `custom-src` (no aparece en
+  PLUGINS.md); `superset_v6` (prod) tiene su propia copia que no fue tocada.
+
+### 2026-06-10 (5)
+
+Cambio realizado:
+Se agregó el favicon al template del login.
+
+Archivos afectados:
+- `custom-src/login/templates/custom_login.html` (fuente canónica)
+
+Que cambia o corrige:
+- El login ahora referencia `/static/assets/images/favicon.png` en el `<head>` para que el navegador muestre el icono de la pestaña.
+
+### 2026-06-10 (4)
+
+Cambio realizado:
+Se corrigió el hover de las tarjetas de características en modo oscuro.
+
+Archivos afectados:
+- `custom-src/login/static/customcss/custom_login.css` (fuente canónica)
+
+Que cambia o corrige:
+- Al pasar el puntero sobre una tarjeta en tema oscuro, ya no cambia a fondo blanco.
+- El texto e iconos permanecen visibles en blanco y el hover conserva el estilo oscuro.
+
+### 2026-06-10 (3)
+
+Cambio realizado:
+Se ajustaron los detalles visuales del panel izquierdo del login para mejorar contraste y jerarquía.
+
+Archivos afectados:
+- `custom-src/login/static/customcss/custom_login.css` (fuente canónica)
+
+Que cambia o corrige:
+- El resplandor decorativo de la esquina inferior izquierda ahora usa azul en lugar de verde.
+- En tema claro, las tarjetas de características ahora tienen fondo blanco sólido, borde más visible y sombra para no perderse sobre el fondo.
+- El hover de esas tarjetas también quedó reforzado para que mantengan contraste en modo claro.
+
+### 2026-06-10 (2)
+
+Cambio realizado:
+Se ajustaron los colores del texto del panel izquierdo del login para que cambien según el tema.
+
+Archivos afectados:
+- `custom-src/login/static/customcss/custom_login.css` (fuente canónica)
+
+Que cambia o corrige:
+- En tema claro, "Bienvenido a", "Tu plataforma de análisis y visualización de datos empresariales" y las características se muestran en negro.
+- En tema oscuro, esos mismos textos se muestran en blanco.
+- El cambio se logra haciendo que el panel de marca herede el color del tema y removiendo los valores fijos de blanco en los textos afectados.
+
+### 2026-06-10
+
+Cambio realizado:
+Se corrige el modal de "Novedades" en la pantalla de login, que seguía apareciendo a pesar de
+haber sido "comentado".
+
+Archivos afectados:
+- `custom-src/login/templates/custom_login.html` (fuente canónica)
+- `superset_v6_1_0/superset/templates/appbuilder/custom_login.html` (copia desplegada)
+
+Causa raíz:
+- El intento previo envolvía el `{% include "appbuilder/novedades.html" %}` en un comentario HTML:
+  `<!-- {% include ... %} -->`. Jinja procesa las etiquetas `{% %}` como parte del motor de
+  plantillas, **antes** de que el navegador interprete el HTML, por lo que el include se sigue
+  ejecutando sin importar el comentario HTML que lo rodea.
+- Además, `novedades.html` empieza con su propio comentario HTML
+  (`<!-- Modal Novedades con Carrusel -->`). Su `-->` cierra **prematuramente** el comentario HTML
+  externo, dejando todo el resto del contenido incluido (div del modal, `<style>` y `<script>`)
+  como HTML activo y visible.
+
+Fix aplicado:
+- Se reemplazó el comentario HTML por un comentario de Jinja `{# ... #}`, que elimina por completo
+  el `include` durante el renderizado del template:
+  ```
+  {# Ventana modal de Novedades (deshabilitada) #}
+  {# {% include "appbuilder/novedades.html" %} #}
+  ```
+
+Nota operativa:
+- `superset_test.service` (v6.1.0, puerto 9090) corre con Gunicorn sin `FLASK_DEBUG`, por lo que
+  `TEMPLATES_AUTO_RELOAD` está desactivado y los workers cachean las plantillas compiladas en
+  memoria. Se requiere `systemctl reload superset_test.service` (o restart) para que el cambio
+  se vea reflejado.
 
 ### 2026-06-05 (6)
 
@@ -1484,3 +1788,46 @@ Que cambia o corrige:
 Verificacion:
 - `npx jest --runInBand plugins/plugin-chart-tableV3/test/controlPanel.test.ts`
 - `npm run build-dev`
+
+### 2026-06-19
+
+Cambio realizado:
+`get_dashboard_info` (MCP) no exponía el campo `description` de los filtros nativos del dashboard, aunque Superset sí lo soporta al crear/editar un filtro.
+
+Archivos afectados:
+- `superset_v6_1_0/superset/mcp_service/dashboard/schemas.py`
+
+Que cambia o corrige:
+- Se agregó el campo `description` a `NativeFilterSummary`.
+- `_extract_native_filters` ahora extrae `f.get("description")` del JSON de configuración del filtro.
+- Esto permite que el LLM (vía chat) lea la descripción que el dueño del dashboard configuró en cada filtro nativo, ej. para documentar el significado de códigos de la columna `medida` (Cjs=Cajas, Col=Colones, etc.) — evita que el LLM tenga que adivinar/probar valores por ensayo y error. El significado de los códigos puede variar por dashboard, por eso se resuelve a nivel de descripción del filtro y no con un glosario fijo en código.
+- Cambio en archivo compartido por ambos entornos (prod y test usan el mismo `superset_v6_1_0/`), requiere reiniciar `superset_mcp` y `superset_mcp_test` para tomar efecto.
+
+Verificacion:
+- Probado contra dashboard 54 y 57 en test: el campo `description` ya aparece en la respuesta de `get_dashboard_info` (vacío en los filtros que aún no tienen descripción escrita, como se espera).
+
+### 2026-07-03
+
+Cambio realizado:
+`Calculated columns (Jinja-like)` de `plugin-chart-tableV3` (y `Formula metrics (Jinja-like)` de `plugin-chart-pivot-tableRx1`) desaparecían del gráfico al editar el dataset desde Explore, incluso si el cambio no tocaba ninguna columna usada en las fórmulas.
+
+Archivos afectados:
+- `custom-plugins/plugin-chart-tableV3/src/controlPanel.tsx`
+- `custom-plugins/plugin-chart-pivot-tableRx1/src/plugin/controlPanel.tsx`
+- `custom-src/FormulaMetricControl/index.tsx`
+- `superset_v6_1_0/superset-frontend/src/explore/reducers/exploreReducer.ts` (parche in-place, no symlink)
+- `superset_v6_1_0/superset-frontend/src/explore/reducers/exploreReducer.test.ts`
+- `migrate-plugins.sh` (nuevo paso 15)
+- `PLUGINS.md`
+
+Que cambia o corrige:
+- Causa raíz: el `mapStateToProps` de los controles `calculated_columns` (tableV3) y `metricFormulas` (pivot-tableRx1) devolvía una prop llamada `columns` (usada solo para el autocompletado del editor de fórmulas). `exploreReducer`'s `UPDATE_FORM_DATA_BY_DATASOURCE` (se dispara al guardar una edición del dataset desde `DatasourceControl`, sin importar si el `id` del dataset cambió) trata cualquier control cuyo estado tenga una key `columns` como control de selección de columnas y revalida su valor contra el datasource vía `getControlValuesCompatibleWithDatasource`. Como los items de estos controles (`{key, label, expression, d3format}`) nunca calzan con la forma de una columna/métrica/filtro real, `isControlValueCompatibleWithDatasource` devuelve `false` para todos y el control completo colapsa a su `default: []` — vaciando las fórmulas sin relación con lo editado en el dataset.
+- Fix: se renombró la prop a `datasourceColumns` en ambos `controlPanel.tsx` y en `FormulaMetricControl` (prop, propTypes, defaultProps y uso en `getKeywords()`), evitando la colisión con el heurístico del reducer.
+- Adicional (bug relacionado, no el reportado pero descubierto en el mismo código): `exploreReducer.ts` de v6.1.0 nunca recibió la lógica que existía en `superset_v6/.../exploreReducer.js` para sincronizar `column_config` y `column_order` cuando se renombra el `label` de una calculated column — se restauró (adaptada a TypeScript) para que el "Customize columns" y el orden guardado no se pierdan al renombrar.
+
+Verificacion:
+- Lectura de `getControlState.ts` (`applyMapStateToPropsToControl`) confirmando que el objeto de `mapStateToProps` se aplica con spread directo sobre el `controlState`, y de `getControlValuesCompatibleWithDatasource.ts` confirmando que ningún branch reconoce la forma `{key, label, expression}` → confirma la causa raíz sin necesidad de reproducir en browser.
+- `node -e "... @babel/parser ..."` parse OK sobre los 5 archivos TS/TSX modificados.
+- Se extrajo el bloque Python del paso 15 de `migrate-plugins.sh` y se corrió standalone contra una copia limpia (`git show HEAD:...exploreReducer.ts`) de v6.1.0 — el resultado es byte-a-byte idéntico al parche aplicado a mano, confirmando que el script reproduce el fix correctamente para futuras migraciones.
+- No se pudo correr `npx jest` sobre `exploreReducer.test.ts` — falla preexistente y no relacionada: Jest no resuelve el symlink de `custom-src/ListViewCard/index.tsx` con la misma lógica que `resolve.symlinks: false` de webpack, y sus imports relativos (`../Skeleton`) rompen la resolución de módulos ni bien algo importa `exploreReducer.ts`. Se confirmó que la falla ya existía antes de este cambio (mismo error con `git stash` del archivo).
+- Pendiente: `npm run build` del frontend y prueba manual en Explore (editar un dataset con calculated columns ya definidas y confirmar que sobreviven).

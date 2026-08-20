@@ -560,7 +560,7 @@ else
 fi
 
 # 11b. Templates
-mkdir -p "$TEMPLATES/password"
+mkdir -p "$TEMPLATES/password" "$TEMPLATES/general/model"
 for tpl in custom_login.html novedades.html; do
   SRC="$SECURITY_SRC/templates/$tpl"
   DEST="$TEMPLATES/$tpl"
@@ -587,6 +587,17 @@ for tpl in request.html reset.html email_reset.html; do
     echo "  [ok] templates/appbuilder/password/$tpl"
   fi
 done
+SRC="$SECURITY_SRC/templates/general/model/message.html"
+DEST="$TEMPLATES/general/model/message.html"
+if [[ ! -f "$SRC" ]]; then
+  echo "  ERROR: custom-src/login/templates/general/model/message.html no encontrado"; exit 1
+fi
+if [[ -f "$DEST" ]] && cmp -s "$SRC" "$DEST"; then
+  echo "  [skip] general/model/message.html ya está actualizado"
+else
+  cp "$SRC" "$DEST"
+  echo "  [ok] templates/appbuilder/general/model/message.html"
+fi
 
 # 11c. Archivos estáticos: CSS, JS, imágenes y animaciones
 mkdir -p "$STATIC/customcss" "$STATIC/js_personal" \
@@ -621,7 +632,7 @@ for js_file in lottie.min.js custom_login.js password_reset.js; do
 done
 
 # Imágenes y animaciones (irex_ss.gif, business_presentation.json, novedades/*.gif)
-for img_file in irex_ss.gif business_presentation.json superset-logo-horiz.png; do
+for img_file in irex_ss.gif business_presentation.json superset-logo-horiz.png favicon.png; do
   SRC="$SECURITY_SRC/static/assets/images/$img_file"
   DEST="$STATIC/assets/images/$img_file"
   if [[ ! -f "$SRC" ]]; then
@@ -910,6 +921,240 @@ if old_import in c and old_content in c:
     print("  [ok] 13b Vertical.tsx parcheado")
 else:
     print("  [warn] 13b Vertical.tsx: patrones no encontrados, verificar manualmente")
+PYEOF
+fi
+
+echo "[14] MCP: campo 'description' en filtros nativos de get_dashboard_info..."
+MCP_DASHBOARD_SCHEMAS="$TARGET/superset/mcp_service/dashboard/schemas.py"
+
+if [[ ! -f "$MCP_DASHBOARD_SCHEMAS" ]]; then
+  echo "  [warn] 14 no encontrado: $MCP_DASHBOARD_SCHEMAS (¿esta versión no tiene MCP service?)"
+elif grep -q 'description=f.get("description")' "$MCP_DASHBOARD_SCHEMAS" 2>/dev/null; then
+  echo "  [skip] 14 ya parcheado"
+else
+  python3 - "$MCP_DASHBOARD_SCHEMAS" <<'PYEOF'
+import sys
+f = sys.argv[1]
+c = open(f).read()
+
+old_field = '''    id: str | None = Field(None, description="Filter ID")
+    name: str | None = Field(None, description="Filter display name")
+    filter_type: str | None = Field('''
+new_field = '''    id: str | None = Field(None, description="Filter ID")
+    name: str | None = Field(None, description="Filter display name")
+    description: str | None = Field(
+        None,
+        description=(
+            "Descripción configurada por el creador del filtro (ej. "
+            "explicación de códigos de valores como 'Cjs=Cajas, Col=Colones'). "
+            "None si el filtro no tiene descripción configurada."
+        ),
+    )
+    filter_type: str | None = Field('''
+
+old_construct = '''        summaries.append(
+            NativeFilterSummary(
+                id=f.get("id"),
+                name=f.get("name"),
+                filter_type=f.get("filterType"),
+                targets=targets,
+                default_value=default_value,
+            )
+        )'''
+new_construct = '''        summaries.append(
+            NativeFilterSummary(
+                id=f.get("id"),
+                name=f.get("name"),
+                description=f.get("description"),
+                filter_type=f.get("filterType"),
+                targets=targets,
+                default_value=default_value,
+            )
+        )'''
+
+if old_field in c and old_construct in c:
+    c = c.replace(old_field, new_field, 1).replace(old_construct, new_construct, 1)
+    open(f, 'w').write(c)
+    print("  [ok] 14 schemas.py (dashboard) parcheado")
+else:
+    print("  [warn] 14 schemas.py: patrones no encontrados, verificar manualmente")
+PYEOF
+fi
+
+# ── 15. exploreReducer.ts: sincronizar calculated_columns con column_config/column_order ──
+echo "[15] Parcheando exploreReducer.ts (sync de Calculated columns al renombrar)..."
+EXPLORE_REDUCER="$FRONTEND/src/explore/reducers/exploreReducer.ts"
+
+if [[ ! -f "$EXPLORE_REDUCER" ]]; then
+  echo "  [warn] 15 no encontrado: $EXPLORE_REDUCER"
+elif grep -q "old_calculated_columns_data" "$EXPLORE_REDUCER" 2>/dev/null; then
+  echo "  [skip] 15 ya parcheado"
+else
+  python3 - "$EXPLORE_REDUCER" <<'PYEOF'
+import sys
+f = sys.argv[1]
+c = open(f).read()
+
+old_interface = '''interface MetricItem {
+  label?: string;
+}'''
+new_interface = '''interface MetricItem {
+  label?: string;
+}
+
+interface CalculatedColumnItem {
+  key?: string;
+  label?: string;
+}'''
+
+old_sync_anchor = '''        new_form_data.column_config = new_column_config;
+      }
+
+      // Use the processed control config (with overrides and everything)
+      // if `controlName` does not exist in current controls,'''
+new_sync_block = '''        new_form_data.column_config = new_column_config;
+      }
+
+      // if the controlName is calculated_columns, and a column's label was
+      // renamed, need to update column_config and column_order as well so
+      // the renamed calculated column keeps its previous config/position
+      // instead of losing them (they're keyed by label, not by the stable
+      // item key).
+      const old_calculated_columns_data = (
+        state.form_data as { calculated_columns?: CalculatedColumnItem[] }
+      ).calculated_columns;
+      let new_column_order: string[] | undefined;
+      if (
+        controlName === 'calculated_columns' &&
+        Array.isArray(old_calculated_columns_data) &&
+        new_column_config
+      ) {
+        const oldCalculatedColumnsByKey = new Map(
+          old_calculated_columns_data.map(item => [
+            item?.key ?? item?.label,
+            item,
+          ]),
+        );
+        new_column_order = Array.isArray(
+          (state.form_data as { column_order?: string[] }).column_order,
+        )
+          ? [...(state.form_data as { column_order?: string[] }).column_order!]
+          : undefined;
+
+        (value as CalculatedColumnItem[]).forEach(item => {
+          const stableKey = item?.key ?? item?.label;
+          const oldItem = oldCalculatedColumnsByKey.get(stableKey);
+          const oldLabel = oldItem?.label;
+          const newLabel = item?.label;
+
+          if (
+            oldLabel &&
+            newLabel &&
+            oldLabel !== newLabel &&
+            new_column_config![oldLabel]
+          ) {
+            new_column_config![newLabel] = new_column_config![oldLabel];
+            delete new_column_config![oldLabel];
+          }
+
+          if (
+            oldLabel &&
+            newLabel &&
+            oldLabel !== newLabel &&
+            new_column_order
+          ) {
+            new_column_order = new_column_order.map(column =>
+              column === oldLabel ? newLabel : column,
+            );
+          }
+        });
+
+        new_form_data.column_config = new_column_config;
+        if (new_column_order) {
+          new_form_data.column_order = [...new Set(new_column_order)];
+        }
+      }
+
+      // Use the processed control config (with overrides and everything)
+      // if `controlName` does not exist in current controls,'''
+
+old_newstate = '''      const newState = {
+        ...state,
+        controls: {
+          ...state.controls,
+          ...(controlConfig && { [controlName]: control }),
+          ...(controlName === 'metrics' && { column_config }),
+        },
+      };
+
+      const rerenderedControls: Record<string, ExtendedControlState> = {};
+      if (Array.isArray(control.rerender)) {
+        control.rerender.forEach((rerenderControlName: string) => {
+          const rerenderControl = (
+            newState.controls as Record<string, ControlState>
+          )[rerenderControlName];
+          rerenderedControls[rerenderControlName] = {
+            ...getControlStateFromControlConfig(
+              rerenderControl as Parameters<
+                typeof getControlStateFromControlConfig
+              >[0],
+              newState as Parameters<
+                typeof getControlStateFromControlConfig
+              >[1],
+              rerenderControl?.value,
+            ),
+          } as ExtendedControlState;
+        });
+      }'''
+new_newstate = '''      const newState = {
+        ...state,
+        controls: {
+          ...state.controls,
+          ...(controlConfig && { [controlName]: control }),
+          ...(['metrics', 'calculated_columns'].includes(controlName) && {
+            column_config,
+          }),
+        },
+      };
+
+      // column_order is rebuilt in-place above (renamed labels) rather than
+      // through the normal control revalidation flow, so the rerender step
+      // must use the corrected value instead of the stale one already in
+      // `newState.controls.column_order.value`.
+      const rerenderedValueOverrides: Record<string, unknown> = {};
+      if (controlName === 'calculated_columns' && new_column_order) {
+        rerenderedValueOverrides.column_order = new_form_data.column_order;
+      }
+
+      const rerenderedControls: Record<string, ExtendedControlState> = {};
+      if (Array.isArray(control.rerender)) {
+        control.rerender.forEach((rerenderControlName: string) => {
+          const rerenderControl = (
+            newState.controls as Record<string, ControlState>
+          )[rerenderControlName];
+          rerenderedControls[rerenderControlName] = {
+            ...getControlStateFromControlConfig(
+              rerenderControl as Parameters<
+                typeof getControlStateFromControlConfig
+              >[0],
+              newState as Parameters<
+                typeof getControlStateFromControlConfig
+              >[1],
+              rerenderedValueOverrides[rerenderControlName] ??
+                rerenderControl?.value,
+            ),
+          } as ExtendedControlState;
+        });
+      }'''
+
+if old_interface in c and old_sync_anchor in c and old_newstate in c:
+    c = c.replace(old_interface, new_interface, 1)
+    c = c.replace(old_sync_anchor, new_sync_block, 1)
+    c = c.replace(old_newstate, new_newstate, 1)
+    open(f, 'w').write(c)
+    print("  [ok] 15 exploreReducer.ts parcheado")
+else:
+    print("  [warn] 15 exploreReducer.ts: patrones no encontrados, verificar manualmente")
 PYEOF
 fi
 
