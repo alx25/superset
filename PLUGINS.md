@@ -15,10 +15,26 @@ superset_proyecto/
 │   ├── plugin-chart-tableV3/
 │   ├── plugin-chart-pivot-tableRx1/
 │   └── plugin-chart-html-cards/
-├── custom-src/                          ← FUENTE de controles y componentes React custom
+├── custom-src/                          ← FUENTE de controles, componentes React y login
 │   ├── FormulaMetricControl/            (control de fórmulas del pivot-tableRx1)
 │   ├── MetricOrderControl/              (control de orden de métricas del pivot-tableRx1)
-│   └── ColumnConfigControl/             (5 archivos: Display name + pestaña HTML del tableV3)
+│   ├── ColumnConfigControl/             (5 archivos: Display name + pestaña HTML del tableV3)
+│   └── login/                           (login personalizado Irex — paso 11 del script)
+│       ├── password_reset.py            (PasswordResetView + PasswordResetSecurityManager)
+│       ├── templates/
+│       │   ├── custom_login.html        (página de login con diseño Irex)
+│       │   ├── novedades.html           (modal de novedades incluido en custom_login.html)
+│       │   └── password/
+│       │       ├── request.html         (solicitar enlace de recuperación)
+│       │       ├── reset.html           (nueva contraseña)
+│       │       └── email_reset.html     (correo HTML de recuperación)
+│       └── static/
+│           ├── customcss/
+│           │   ├── custom_login.css
+│           │   └── password_flow.css
+│           └── js_personal/
+│               ├── custom_login.js
+│               └── password_reset.js
 ├── migrate-plugins.sh                   ← script que aplica todo a un nuevo Superset
 └── PLUGINS.md                           ← este archivo
 ```
@@ -95,6 +111,30 @@ formato horizontal con thumbnail cuadrado a la izquierda (120×120 px):
 relativos (`../Skeleton`, `../Tooltip`, etc.) se resuelven desde la ubicación del symlink
 dentro de `packages/`, lo cual es correcto.
 
+### Al cambiar FilterBarTabs (pestañas Filtros/Marcadores en barra de filtros)
+El componente `FilterBarTabs` reemplaza el scroll container del `Vertical.tsx` de la barra de filtros
+con un antd Tabs de dos pestañas: "Filters" y "Bookmarks".
+
+El directorio `custom-src/FilterBarTabs/` contiene:
+- `FilterBarTabs.tsx` — contenedor de pestañas (Filtros / Marcadores)
+- `BookmarksTab.tsx` — panel de marcadores: lista, guardar, eliminar y detalles de filtros
+
+1. Editar en `custom-src/FilterBarTabs/`
+2. El symlink de directorio en `FilterBar/FilterBarTabs/` propaga todos los cambios automáticamente
+3. Rebuild del frontend
+
+**Regla de imports:** usar módulos absolutos (`@superset-ui/core/...`, `@apache-superset/core/...`,
+`src/dashboard/...`). No usar imports relativos `../`.
+
+**BookmarksTab depende de:**
+- API REST `GET/POST/DELETE /api/v1/dashboard/bookmark/` (paso 12 del script)
+- API REST `POST /api/v1/dashboard/{id}/permalink` (nativa de Superset)
+- API REST `GET /api/v1/dashboard/permalink/{key}` (nativa de Superset)
+- Redux: `state.dashboardInfo.id`, `state.dataMask`, `state.dashboardState.activeTabs`,
+  `state.dashboardInfo.metadata.native_filter_configuration`
+
+---
+
 ### Al cambiar FavoritesBanner o DashboardTagSidebar (pantalla de dashboards)
 Son archivos individuales con symlinks en `src/features/dashboards/`:
 1. Editar en `custom-src/FavoritesBanner/FavoritesBanner.tsx` o `custom-src/DashboardTagSidebar/DashboardTagSidebar.tsx`
@@ -134,6 +174,12 @@ control, nuevo campo en el schema del backend, nueva constante VizType, etc.), h
 | DashboardTagSidebar (filtro por tags) | `custom-src/DashboardTagSidebar/DashboardTagSidebar.tsx` | Sí — paso 10b |
 | Integración en DashboardList/index.tsx | `custom-src/patch_dashboard_list.py` | Sí — paso 10c |
 | ListViewCard (tarjetas horizontales) | `custom-src/ListViewCard/index.tsx` | Sí — paso 10d |
+| Login personalizado (CustomAuthDBView) | `custom-src/login/` | Sí — paso 11 |
+| Recuperación de contraseña | `custom-src/login/password_reset.py` | Sí — paso 11a |
+| Templates login y password reset | `custom-src/login/templates/` | Sí — paso 11b |
+| CSS y JS del login | `custom-src/login/static/` | Sí — paso 11c |
+| Pestañas Filtros/Marcadores en FilterBar | `custom-src/FilterBarTabs/FilterBarTabs.tsx` | Sí — paso 13 |
+| UI de marcadores (lista, guardar, eliminar, detalles) | `custom-src/FilterBarTabs/BookmarksTab.tsx` | Incluido en paso 13 (directorio symlink) |
 
 ---
 
@@ -192,7 +238,8 @@ Si hay duda de qué cambió, buscar los comentarios en el Registro de cambios.md
 
 | Archivo | Cambio |
 |---------|--------|
-| `superset/config.py` | `HTML_SANITIZATION = False` |
+| `superset/config.py` | `HTML_SANITIZATION = False` + bloque Custom Login (CustomAuthDBView, CustomSecurityManager) |
+| `superset/security/password_reset.py` | PasswordResetView + PasswordResetSecurityManager (archivo nuevo) |
 | `superset/charts/schemas.py` | 4 campos en `ChartDataExtrasSchema` |
 | `superset/charts/client_processing.py` | `"pivot_table_rx1": pivot_table_v2` |
 | `superset/common/query_context_processor.py` | helpers + `get_data` extendido |

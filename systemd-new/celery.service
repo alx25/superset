@@ -1,0 +1,33 @@
+[Unit]
+Description=Celery Worker for Superset (general)
+After=network.target
+
+[Service]
+Type=simple
+User=imercados
+Group=imercados
+WorkingDirectory=/home/imercados/superset_proyecto
+
+EnvironmentFile=/home/imercados/superset_proyecto/.env_superset
+
+ExecStartPre=/bin/bash -c 'test -x "$SUPERSET_DIR/.venv/bin/python"'
+ExecStartPre=/bin/bash -c '"$SUPERSET_DIR/.venv/bin/python" -c "import celery"'
+
+ExecStart=/bin/bash -c '\
+cd "$SUPERSET_DIR" && \
+export PATH="$SUPERSET_DIR/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin" && \
+export PYTHONPATH="$SUPERSET_DIR:$SUPERSET_DIR/superset" && \
+export SUPERSET_CONFIG_PATH="$SUPERSET_CONFIG_PATH" && \
+exec "$SUPERSET_DIR/.venv/bin/python" -m celery \
+  --app=superset.tasks.celery_app:app worker \
+  --pool=prefork -O fair -Q celery -c 1 \
+  --prefetch-multiplier=1 \
+  --max-memory-per-child=512000 \
+  --loglevel=INFO \
+  --hostname=general@%H'
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

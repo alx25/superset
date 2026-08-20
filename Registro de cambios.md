@@ -2,6 +2,305 @@
 
 Nota: anotar fecha y cambio realizado con los archivos afectados y que cambia o corrige.
 
+### 2026-06-05 (6)
+
+Cambio realizado:
+Corrección completa de los dos bugs del plugin `plugin-chart-tableV3`. Esta entrada reemplaza/completa la (5).
+
+**Bug 1 — Percentage metrics muestran 0% en filas normales con Show Summary activo**
+Archivos afectados:
+- `custom-plugins/plugin-chart-tableV3/src/transformProps.ts` (propagado a `superset_v6/`)
+
+Causa raíz:
+- Cuando `show_totals=true`, el backend inyecta `contribution_totals` en el post-procesado de contribución. Si hay un mismatch entre las claves del dict de totales y los nombres de columna del DataFrame principal, `contribution_totals.get(col)` retorna `None` → todas las filas quedan en 0.
+- La fila de resumen ya estaba corregida (entrada 5) inyectando `%metric=1`. Las filas normales aún mostraban 0%.
+
+Fix aplicado:
+- En `transformProps.ts` (línea ~699), antes de `processDataRecords`, se computan los `%metric` client-side usando `totalQuery.data[0]` como grand total: `newRow[pctKey] = row[rawKey] / grandTotals[rawKey]`. Esto garantiza valores correctos independientemente de lo que devuelva el backend.
+
+**Bug 2 — Sintaxis col./row. no funcionan en Calculated columns**
+Archivos afectados:
+- `custom-plugins/plugin-chart-tableV3/src/utils/calculatedColumns.ts` (propagado a `superset_v6/`)
+
+Causa raíz adicional identificada:
+- La regex `COL_ROW_ACCESS_REGEX = /\b(?:col|row)\.(\w+)/g` solo captura nombres con `\w+` (letras/dígitos/guión bajo). No maneja `col.{{Nombre}}` (sintaxis mixta) — dejaba `col.` como literal en el JS generado, produciendo error sintáctico.
+
+Fix aplicado:
+- Se agrega `COL_ROW_BRACE_PREFIX_REGEX = /\b(?:col|row)\.(?=\{\{)/g` que elimina el prefijo `col.`/`row.` cuando va seguido inmediatamente de `{{`. Esto normaliza `col.{{Nombre}}` → `{{Nombre}}` antes de que el paso 1 lo procese.
+- Sintaxis soportadas ahora: `col.NombreSimple`, `row.NombreSimple`, `col.{{Nombre Con Espacios}}`, `row.{{Nombre Con Espacios}}`, `{{Nombre}}`.
+
+### 2026-06-05 (5)
+
+Cambio realizado:
+Corrección parcial de bugs en `plugin-chart-tableV3` (ver entrada 6 para la versión completa).
+
+**Bug 1 — Percentage metrics muestran 0% en el resumen (Show summary)**
+Archivos afectados:
+- `custom-plugins/plugin-chart-tableV3/src/transformProps.ts`
+
+Que cambia o corrige:
+- El query de totales (`buildQuery.ts`) envía `post_processing: []` al backend, eliminando la operación `contribution` que crea las columnas `%metric_name`. Por eso el row de totales llegaba al frontend sin esas columnas y el footer las mostraba vacías o con 0%.
+- Fix: en `transformProps.ts`, después de obtener el raw totals, se inyectan las claves `%metric_name` con valor `1` (100 %) para cada percentage metric que no venga ya en el row. Esto es correcto porque la suma de todas las contribuciones por fila es siempre 1 (100 %).
+
+**Bug 2 — Sintaxis col. y row. no funcionan en Calculated columns**
+Archivos afectados:
+- `custom-plugins/plugin-chart-tableV3/src/utils/calculatedColumns.ts`
+
+Que cambia o corrige:
+- `buildJsExpression` solo procesaba la sintaxis `{{ColumnName}}`. Las expresiones que usaban `col.NombreColumna` o `row.NombreColumna` quedaban sin sustituir y producían errores silenciosos.
+- Fix: se agrega un paso de preprocesado (paso 0) con la regex `COL_ROW_ACCESS_REGEX` que normaliza `col.Name` / `row.Name` → `{{Name}}` antes de que el pipeline `{{...}}` las procese. Las columnas con espacios en el nombre siguen requiriendo la sintaxis `{{Nombre Columna}}`.
+
+### 2026-06-05 (4)
+
+Cambio realizado:
+Se regeneraron los JSON compilados de `language_pack` para que el endpoint de idiomas no devuelva 404 en `superset_v6_1_0`.
+
+Archivos afectados:
+- `superset_v6_1_0/superset/translations/es/LC_MESSAGES/messages.json` (generado)
+- `superset_v6_1_0/superset/translations/*/LC_MESSAGES/messages.json` (regenerados via `npm run build-translation`)
+
+Que cambia o corrige:
+- El endpoint `/superset/language_pack/es/` vuelve a encontrar el pack compilado de español y deja de caer en el 404 de “Language pack doesn't exist on the server”.
+- Se restauraron los JSON de traducciones que consume `superset/views/core.py` al inicializar el frontend.
+- Si se despliega desde fuente sin Docker, conviene ejecutar `npm run build-translation` en `superset_v6_1_0/superset-frontend` antes de arrancar `superset` para mantener estos packs presentes.
+
+### 2026-06-05 (3)
+
+Cambio realizado:
+Marcadores aplican filtros in-place en el dashboard actual en lugar de redirigir al permalink.
+
+Archivos afectados:
+- `custom-src/FilterBarTabs/BookmarksTab.tsx` (actualizado)
+
+Que cambia o corrige:
+- Al hacer click en el nombre de un marcador, en lugar de navegar al permalink, se aplican los filtros directamente al dashboard cargado. Internamente: carga el estado guardado via `GET /api/v1/dashboard/permalink/{key}`, despacha `updateDataMask` para cada filtro del marcador y `clearDataMask` para los filtros que no estaban activos en el marcador, y opcionalmente despacha `setActiveTabs` si el marcador incluía tabs. Los charts re-fetchen automáticamente al actualizarse `state.dataMask` en Redux.
+- El botón "Copy link" permanece para que el usuario pueda obtener la URL si quiere navegar manualmente.
+- Se unificó la caché de detalles y payload del permalink en una sola estructura `CachedEntry` para evitar llamadas duplicadas entre "ver detalles" y "aplicar".
+
+### 2026-06-05 (2)
+
+Cambio realizado:
+Implementación completa de la UI de marcadores en la pestaña "Bookmarks" de la barra de filtros.
+
+Archivos afectados:
+- `custom-src/FilterBarTabs/BookmarksTab.tsx` (nuevo — fuente canónica)
+- `custom-src/FilterBarTabs/FilterBarTabs.tsx` (actualizado: import y uso de BookmarksTab)
+- `PLUGINS.md` (sección y tabla actualizadas)
+
+Que cambia o corrige:
+- La pestaña "Bookmarks" de la barra de filtros ahora muestra la gestión completa de marcadores.
+- Botón "Save current view": abre modal para nombrar y guardar el estado actual (filtros + tabs activos) via `POST /api/v1/dashboard/{id}/permalink` + `POST /api/v1/dashboard/bookmark/`.
+- Lista de marcadores del dashboard actual: cada item muestra el nombre (botón que aplica los filtros), botón copiar URL, botón eliminar con confirmación (Popconfirm).
+- Sección expandible por marcador: carga lazy el estado de filtros via `GET /api/v1/dashboard/permalink/{key}` y muestra nombre de filtro + valor para los filtros aplicados.
+- Estado vacío con imagen cuando no hay marcadores.
+
+### 2026-06-05
+
+Cambio realizado:
+Pestañas "Filters" / "Bookmarks" en la barra de filtros vertical del dashboard.
+
+Archivos afectados:
+- `custom-src/FilterBarTabs/FilterBarTabs.tsx` (nuevo — fuente canónica)
+- `superset_v6_1_0/superset-frontend/src/dashboard/components/nativeFilters/FilterBar/FilterBarTabs/` (symlink → custom-src/FilterBarTabs/)
+- `superset_v6_1_0/superset-frontend/src/dashboard/components/nativeFilters/FilterBar/Vertical.tsx` (patch)
+- `migrate-plugins.sh` (paso 13 agregado)
+- `PLUGINS.md` (sección y tabla actualizadas)
+
+Que cambia o corrige:
+- La barra de filtros vertical ahora muestra dos pestañas debajo del header: "Filters" (comportamiento existente) y "Bookmarks" (placeholder, se implementa en el siguiente paso).
+- El componente `FilterBarTabs` reemplaza el div scrollable por un antd Tabs donde la pestaña "Filters" contiene todo el contenido original (CrossFilters + FilterControls) con el mismo área de scroll.
+- Los botones Apply/Clear (actions) siguen posicionados absolutamente fuera del área de tabs, sin cambios.
+
+### 2026-06-04
+
+Cambio realizado:
+Se deshabilito la carga de tareas de `GLOBAL_ASYNC_QUERIES` en Celery al quedar el feature flag apagado.
+
+Archivos afectados:
+- `superset_v6_1_0/superset/config.py`
+
+Que cambia o corrige:
+- Se elimina `superset.tasks.async_queries` de `CeleryConfig.imports`.
+- Se eliminan las rutas `load_chart_data_into_cache` y `load_explore_json_into_cache` mientras `GLOBAL_ASYNC_QUERIES` esta desactivado.
+- Corrige el error `RuntimeError: Working outside of application context` al arrancar el worker Celery.
+
+Verificacion:
+- `python -m py_compile superset/config.py`
+- `timeout 15s .venv/bin/python -m celery --app=superset.tasks.celery_app:app worker --hostname=v610-test@%h --pool=solo -O fair -Q celery,sql,thumbnails,warmup --loglevel=INFO`
+
+### 2026-06-04
+
+Cambio realizado:
+Se reemplazo el secreto temporal de `GLOBAL_ASYNC_QUERIES_JWT_SECRET` por un token seguro de mas de 32 caracteres.
+
+Archivos afectados:
+- `superset_v6_1_0/superset/config.py`
+
+Que cambia o corrige:
+- Corrige el error `AsyncQueryTokenException: Please provide a JWT secret at least 32 bytes long` al arrancar Celery con `GLOBAL_ASYNC_QUERIES` activo.
+- Permite que Superset inicialice `AsyncQueryManager` durante el arranque de la app/Celery.
+
+Verificacion:
+- `.venv/bin/python -c "import superset.config; print(len(superset.config.GLOBAL_ASYNC_QUERIES_JWT_SECRET))"`
+- `.venv/bin/python -m celery --app=superset.tasks.celery_app:app inspect registered`
+
+### 2026-06-04
+
+Cambio realizado:
+Se corrigio el arranque de `superset_test` agregando el import faltante de `FixedExecutor`.
+
+Archivos afectados:
+- `superset_v6_1_0/superset/config.py`
+
+Que cambia o corrige:
+- Corrige el error `NameError: name 'FixedExecutor' is not defined` al importar `superset.config`.
+- Permite usar `THUMBNAIL_EXECUTORS = [FixedExecutor("admin")]` para generar thumbnails con el usuario fijo `admin`.
+
+Verificacion:
+- `.venv/bin/python -c "import superset.config; print('ok')"`
+- `python -m py_compile superset/config.py`
+
+### 2026-06-04
+
+Cambio realizado:
+Se ajusto `THEME_DARK` en `superset_v6_1_0` para que el cambio a modo oscuro tenga fondos y textos oscuros reales.
+
+Archivos afectados:
+- `superset_v6_1_0/superset/config.py`
+
+Que cambia o corrige:
+- `THEME_DARK` deja de heredar todo `THEME_DEFAULT`, evitando arrastrar tokens claros al modo oscuro.
+- Se agregan tokens explicitos de fondo/texto dark: `colorBgLayout`, `colorBgContainer`, `colorBgElevated`, `colorBgSpotlight`, `colorBorder`, `colorSplit`, `colorText`, `colorTextSecondary` y `colorTextTertiary`.
+- Se conservan branding, logo, fuente y colores Irex del tema oscuro de v6.
+- Se agregan overrides para `Card` y `Layout` para mejorar el contraste visual al cambiar de claro a oscuro.
+
+Verificacion:
+- `python -m py_compile superset_v6_1_0/superset/config.py`
+
+### 2026-06-04
+
+Cambio realizado:
+Se migro el tema Irex por defecto de `superset_v6` a `superset_v6_1_0` usando los tokens de tema de Superset 6.1.0.
+
+Archivos afectados:
+- `superset_v6_1_0/superset/config.py`
+
+Que cambia o corrige:
+- `THEME_DEFAULT` recupera la paleta azul/verde, componentes y fuente del tema de v6.
+- `THEME_DARK` recupera los overrides oscuros de v6 manteniendo `algorithm: "dark"`.
+- Los fonts de v6 se pasan a `THEME_DEFAULT["token"]["fontUrls"]`, reemplazando el uso anterior de `CUSTOM_FONT_URLS`.
+- El branding del logo se define en tokens (`brandAppName`, `brandLogoAlt`, `brandLogoUrl`, `brandLogoHref`) porque en 6.1.0 `APP_NAME` ya no controla el branding del frontend.
+
+Verificacion:
+- `python -m py_compile superset_v6_1_0/superset/config.py`
+
+### 2026-06-04
+
+Cambio realizado:
+Se agrego `'unsafe-eval'` al `script-src` de `TALISMAN_CONFIG` en Superset v6.1.0 para permitir la compilacion runtime de templates Handlebars usada por `plugin-chart-html-cards`.
+
+Archivos afectados:
+- `superset_v6_1_0/superset/config.py`
+
+Que cambia o corrige:
+- La CSP productiva deja de bloquear `Handlebars.compile()` con el error de `unsafe-eval` cuando renderiza tarjetas HTML.
+- `TALISMAN_DEV_CONFIG` ya tenia `'unsafe-eval'`; se verifico y no se duplico.
+
+Verificacion:
+- `rg -n "TALISMAN_CONFIG|TALISMAN_DEV_CONFIG|script-src" superset_v6_1_0/superset/config.py`
+
+### 2026-06-04
+
+Cambio realizado:
+Correccion en `superset_v6_1_0` para filtros dependientes con `Select first filter value by default`.
+
+Archivos afectados:
+- `superset_v6_1_0/superset-frontend/src/dashboard/components/nativeFilters/dependencyGraph.ts`
+- `superset_v6_1_0/superset-frontend/src/dashboard/components/nativeFilters/FilterBar/FilterControls/state.ts`
+- `superset_v6_1_0/superset-frontend/src/dashboard/components/nativeFilters/FilterBar/FilterControls/state.test.ts`
+- `superset_v6_1_0/superset-frontend/src/dashboard/components/nativeFilters/FilterBar/FilterControls/FilterValue.tsx`
+
+Que cambia o corrige:
+- Se restaura la guarda existente en v6 para padres `requiredFirst`: un filtro hijo no consulta opciones hasta que el filtro padre tenga valor y `extraFormData`.
+- Corrige el caso ano -> mes donde el mes cargaba primero sin el filtro de ano, los graficos renderizaban con un mes incorrecto y luego quedaba pendiente presionar `Aplicar filtros`.
+- La guarda se adapto al modelo de v6.1.0 con dependencias transitivas para cubrir cadenas de filtros.
+
+Verificacion:
+- `npx jest --runInBand src/dashboard/components/nativeFilters/FilterBar/FilterControls/state.test.ts`
+
+### 2026-06-03 (actualización 20)
+
+Mejoras al login personalizado: eliminar botón Novedades v6.0 y añadir toggle de tema claro/oscuro.
+
+Archivos afectados:
+- `custom-src/login/templates/custom_login.html`: eliminado botón "Novedades v6.0"; añadido script anti-parpadeo de tema en <head>; añadido botón #themeToggleBtn (sol/luna) en panel derecho
+- `custom-src/login/static/customcss/custom_login.css`: variables CSS convertidas a modo dual claro/oscuro con tokens de Superset/antd; añadidos estilos .theme-toggle-btn y [data-theme="dark"]
+- `custom-src/login/static/js_personal/custom_login.js`: añadida lógica toggleTheme() que escribe 'superset-theme-mode' en localStorage con valores 'dark'/'default' (misma clave y valores que usa Superset internamente)
+- Propagado a superset_v6_1_0 y superset_v6
+
+Qué cambia y por qué:
+- Botón novedades eliminado a pedido del usuario.
+- El toggle escribe localStorage['superset-theme-mode'] = 'dark'/'default' — la misma clave
+  que ThemeController.ts (STORAGE_KEYS.THEME_MODE) usa para leer el tema al arrancar Superset.
+  Así el cambio desde el login es persistido y Superset lo aplica automáticamente al entrar.
+- Un script inline en <head> aplica data-theme="dark" antes de renderizar para evitar parpadeo
+  (FOUC). También respeta la preferencia del OS si no hay valor guardado en localStorage.
+- Las variables CSS del modo oscuro usan los tokens de antd dark theme:
+  colorBgContainer=#1f1f1f, colorBgElevated=#262626, colorText=rgba(255,255,255,.88).
+
+### 2026-06-03 (actualización 19)
+
+Fix: animación Lottie del login no renderizaba en v6.1.0 por CSP.
+
+Archivos afectados:
+- `custom-src/login/templates/custom_login.html`: reemplazado CDN de lottie por versión self-hosted con nonce
+- `custom-src/login/static/js_personal/lottie.min.js`: lottie-web 5.12.2 descargado (300KB)
+- `superset_v6_1_0/superset/templates/appbuilder/custom_login.html`: propagado
+- `superset_v6_1_0/superset/static/js_personal/lottie.min.js`: propagado
+- `superset_v6/superset/templates/appbuilder/custom_login.html`: propagado (consistencia)
+- `superset_v6/superset/static/js_personal/lottie.min.js`: propagado (consistencia)
+- `migrate-plugins.sh`: paso 11c ahora incluye lottie.min.js
+
+Qué cambia y por qué:
+- En v6.1.0, TALISMAN_ENABLED=True activa la CSP con script-src='self'+'strict-dynamic'.
+  El script externo de cdnjs.cloudflare.com era bloqueado por la política. En v6, TALISMAN_ENABLED=False
+  por lo que no había problema.
+- Solución: lottie.min.js se auto-hospeda en static/js_personal/ y se carga con nonce,
+  igual que custom_login.js.
+
+### 2026-06-03 (actualización 18)
+
+Migración de "Custom Login Page Configuration (Irex)" de superset_v6 a superset_v6_1_0.
+Incluye login personalizado con Jinja, recuperación de contraseñas y paso 11 en migrate-plugins.sh.
+
+Archivos afectados:
+- `superset_v6_1_0/superset/config.py`: añadido bloque Custom Login (CustomAuthDBView, CustomSecurityManager, CUSTOM_SECURITY_MANAGER)
+- `superset_v6_1_0/superset/security/password_reset.py`: copiado desde v6 (PasswordResetView + PasswordResetSecurityManager)
+- `superset_v6_1_0/superset/templates/appbuilder/custom_login.html`: plantilla de login personalizado
+- `superset_v6_1_0/superset/templates/appbuilder/novedades.html`: modal de novedades incluido en custom_login.html
+- `superset_v6_1_0/superset/templates/appbuilder/password/request.html`: formulario de solicitud de recuperación
+- `superset_v6_1_0/superset/templates/appbuilder/password/reset.html`: formulario de nueva contraseña
+- `superset_v6_1_0/superset/templates/appbuilder/password/email_reset.html`: plantilla HTML del correo de recuperación
+- `superset_v6_1_0/superset/static/customcss/custom_login.css`: estilos del login personalizado
+- `superset_v6_1_0/superset/static/customcss/password_flow.css`: estilos del flujo de recuperación de contraseña
+- `superset_v6_1_0/superset/static/js_personal/custom_login.js`: JS del login (modal demo, novedades, toggle password)
+- `superset_v6_1_0/superset/static/js_personal/password_reset.js`: JS del flujo de recuperación
+- `custom-src/login/`: fuente canónica de todos los archivos del login (nueva carpeta)
+- `superset_v6_1_0/superset/static/assets/images/irex_ss.gif`: logo animado del panel izquierdo
+- `superset_v6_1_0/superset/static/assets/images/business_presentation.json`: animación Lottie del panel izquierdo
+- `superset_v6_1_0/superset/static/assets/images/novedades/favoritos.gif` + `tema_oscuro.gif`: GIFs del modal de novedades
+- `superset_v6_1_0/superset/static/video_superset/Presentacion Superset.mp4` + `subtitulos.vtt`: video demo
+- `custom-src/login/static/`: fuente canónica de todos los assets (excepto el .mp4 de 90MB)
+- `migrate-plugins.sh`: añadido paso 11 (11a–11d) para automatizar la migración del login en futuras versiones
+
+Qué cambia y por qué:
+- El login estándar de Superset 6 usa una SPA React en /login/. Se reemplaza con una vista
+  Jinja servidor-lado (CustomAuthDBView) que renderiza custom_login.html con diseño Irex.
+- Se añade flujo completo de recuperación de contraseña (PasswordResetView en /password/solicitar/
+  y /password/restablecer/<token>/) con envío de correo SMTP firmado con itsdangerous.
+- El script migrate-plugins.sh copia desde custom-src/login/ y parchea config.py automáticamente,
+  de modo que migraciones a versiones futuras de Superset solo requieren correr el script.
+
 ### 2026-05-29 (actualización 17)
 
 Documentacion del plugin html-cards actualizada (INSTRUCCIONES_PLUGIN_HTML_CARDS.md):

@@ -696,7 +696,34 @@ const transformProps = (
     [baseQuery, totalQuery] = queriesData;
     rowCount = baseQuery?.rowcount ?? 0;
   }
-  const data = processDataRecords(baseQuery?.data, columns);
+  // When showTotals is enabled the backend injects contribution_totals into the
+  // contribution post-processing, but column-name mismatches between the totals
+  // DataFrame and the main query can produce total=None → all rows get 0.
+  // Fix: recompute %metric client-side using the grand total from totalQuery.
+  const augmentedBaseData = (() => {
+    if (
+      !showTotals ||
+      queryMode !== QueryMode.Aggregate ||
+      !totalQuery?.data[0] ||
+      !percentMetrics.length
+    ) {
+      return baseQuery?.data;
+    }
+    const grandTotals = totalQuery.data[0];
+    return (baseQuery?.data || []).map(row => {
+      const newRow: DataRecord = { ...row };
+      percentMetrics.forEach(pctKey => {
+        const rawKey = pctKey.slice(1);
+        const total = grandTotals[rawKey];
+        const value = row[rawKey];
+        if (typeof total === 'number' && total !== 0 && typeof value === 'number') {
+          newRow[pctKey] = value / total;
+        }
+      });
+      return newRow;
+    });
+  })();
+  const data = processDataRecords(augmentedBaseData, columns);
   const topMetricOptions = columns
     .filter(column => column.isMetric)
     .map(column => ({
@@ -748,12 +775,27 @@ const transformProps = (
     columns,
     comparisonSuffix,
   );
-  const totals =
-    showTotals && queryMode === QueryMode.Aggregate
-      ? isUsingTimeComparison
-        ? processComparisonTotals(comparisonSuffix, totalQuery?.data)
-        : totalQuery?.data[0]
-      : undefined;
+  const totals = (() => {
+    if (!showTotals || queryMode !== QueryMode.Aggregate) return undefined;
+    if (isUsingTimeComparison) {
+      return processComparisonTotals(comparisonSuffix, totalQuery?.data);
+    }
+    const raw = totalQuery?.data[0];
+    if (!raw) return raw;
+    // The totals query strips contribution post-processing (post_processing: []),
+    // so %metric columns are absent from the totals row. Inject them: the sum of
+    // all per-row contributions always equals 1 (100 %).
+    const withPct: DataRecord = { ...raw };
+    percentMetrics.forEach(pctKey => {
+      if (!(pctKey in withPct)) {
+        const rawKey = pctKey.slice(1); // strip leading '%'
+        if (typeof raw[rawKey] === 'number') {
+          withPct[pctKey] = 1;
+        }
+      }
+    });
+    return withPct;
+  })();
 
   const passedData = isUsingTimeComparison ? comparisonData || [] : finalData;
   const passedColumns = isUsingTimeComparison ? comparisonColumns : columns;

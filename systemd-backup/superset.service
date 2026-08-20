@@ -1,0 +1,42 @@
+[Unit]
+Description=Apache Superset (Gunicorn)
+After=network.target postgresql.service clickhouse-server.service
+
+[Service]
+Type=simple
+User=imercados
+Group=www-data
+WorkingDirectory=/home/imercados/superset_proyecto/superset_v6
+
+# === Entorno producción ===
+Environment="PATH=/home/imercados/superset_proyecto/superset_v6/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONPATH=/home/imercados/.superset:/home/imercados/superset_proyecto/superset_v6:/home/imercados/superset_proyecto/superset_v6/superset"
+Environment="SUPERSET_ENV=production"
+# Verifica que exista el intérprete del venv antes de arrancar
+ExecStartPre=/usr/bin/test -x /home/imercados/superset_proyecto/superset_v6/.venv/bin/python
+
+# === Gunicorn producción en 8088 ===
+ExecStart=/home/imercados/superset_proyecto/superset_v6/.venv/bin/python -m gunicorn \
+  --bind 0.0.0.0:8088 \
+  --workers 16 \
+  --worker-class gevent \
+  --threads 2 \
+  --worker-connections 5000 \
+  --backlog 4096 \
+  --timeout 300 \
+  --graceful-timeout 30 \
+  --keep-alive 10 \
+  --name superset_gunicorn \
+  --max-requests 2500 \
+  --max-requests-jitter 250 \
+  --log-level info \
+  --error-logfile - \
+  'superset.app:create_app()'
+
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

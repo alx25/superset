@@ -1,0 +1,28 @@
+[Unit]
+Description=Celery Beat Scheduler for Superset
+After=network.target
+
+[Service]
+User=imercados
+Group=imercados
+WorkingDirectory=/home/imercados/superset_proyecto/superset_v6
+
+Environment="PATH=/home/imercados/superset_proyecto/superset_v6/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+Environment="SUPERSET_CONFIG_PATH=/home/imercados/.superset/superset_config.py"
+Environment="PYTHONPATH=/home/imercados/.superset:/home/imercados/superset_proyecto/superset_v6:/home/imercados/superset_proyecto/superset_v6/superset"
+
+ExecStartPre=/usr/bin/test -x /home/imercados/superset_proyecto/superset_v6/.venv/bin/python
+ExecStartPre=/home/imercados/superset_proyecto/superset_v6/.venv/bin/python -c "import celery"
+
+ExecStart=/home/imercados/superset_proyecto/superset_v6/.venv/bin/python -m celery \
+  --app=superset.tasks.celery_app:app beat \
+  --scheduler celery.beat.PersistentScheduler \
+  --pidfile=/tmp/celerybeat.pid \
+  --schedule=/home/imercados/superset_proyecto/superset_v6/celerybeat-schedule \
+  --loglevel=INFO
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

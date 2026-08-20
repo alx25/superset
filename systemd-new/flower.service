@@ -1,0 +1,31 @@
+[Unit]
+Description=Flower Celery Monitoring for Superset
+After=network.target
+
+[Service]
+Type=simple
+User=imercados
+Group=www-data
+WorkingDirectory=/home/imercados/superset_proyecto
+
+EnvironmentFile=/home/imercados/superset_proyecto/.env_superset
+
+ExecStartPre=/bin/bash -c 'test -x "$SUPERSET_DIR/.venv/bin/python"'
+ExecStartPre=/bin/bash -c '"$SUPERSET_DIR/.venv/bin/python" -c "import celery, flower"'
+
+ExecStart=/bin/bash -c '\
+cd "$SUPERSET_DIR" && \
+export PATH="$SUPERSET_DIR/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin" && \
+exec "$SUPERSET_DIR/.venv/bin/celery" \
+  --broker="$CELERY_BROKER_URL" \
+  --app=superset.tasks.celery_app:app \
+  flower \
+  --address=0.0.0.0 \
+  --port=5555 \
+  --basic-auth="$FLOWER_BASIC_AUTH"'
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

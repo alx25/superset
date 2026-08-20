@@ -1,0 +1,48 @@
+[Unit]
+Description=Apache Superset (Gunicorn) Servidor de pruebas
+After=network.target postgresql.service clickhouse-server.service
+
+[Service]
+Type=simple
+User=imercados
+Group=www-data
+
+WorkingDirectory=/home/imercados/superset_proyecto
+
+EnvironmentFile=/home/imercados/superset_proyecto/.env_superset_test
+
+# Verifica que exista el Python del entorno virtual
+ExecStartPre=/bin/bash -c 'test -x "$SUPERSET_DIR/.venv/bin/python"'
+
+# Verifica que exista el archivo definido en SUPERSET_CONFIG_PATH
+ExecStartPre=/bin/bash -c 'test -f "$SUPERSET_CONFIG_PATH"'
+
+ExecStart=/bin/bash -c '\
+cd "$SUPERSET_DIR" && \
+export PATH="$SUPERSET_DIR/.venv/bin:/usr/local/bin:/usr/bin:/bin" && \
+export PYTHONPATH="$SUPERSET_DIR:$SUPERSET_DIR/superset" && \
+export SUPERSET_CONFIG_PATH="$SUPERSET_CONFIG_PATH" && \
+exec "$SUPERSET_DIR/.venv/bin/python" -m gunicorn \
+  --bind "0.0.0.0:${SUPERSET_PORT}" \
+  --workers 16 \
+  --worker-class gevent \
+  --threads 2 \
+  --worker-connections 5000 \
+  --backlog 4096 \
+  --timeout 300 \
+  --graceful-timeout 30 \
+  --keep-alive 10 \
+  --name superset_test_gunicorn \
+  --max-requests 2500 \
+  --max-requests-jitter 250 \
+  --log-level info \
+  --error-logfile - \
+  "superset.app:create_app()"'
+
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

@@ -21,8 +21,14 @@ import { CalculatedColumnConfig } from '../types';
 
 // ---------------------------------------------------------------------------
 // Token pattern for {{ColumnName}} references (same style as Jinja fields)
+// Also accepts col.ColumnName and row.ColumnName as aliases.
 // ---------------------------------------------------------------------------
 const COLUMN_REF_REGEX = /\{\{\s*([^}]+?)\s*\}\}/g;
+// Matches col.Name or row.Name where Name is word characters (a-z, A-Z, 0-9, _).
+const COL_ROW_ACCESS_REGEX = /\b(?:col|row)\.(\w+)/g;
+// Strips the col./row. prefix when immediately followed by {{...}} so that
+// col.{{Name}} and row.{{Name}} work identically to plain {{Name}}.
+const COL_ROW_BRACE_PREFIX_REGEX = /\b(?:col|row)\.(?=\{\{)/g;
 const FUNCTION_ALIAS_REGEX = /\b([A-Z_][A-Z0-9_]*)\b/g;
 const COLUMN_REF_PLACEHOLDER_PREFIX = '__CALC_COLUMN_REF__';
 
@@ -98,6 +104,16 @@ function buildJsExpression(
   const resolveColumnKey = buildColumnKeyResolver(columnKeys);
   const columnRefReplacements: string[] = [];
   let resolved = expression;
+
+  // 0. Normalize col./row. prefixes so the rest of the pipeline handles all
+  // variants identically to plain {{...}} syntax:
+  //   col.{{Name}} / row.{{Name}} → {{Name}}  (strip the prefix)
+  //   col.Name     / row.Name     → {{Name}}  (wrap in braces)
+  resolved = resolved.replace(COL_ROW_BRACE_PREFIX_REGEX, '');
+  resolved = resolved.replace(
+    COL_ROW_ACCESS_REGEX,
+    (_, colName: string) => `{{${colName}}}`,
+  );
 
   // 1. Replace {{ColumnName}} with a placeholder so alias replacement does not
   // touch quoted column names such as __GET("IF").

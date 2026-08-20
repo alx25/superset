@@ -1,0 +1,597 @@
+<!-- Modal Novedades con Carrusel -->
+<div id="newsModal" class="modal news-modal">
+    <div class="modal-content news-content">
+        <span class="close-news">&times;</span>
+        <div class="news-header">
+            <h2>🚀 Novedades Versión Irex Superset 6.0!!</h2>
+            <p>Descubre lo nuevo en tu plataforma de análisis</p>
+        </div>
+        
+        <div class="news-carousel-container">
+            <button class="carousel-btn prev-btn" id="prevSlide">&#10094;</button>
+            <div class="news-carousel">
+                <!-- Slide 1: Tema Oscuro -->
+                <div class="news-slide active">
+                    <div class="news-item full-width">
+                        <div class="news-content-wrapper">
+                            <div class="news-icon">🌙</div>
+                            <div class="news-info">
+                                <h3>Tema Oscuro</h3>
+                                <p>Nuevo modo oscuro que ayuda a reducir la fatiga visual para trabajar cómodamente en ambientes con poca luz.</p>
+                            </div>
+                        </div>
+                        <div class="news-media large-media">
+                            <img src="{{ url_for('static', filename='assets/images/novedades/tema_oscuro.gif') }}" onerror="this.parentElement.style.display='none'" alt="Demostración Tema Oscuro">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Slide 2: Favoritos -->
+                <div class="news-slide">
+                    <div class="news-item full-width">
+                        <div class="news-content-wrapper">
+                            <div class="news-icon">⭐</div>
+                            <div class="news-info">
+                                <h3>Favoritos Rápidos</h3>
+                                <p>Nuevo banner de acceso directo a tus dashboards favoritos desde el inicio para una navegación más ágil y personalizada.</p>
+                            </div>
+                        </div>
+                        <div class="news-media large-media">
+                            <img src="{{ url_for('static', filename='assets/images/novedades/favoritos.gif') }}" onerror="this.parentElement.style.display='none'" alt="Demostración Favoritos">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Slide 3: Rendimiento y Visualizaciones -->
+                <div class="news-slide">
+                    <div class="news-grid-slide">
+                        <div class="news-item">
+                            <div class="news-content-wrapper">
+                                <div class="news-icon">⚡</div>
+                                <div class="news-info">
+                                    <h3>Mayor Rendimiento</h3>
+                                    <p>Optimización significativa en la carga de gráficos y consultas para una experiencia más fluida.</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="news-item">
+                            <div class="news-content-wrapper">
+                                <div class="news-icon">📊</div>
+                                <div class="news-info">
+                                    <h3>Visualizaciones</h3>
+                                    <p>Nuevos tipos de gráficos y opciones de personalización avanzada para potenciar tus reportes.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <button class="carousel-btn next-btn" id="nextSlide">&#10095;</button>
+        </div>
+        
+        <div class="carousel-dots">
+            <span class="dot active" data-slide="0"></span>
+            <span class="dot" data-slide="1"></span>
+            <span class="dot" data-slide="2"></span>
+        </div>
+        
+        <div class="news-footer">
+            <button class="action-button close-news-btn">Entendido</button>
+        </div>
+    </div>
+</div>
+
+<style>
+    /* Estilos específicos para Novedades */
+    .news-modal {
+        display: none; 
+        position: fixed; 
+        z-index: 2000; 
+        left: 0;
+        top: 0;
+        width: 100%; 
+        height: 100%; 
+        overflow: auto; 
+        background-color: rgba(0,0,0,0.6); 
+        backdrop-filter: blur(5px);
+        animation: fadeIn 0.3s;
+    }
+
+    .news-content {
+        background-color: #fff;
+        margin: 2% auto; 
+        padding: 0;
+        border: 1px solid #888;
+        width: 90%;
+        max-width: 900px; 
+        max-height: 95vh;
+        border-radius: 16px;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        position: relative;
+        animation: slideUp 0.4s;
+        overflow: hidden;
+        font-family: 'Inter', sans-serif;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .news-header {
+        background: linear-gradient(135deg, #1fa8c9 0%, #20a7c9 100%);
+        padding: 20px;
+        color: white;
+        text-align: center;
+        flex-shrink: 0;
+    }
+    
+    .news-header h2 {
+        margin: 0 0 5px 0;
+        font-size: 24px;
+        font-weight: 700;
+        color: white;
+    }
+    
+    .news-header p {
+        margin: 0;
+        opacity: 0.9;
+        font-size: 14px;
+        color: rgba(255,255,255,0.9);
+    }
+
+    /* Estilos del Carrusel */
+    .news-carousel-container {
+        position: relative;
+        padding: 0;
+        flex-grow: 1;
+        display: flex;
+        align-items: center;
+        background-color: #fff;
+        overflow-y: auto;
+    }
+
+    .news-carousel {
+        width: 100%;
+        height: 100%;
+        position: relative;
+    }
+
+    .news-slide {
+        display: none;
+        width: 100%;
+        height: 100%;
+        padding: 20px 50px; 
+        box-sizing: border-box;
+        animation: fadeSlide 0.4s;
+        overflow-y: auto;
+    }
+
+    .news-slide.active {
+        display: block;
+    }
+
+    @keyframes fadeSlide {
+        from {opacity: 0; transform: translateX(20px);}
+        to {opacity: 1; transform: translateX(0);}
+    }
+
+    .carousel-btn {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        background-color: rgba(255, 255, 255, 0.8);
+        color: #1fa8c9;
+        border: 1px solid #e0e0e0;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        font-size: 18px;
+        cursor: pointer;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    .carousel-btn:hover {
+        background-color: #1fa8c9;
+        color: white;
+        box-shadow: 0 4px 12px rgba(31, 168, 201, 0.3);
+    }
+    
+    .prev-btn { left: 15px; }
+    .next-btn { right: 15px; }
+
+    .carousel-dots {
+        text-align: center;
+        padding: 10px 0 0;
+    }
+
+    .dot {
+        height: 10px;
+        width: 10px;
+        margin: 0 5px;
+        background-color: #ddd;
+        border-radius: 50%;
+        display: inline-block;
+        transition: background-color 0.3s ease;
+        cursor: pointer;
+    }
+
+    .dot.active, .dot:hover {
+        background-color: #1fa8c9;
+        transform: scale(1.2);
+    }
+
+    /* Estilos de contenido */
+    .news-item {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        padding: 15px;
+        border-radius: 12px;
+        color: #333;
+    }
+    
+    .news-item.full-width {
+        align-items: center;
+        text-align: center;
+    }
+    
+    .news-item.full-width .news-content-wrapper {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+    }
+
+    .news-grid-slide {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 20px;
+        padding: 20px 0;
+    }
+    
+    .news-content-wrapper {
+        display: flex;
+        align-items: flex-start;
+        gap: 15px;
+        width: 100%;
+    }
+
+    .news-media {
+        width: 100%;
+        border-radius: 12px;
+        overflow: hidden;
+        margin-top: 15px;
+        background-color: #f8f9fa;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        border: 1px solid #eee;
+    }
+
+    .news-media.large-media {
+        max-height: 55vh; 
+        min-height: 300px;
+    }
+
+    .news-media img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        display: block;
+        max-height: 55vh;
+    }
+
+    .news-icon {
+        font-size: 28px;
+        background: #eefbff;
+        width: 56px;
+        height: 56px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 16px;
+        flex-shrink: 0;
+    }
+
+    .news-info h3 {
+        margin: 0 0 8px 0;
+        font-size: 20px;
+        font-weight: 600;
+        color: #333;
+    }
+    
+    .news-info p {
+        margin: 0;
+        color: #666;
+        font-size: 15px;
+        line-height: 1.6;
+    }
+
+    .news-footer {
+        padding: 20px 30px 30px;
+        text-align: center;
+        border-top: 1px solid #f0f0f0;
+        background: #fafafa;
+        margin-top: 10px;
+    }
+
+    .close-news {
+        color: rgba(255,255,255,0.8);
+        position: absolute;
+        top: 20px;
+        right: 25px;
+        font-size: 28px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: 0.2s;
+        line-height: 1;
+        z-index: 10;
+        padding: 5px;
+    }
+
+    .close-news:hover {
+        color: white;
+        transform: scale(1.1);
+    }
+
+    .action-button.close-news-btn {
+        background: #20a7c9;
+        color: white;
+        border: none;
+        padding: 12px 36px;
+        border-radius: 8px;
+        font-size: 15px;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-weight: 600;
+        box-shadow: 0 2px 8px rgba(32, 167, 201, 0.25);
+    }
+    
+    .action-button.close-news-btn:hover {
+        background: #1a8ca8;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(32, 167, 201, 0.4);
+    }
+
+    /* Badge animation */
+    .new-badge {
+        background: #ff4d4f;
+        color: white;
+        font-size: 10px;
+        padding: 2px 6px;
+        border-radius: 10px;
+        position: absolute;
+        top: -8px;
+        right: -8px;
+        font-weight: bold;
+        animation: pulse 2s infinite;
+        box-shadow: 0 2px 4px rgba(255, 77, 79, 0.3);
+    }
+    
+    @keyframes pulse {
+        0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 77, 79, 0.7); }
+        70% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(255, 77, 79, 0); }
+        100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 77, 79, 0); }
+    }
+
+    @keyframes fadeIn {
+        from {opacity: 0}
+        to {opacity: 1}
+    }
+
+    @keyframes slideUp {
+        from {transform: translateY(30px); opacity: 0}
+        to {transform: translateY(0); opacity: 1}
+    }
+
+    /* Dark mode support */
+    @media (prefers-color-scheme: dark) {
+        .news-content, .news-carousel-container {
+            background-color: #1f1f1f;
+            border-color: #333;
+        }
+        .news-info h3 {
+            color: #f0f0f0;
+        }
+        .news-info p {
+            color: #aaa;
+        }
+        .news-icon {
+            background: #2a2a2a;
+        }
+        .news-media {
+            background-color: #252525;
+            border-color: #333;
+        }
+        .carousel-btn {
+            background-color: rgba(40, 40, 40, 0.8);
+            border-color: #444;
+            color: #1fa8c9;
+        }
+        .carousel-btn:hover {
+            background-color: #1fa8c9;
+            color: white;
+        }
+        .dot {
+            background-color: #444;
+        }
+        .news-footer {
+            background: #2a2a2a;
+            border-top-color: #333;
+        }
+    }
+</style>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var modal = document.getElementById("newsModal");
+        var btn = document.getElementById("openNewsBtn");
+        var closeX = document.getElementsByClassName("close-news")[0];
+        var closeBtn = document.getElementsByClassName("close-news-btn")[0];
+        var STORAGE_KEY = 'superset_news_v6_seen';
+        
+        // Carrusel lógica
+        var slides = document.getElementsByClassName("news-slide");
+        var dots = document.getElementsByClassName("dot");
+        var prevBtn = document.querySelector(".prev-btn");
+        var nextBtn = document.querySelector(".next-btn");
+        var currentSlideIndex = 0;
+        
+        // Inicialmente ocultar botones de cerrar
+        if(closeX) closeX.style.display = 'none';
+        if(closeBtn) {
+            closeBtn.style.display = 'none'; // Ocultar botón Entendido
+            // closeBtn.disabled = true; // Opcional: deshabilitar en lugar de ocultar
+        }
+
+        function showSlide(index) {
+            // Validar límites
+            if (index >= slides.length) { index = 0; }
+            if (index < 0) { index = slides.length - 1; }
+            
+            // Ocultar todos
+            for (var i = 0; i < slides.length; i++) {
+                slides[i].className = slides[i].className.replace(" active", "");
+            }
+            
+            for (var i = 0; i < dots.length; i++) {
+                dots[i].className = dots[i].className.replace(" active", "");
+            }
+            
+            // Mostrar actual
+            slides[index].className += " active";
+            dots[index].className += " active";
+            
+            currentSlideIndex = index;
+            
+            // Lógica de "ver todos para cerrar"
+            // Si estamos en el último slide
+            if (currentSlideIndex === slides.length - 1) {
+                if(closeX) closeX.style.display = 'block';
+                if(closeBtn) {
+                    closeBtn.style.display = 'inline-block';
+                    closeBtn.textContent = "¡Entendido, empezar!";
+                    // closeBtn.disabled = false;
+                }
+                if(nextBtn) nextBtn.style.display = 'none'; // Ocultar flecha next en el último
+            } else {
+                if(nextBtn) nextBtn.style.display = 'flex'; // Mostrar flecha next si no es el último
+            }
+             
+             // Opcional: ocultar prev en el primero
+             if (currentSlideIndex === 0) {
+                 if(prevBtn) prevBtn.style.visibility = 'hidden';
+             } else {
+                 if(prevBtn) prevBtn.style.visibility = 'visible';
+             }
+        }
+
+        function nextSlide() { 
+            if (currentSlideIndex < slides.length - 1) {
+                showSlide(currentSlideIndex + 1); 
+            }
+        }
+        
+        function prevSlide() { 
+            if (currentSlideIndex > 0) {
+                showSlide(currentSlideIndex - 1); 
+            }
+        }
+        
+        // Event listeners para carrusel
+        if (prevBtn) prevBtn.addEventListener('click', prevSlide);
+        if (nextBtn) nextBtn.addEventListener('click', nextSlide);
+        
+        // Permitir clic en los puntos (solo si ya se visitó o es menor al actual + 1 para forzar orden?? 
+        // El usuario pidió "tener que ver todos", normalmente implica secuencialidad.
+        // Dejaremos libre navegación por dots pero cerrar solo al final.
+        for (var i = 0; i < dots.length; i++) {
+            (function(index) {
+                dots[index].addEventListener('click', function() {
+                    showSlide(index);
+                });
+            })(i);
+        }
+
+        // Navegación con teclado
+        document.addEventListener('keydown', function(e) {
+            if (modal.style.display === "block") {
+                if (e.key === "ArrowRight") nextSlide();
+                if (e.key === "ArrowLeft") prevSlide();
+                // Bloquear escape si no se ha llegado al final?
+                // Mejor permitimos escape solo si ya vio todo, o bloqueamos escape completamente.
+                // Para UX, si se bloquea el escape es molesto, pero cumple el requerimiento.
+                if (e.key === "Escape") {
+                    if (currentSlideIndex === slides.length - 1) {
+                        modal.style.display = "none";
+                        markAsSeen();
+                    }
+                }
+            }
+        });
+
+        // Auto-abrir la primera vez
+        if (!localStorage.getItem(STORAGE_KEY)) {
+            setTimeout(function() {
+                modal.style.display = "block";
+                showSlide(0); 
+            }, 500); 
+        }
+
+        function markAsSeen() {
+            localStorage.setItem(STORAGE_KEY, 'true');
+        }
+        
+        function openModal() {
+            modal.style.display = "block";
+            showSlide(0);
+            // Si el usuario lo abre manualmente, quizás quiera ver botones de cierre siempre?
+            // O respetamos la regla de "ver todo". Respetaremos la regla.
+        }
+
+        if (btn) {
+            btn.onclick = function(e) {
+                e.preventDefault(); 
+                openModal();
+            }
+        }
+        
+        if (closeX) {
+            closeX.onclick = function() {
+                modal.style.display = "none";
+                markAsSeen();
+            }
+        }
+        
+        if (closeBtn) {
+            closeBtn.onclick = function() {
+                modal.style.display = "none";
+                markAsSeen();
+            }
+        }
+        
+        // Cerrar si se hace clic fuera (SOLO si está en el último slide o logic enabled)
+        window.onclick = function(event) {
+            if (event.target == modal) {
+               // Bloquear cierre por clic fuera hasta ver todo
+               if (currentSlideIndex === slides.length -1) {
+                    modal.style.display = "none";
+                    markAsSeen();
+               }
+            }
+            // Mantener la funcionalidad original del modal de video si existe
+            var videoModal = document.getElementById("myModal");
+            if (event.target == videoModal) {
+                videoModal.style.display = "none";
+                var video = document.getElementById("myVideo");
+                if (video) video.pause();
+            }
+        }
+        
+        // Inicializar carrusel
+        // showSlide(0); // Se llama en openModal o auto-open, pero por si acaso
+    });
+</script>
