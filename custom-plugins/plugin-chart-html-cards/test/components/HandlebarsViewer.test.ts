@@ -147,6 +147,55 @@ describe('HTML Cards HandlebarsViewer', () => {
     );
   });
 
+  it('wires up sort and resize on tables opted in via data-hc-* attributes', () => {
+    setBootstrapConfig(false);
+
+    const { container } = render(
+      React.createElement(HandlebarsViewer, {
+        templateSource: `
+          <table data-hc-sort data-hc-resize>
+            <colgroup><col style="width: 100px"></colgroup>
+            <thead><tr><th data-hc-key="n">Num</th></tr></thead>
+            <tbody>
+              <tr><td>2</td></tr>
+              <tr><td>1</td></tr>
+            </tbody>
+          </table>
+        `,
+        data: {},
+      }),
+    );
+
+    expect(container.querySelector('table')).toBeInTheDocument();
+    expect(container.querySelector('.hc-resize-handle')).toBeInTheDocument();
+
+    container.querySelector('th')?.dispatchEvent(
+      new MouseEvent('click', { bubbles: true }),
+    );
+    const firstCells = Array.from(
+      container.querySelectorAll('tbody tr td:first-child'),
+    ).map(cell => cell.textContent);
+    expect(firstCells).toEqual(['1', '2']);
+  });
+
+  it('leaves plain tables without data-hc-* attributes untouched', () => {
+    setBootstrapConfig(false);
+
+    const { container } = render(
+      React.createElement(HandlebarsViewer, {
+        templateSource: `
+          <table>
+            <thead><tr><th>Num</th></tr></thead>
+            <tbody><tr><td>2</td></tr><tr><td>1</td></tr></tbody>
+          </table>
+        `,
+        data: {},
+      }),
+    );
+
+    expect(container.querySelector('.hc-resize-handle')).not.toBeInTheDocument();
+  });
+
   it('renders helper errors instead of crashing when a template helper throws', () => {
     setBootstrapConfig(false);
 

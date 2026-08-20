@@ -895,6 +895,108 @@ Y tambien:
 {{/if}}
 ```
 
+## Tablas interactivas: sort y resize
+
+Si tu `Card template` incluye una `<table>` (por ejemplo generada con `{{#each columns}}` /
+`{{#each displayRows}}`), el plugin puede agregarle ordenamiento por clic en el header y
+redimensionado de columnas por drag — sin que escribas JS. Es opt-in: una tabla sin estos
+atributos se renderiza exactamente igual que antes.
+
+### Ordenar filas (`data-hc-sort`)
+
+Agrega `data-hc-sort` a la `<table>`. Cada `<th>` de su `<thead>` queda clickeable y cicla
+`sin ordenar -> ascendente -> descendente -> sin ordenar`. Para excluir una columna puntual,
+usa `data-hc-sort="false"` en ese `<th>`.
+
+El comparador usa `data-hc-value` de cada `<td>` si existe (valor crudo ordenable, util cuando
+el texto visible ya viene formateado, ej. una fecha) y si no, el texto visible de la celda.
+Detecta numeros automaticamente; si no son numeros, ordena como texto.
+
+```hbs
+<table data-hc-sort>
+  <thead>
+    <tr>
+      <th data-hc-key="fecha">Fecha</th>
+      <th data-hc-key="ventas">Ventas</th>
+      <th data-hc-sort="false">Notas</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{#each displayRows}}
+      <tr>
+        <td data-hc-value="{{this.fecha_epoch}}">{{this.fecha}}</td>
+        <td>{{numberFormatD3 this.ventas "$,.0f"}}</td>
+        <td>{{this.notas}}</td>
+      </tr>
+    {{/each}}
+  </tbody>
+</table>
+```
+
+### Redimensionar columnas (`data-hc-resize`)
+
+Agrega `data-hc-resize` a la `<table>` para habilitar el arrastre en **todas** las columnas, o
+`data-hc-resize="N"` para habilitarlo solo en las primeras `N` (el caso tipico: las columnas de
+etiqueta/label a la izquierda). Para excluir una columna puntual dentro del rango, usa
+`data-hc-resize="false"` en ese `<th>`.
+
+**Requiere que la tabla incluya `<colgroup>` con una `<col>` por columna.** El motor no lo
+inyecta solo — si falta, el resize queda deshabilitado para esa tabla (con un aviso en la
+consola del navegador) pero el resto de la tabla se renderiza normal.
+
+```hbs
+<table data-hc-resize="2">
+  <colgroup>
+    <col style="width: 160px">
+    <col style="width: 120px">
+    <col>
+  </colgroup>
+  <thead>
+    <tr>
+      <th data-hc-key="titulo">Titulo</th>
+      <th data-hc-key="estado">Estado</th>
+      <th data-hc-key="ventas">Ventas</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{#each displayRows}}
+      <tr>
+        <td>{{this.titulo}}</td>
+        <td>{{this.estado}}</td>
+        <td>{{numberFormatD3 this.ventas "$,.0f"}}</td>
+      </tr>
+    {{/each}}
+  </tbody>
+</table>
+```
+
+Si la tabla se desborda al agrandar una columna, es tu Card CSS el que decide que pasa (por
+ejemplo envolver la tabla en un contenedor con `overflow-x: auto`).
+
+### `data-hc-key`: identidad estable de columna
+
+Para que el ancho elegido y la columna ordenada se mantengan cuando el dashboard refresca los
+datos (un filtro cambia, auto-refresh), pon `data-hc-key="{{templateKey}}"` en cada `<th>`
+(el helper `columns` ya trae `templateKey` listo). Sin `data-hc-key`, el motor usa el texto del
+header como identidad — funciona, pero es menos robusto si el header cambia de texto entre
+renders. Si el conjunto de columnas cambia (otro dataset, otro template), el estado guardado se
+descarta automaticamente en vez de aplicarse a la columna equivocada.
+
+### Columnas sticky (congeladas)
+
+No hace falta ningun atributo nuevo: si tu `Card CSS` ya pone `position: sticky` (con `left` o
+`right`) en las celdas de una columna — el patron clasico de "columna congelada" — el motor lo
+detecta solo. Cada vez que el usuario redimensiona una columna, recalcula el offset de las
+columnas sticky siguientes para que sigan pegadas correctamente, en vez de superponerse.
+
+### Limitaciones
+
+- Requiere una sola fila de `<th>` en el `<thead>` (sin `colspan`/`rowspan` en el header).
+- Una sola columna ordenada a la vez (sin multi-sort).
+- No hay reordenamiento de columnas por drag, solo resize de ancho.
+- El estado de ancho/orden vive en memoria mientras el chart esta montado; no se guarda en el
+  dashboard ni sobrevive a un refresco completo de la pagina.
+
 ## Recomendaciones de modelado
 
 ### Si quieres una sola tarjeta KPI
@@ -1003,5 +1105,7 @@ en algunos casos. Usa `{{rowCount}}` o `{{data.length}}` para verificar cuantas 
 - Usar `hasValue` para numeros que pueden ser `0`.
 - Usar `numberFormatD3` y `timeFormatD3` para alinearte con los formatos nativos de Superset.
 - Si `numberFormatD3` da "Missing helper", verificar que el tipo del chart sea `html_cards` y hacer rebuild.
+- Si la tabla usa `data-hc-resize`, confirmar que tiene `<colgroup>` con una `<col>` por columna.
+- Si quieres que el ancho/orden sobrevivan a un refresco de datos, agregar `data-hc-key="{{templateKey}}"` en cada `<th>`.
 - Usar variables CSS del theme en lugar de colores hardcodeados.
 - Probar responsive con distintos tamanos del chart en dashboard.

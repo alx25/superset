@@ -1,2 +1,9 @@
 .venv/
 .git_old_superset/
+
+# Local environment files (never commit)
+.env
+.env_superset
+.env_superset_test
+.env_superset_mcp
+.env_superset_mcp_test

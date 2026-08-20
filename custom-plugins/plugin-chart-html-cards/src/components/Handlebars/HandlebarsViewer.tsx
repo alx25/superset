@@ -25,11 +25,15 @@ import {
 } from '@superset-ui/core';
 import Handlebars from 'handlebars';
 import dayjs from 'dayjs';
-import { useMemo } from 'react';
+import { useLayoutEffect, useMemo, useRef } from 'react';
 import { isPlainObject } from 'lodash';
 import Helpers from 'just-handlebars-helpers';
 import HandlebarsGroupBy from 'handlebars-group-by';
 import { normalizeRenderedTemplate } from '../../utils/normalizeRenderedTemplate';
+import {
+  initTableInteractions,
+  TableInteractionStore,
+} from '../../utils/tableInteractions';
 
 export interface HandlebarsViewerProps {
   templateSource: string;
@@ -77,12 +81,25 @@ export const HandlebarsViewer = ({
     }
   }, [templateSource, data, htmlSanitization]);
 
+  const containerRef = useRef<HTMLDivElement>(null);
+  const interactionStoreRef = useRef<TableInteractionStore>(new Map());
+
+  useLayoutEffect(
+    () => initTableInteractions(containerRef.current, interactionStoreRef.current),
+    [renderedTemplate],
+  );
+
   if (error) {
     return <ErrorContainer>{error}</ErrorContainer>;
   }
 
   if (renderedTemplate) {
-    return <HtmlContainer dangerouslySetInnerHTML={{ __html: renderedTemplate }} />;
+    return (
+      <HtmlContainer
+        ref={containerRef}
+        dangerouslySetInnerHTML={{ __html: renderedTemplate }}
+      />
+    );
   }
   return <p>{t('Loading...')}</p>;
 };

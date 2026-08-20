@@ -22,6 +22,43 @@ import { HandlebarsViewer } from './components/Handlebars/HandlebarsViewer';
 import { HtmlCardsProps, HtmlCardsStylesProps } from './types';
 import { scopeCss } from './utils/scopeCss';
 
+const TABLE_INTERACTION_STYLES = `
+.hc-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  z-index: 1;
+}
+
+.hc-resize-handle:hover,
+.hc-resize-handle:active {
+  background: var(--html-cards-theme-color-primary);
+  opacity: 0.4;
+}
+
+table[data-hc-sort] thead th:not([data-hc-sort="false"]) {
+  cursor: pointer;
+  user-select: none;
+}
+
+table[data-hc-sort] thead th[aria-sort="ascending"]::after {
+  content: " \\25B2";
+  font-size: 0.75em;
+  color: var(--html-cards-theme-color-primary);
+}
+
+table[data-hc-sort] thead th[aria-sort="descending"]::after {
+  content: " \\25BC";
+  font-size: 0.75em;
+  color: var(--html-cards-theme-color-primary);
+}
+`;
+
 const Styles = styled.div<HtmlCardsStylesProps>`
   position: relative;
   z-index: 0;
@@ -83,9 +120,10 @@ export default function HtmlCards(props: HtmlCardsProps) {
     formData.handlebarsTemplate ??
     formData.handlebars_template ??
     '{{data}}';
-  const styleTemplateSource = styleTemplate
-    ? `<style>${scopeCss(styleTemplate, scopeSelector)}</style>`
-    : '';
+  const interactionStyles = scopeCss(TABLE_INTERACTION_STYLES, scopeSelector);
+  const styleTemplateSource = `<style>${
+    styleTemplate ? scopeCss(styleTemplate, scopeSelector) : ''
+  }${interactionStyles}</style>`;
   const templateSource = `${handlebarsTemplate}\n${styleTemplateSource} `;
   const templateData = {
     columns,

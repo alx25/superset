@@ -1,5 +1,36 @@
 ## Registro de cambios
 
+### 2026-08-20 (3)
+
+Cambio realizado:
+Se restauro el asset `irex-loading.svg` en `superset_v6_1_0` para recuperar el spinner personalizado de Irex.
+
+Archivos afectados:
+- `superset_v6_1_0/superset/static/custom_spinner/irex-loading.svg`
+
+Que cambia o corrige:
+- Se recreo la carpeta faltante `superset/static/custom_spinner/` en `superset_v6_1_0` y se copio el SVG desde `superset_v6`.
+- El archivo queda disponible en disco para ejecucion local.
+- Nota: en `superset_v6_1_0` la regla `.gitignore` `superset/static/*` ignora esa ruta, por lo que el archivo restaurado no aparece en `git status` ni se versiona en ese repo.
+
+### 2026-08-20 (2)
+
+Cambio realizado:
+Se restauraron archivos de entorno locales necesarios para operar el proyecto y se agregaron exclusiones en `.gitignore` para evitar nuevas exposiciones de secretos.
+
+Archivos afectados:
+- `.env`
+- `.env_superset`
+- `.env_superset_test`
+- `.env_superset_mcp`
+- `.env_superset_mcp_test`
+- `.gitignore`
+
+Que cambia o corrige:
+- Se recuperaron los archivos de entorno desde la rama de respaldo local `backup/prod-6-before-secret-fix-2026-08-20`.
+- Se aplicaron permisos restrictivos `600` a los archivos restaurados.
+- Se agregaron reglas en `.gitignore` para que estos archivos no se vuelvan a versionar ni a bloquear pushes por deteccion de secretos.
+
 ### 2026-08-20
 
 Cambio realizado:
