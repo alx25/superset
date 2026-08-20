@@ -1,5 +1,21 @@
 ## Registro de cambios
 
+### 2026-08-20
+
+Cambio realizado:
+Se corrigio la sincronizacion con GitHub en el repo raiz y se completo el rescate/sincronizacion del repo anidado `superset_v6_1_0` con una rama limpia publicada en remoto.
+
+Archivos afectados:
+- `superset_proyecto` (historial git de la rama `prod-6` reescrito para quitar secretos del historial local no publicado)
+- `superset_v6_1_0` (rama local `prod-6-1-0-irex` realineada a rama remota limpia)
+- `superset_v6_1_0` remoto `github-irex` (ramas publicadas `prod-6-1-0-irex-rescue` y `prod-6-1-0-irex`)
+
+Que cambia o corrige:
+- Se elimino del historial a publicar la exposicion de secretos detectada por GitHub Push Protection (archivo `.env_superset` en commits intermedios), evitando depender del enlace de unblock.
+- `prod-6` del repo raiz quedo sincronizada con `origin/prod-6` (0 ahead / 0 behind) tras push exitoso.
+- El error de push por objetos faltantes en `superset_v6_1_0` se resolvio mediante clon limpio temporal, reaplicacion de cambios y publicacion de rama remota estable.
+- Se conservo respaldo local previo en `backup/prod-6-before-secret-fix-2026-08-20` y `backup/prod-6-1-0-irex-pre-clean-push-2026-08-20`.
+
 ### 2026-07-21 (2)
 
 Cambio realizado:
