@@ -16,6 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+import { QueryMode } from '@superset-ui/core';
 import { HtmlCardsQueryFormData } from '../../src/types';
 import buildQuery from '../../src/plugin/buildQuery';
 
@@ -33,5 +34,25 @@ describe('HTML Cards buildQuery', () => {
     const queryContext = buildQuery(formData);
     const [query] = queryContext.queries;
     expect(query.columns).toEqual(['foo']);
+  });
+
+  it('drops a stale groupby in Raw records mode, even with an adhoc-column entry', () => {
+    const rawFormData: HtmlCardsQueryFormData = {
+      ...formData,
+      query_mode: QueryMode.Raw,
+      groupby: [
+        {
+          expressionType: 'SQL',
+          label: 'num_semana',
+          sqlExpression: 'COALESCE(ss, ss_orden)',
+        } as any,
+        'signing_desc',
+      ],
+      all_columns: ['signing_desc', 'desc_irex'],
+    };
+
+    const queryContext = buildQuery(rawFormData);
+    const [query] = queryContext.queries;
+    expect(query.columns).toEqual(['signing_desc', 'desc_irex']);
   });
 });

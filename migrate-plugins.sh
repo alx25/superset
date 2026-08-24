@@ -612,7 +612,7 @@ fi
 mkdir -p "$STATIC/customcss" "$STATIC/js_personal" \
          "$STATIC/assets/images/novedades" "$STATIC/video_superset"
 
-for css_file in custom_login.css password_flow.css; do
+for css_file in custom_login.css password_flow.css custom_css_dash.css estilos_chat.css; do
   SRC="$SECURITY_SRC/static/customcss/$css_file"
   DEST="$STATIC/customcss/$css_file"
   if [[ ! -f "$SRC" ]]; then
@@ -626,7 +626,7 @@ for css_file in custom_login.css password_flow.css; do
   fi
 done
 
-for js_file in lottie.min.js custom_login.js password_reset.js; do
+for js_file in lottie.min.js custom_login.js password_reset.js chat.js permalinks.js guardar_estado_plan.js cargas_eventos_clientes.js; do
   SRC="$SECURITY_SRC/static/js_personal/$js_file"
   DEST="$STATIC/js_personal/$js_file"
   if [[ ! -f "$SRC" ]]; then

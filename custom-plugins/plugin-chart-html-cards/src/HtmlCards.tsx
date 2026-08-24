@@ -120,10 +120,11 @@ export default function HtmlCards(props: HtmlCardsProps) {
     formData.handlebarsTemplate ??
     formData.handlebars_template ??
     '{{data}}';
-  const interactionStyles = scopeCss(TABLE_INTERACTION_STYLES, scopeSelector);
-  const styleTemplateSource = `<style>${
-    styleTemplate ? scopeCss(styleTemplate, scopeSelector) : ''
-  }${interactionStyles}</style>`;
+  const styleTemplateSource = useMemo(() => {
+    const userStyles = styleTemplate ? scopeCss(styleTemplate, scopeSelector) : '';
+    const interactionStyles = scopeCss(TABLE_INTERACTION_STYLES, scopeSelector);
+    return `<style>${userStyles}${interactionStyles}</style>`;
+  }, [styleTemplate, scopeSelector]);
   const templateSource = `${handlebarsTemplate}\n${styleTemplateSource} `;
   const templateData = {
     columns,

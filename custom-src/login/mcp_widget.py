@@ -328,7 +328,14 @@ def inject_chat_widget(response: Response) -> Response:
     Con 'strict-dynamic', el inline aprobado puede cargar el script externo del widget.
     """
     if not (
-        response.content_type.startswith("text/html")
+        # Las respuestas de archivo (send_file/send_from_directory, ej. CSS/JS
+        # estáticos) quedan en direct_passthrough=True — leer/reescribir su
+        # cuerpo con get_data()/set_data() revienta con
+        # "RuntimeError: ... direct passthrough mode" sin importar qué
+        # content_type reporten. Deben excluirse explícitamente, no basta con
+        # el chequeo de content_type de abajo.
+        not response.direct_passthrough
+        and response.content_type.startswith("text/html")
         and current_user.is_authenticated
         and not getattr(current_user, "is_anonymous", True)
         and _user_has_chat_access()

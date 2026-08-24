@@ -1,0 +1,156 @@
+/* ===== DASHBOARD LISTA - ESTILO COMPACTO Y NOMBRES COMPLETOS ===== */
+/* Compactar tarjetas y mostrar nombres completos de dashboards */
+
+:root {
+    --primary-color: #2563eb;
+    --primary-hover: #1d4ed8;
+    --success-color: #10b981;
+    --background-card: #ffffff;
+    --shadow-md: 0 2px 6px -1px rgba(37,99,235,0.08), 0 1px 3px -1px rgba(0,0,0,0.06);
+    --border-radius: 8px;
+    --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    --card-padding: 12px;
+    --card-gap: 8px;
+    --card-meta-title-size: 15px;
+    --card-meta-desc-size: 12px;
+    --card-thumbnail-height: 110px;
+}
+
+[data-test="dashboard-list"] .ant-row,
+.dashboard-list-view .ant-row {
+    margin: calc(-1 * var(--card-gap)) !important;
+}
+
+[data-test="dashboard-list"] .ant-col,
+.dashboard-list-view .ant-col {
+    padding: var(--card-gap) !important;
+}
+
+[data-test="dashboard-list"] .ant-card,
+.dashboard-list-view .ant-card {
+    background: var(--background-card) !important;
+    border-radius: var(--border-radius) !important;
+    box-shadow: var(--shadow-md) !important;
+    transition: var(--transition) !important;
+    overflow: hidden !important;
+    min-height: 185px !important;
+    max-width: 265px !important;
+    margin: 0 auto !important;
+}
+
+[data-test="dashboard-list"] .ant-card-cover,
+.dashboard-list-view .ant-card-cover {
+    height: var(--card-thumbnail-height) !important;
+    min-height: var(--card-thumbnail-height) !important;
+    max-height: var(--card-thumbnail-height) !important;
+    border-radius: var(--border-radius) var(--border-radius) 0 0 !important;
+    overflow: hidden !important;
+}
+
+[data-test="dashboard-list"] .ant-card-cover img,
+.dashboard-list-view .ant-card-cover img {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+    transition: var(--transition) !important;
+}
+
+[data-test="dashboard-list"] .ant-card-body,
+.dashboard-list-view .ant-card-body {
+    padding: var(--card-padding) !important;
+    background: var(--background-card) !important;
+    min-height: 60px !important;
+}
+
+[data-test="dashboard-list"] .ant-card-meta-title,
+.dashboard-list-view .ant-card-meta-title {
+    font-size: var(--card-meta-title-size) !important;
+    font-weight: 600 !important;
+    margin-bottom: 3px !important;
+    line-height: 1.3 !important;
+    color: #1e293b !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: unset !important;
+    display: block !important;
+    /* Elimina el recorte con puntos suspensivos y permite varias líneas */
+    -webkit-line-clamp: unset !important;
+    -webkit-box-orient: unset !important;
+}
+
+[data-test="dashboard-list"] .ant-card-meta-description,
+.dashboard-list-view .ant-card-meta-description {
+    font-size: var(--card-meta-desc-size) !important;
+    color: #64748b !important;
+    margin-bottom: 4px !important;
+    display: -webkit-box !important;
+    -webkit-line-clamp: 2 !important;
+    -webkit-box-orient: vertical !important;
+    overflow: hidden !important;
+    line-height: 1.3 !important;
+}
+
+[data-test="dashboard-list"] .ant-tag,
+.dashboard-list-view .ant-tag {
+    font-size: 11px !important;
+    padding: 0 7px !important;
+    border-radius: 5px !important;
+    margin: 1px 3px 1px 0 !important;
+}
+
+[data-test="dashboard-list"] .ant-btn,
+.dashboard-list-view .ant-btn {
+    font-size: 12px !important;
+    padding: 4px 10px !important;
+    border-radius: 6px !important;
+}
+
+@media (max-width: 900px) {
+    [data-test="dashboard-list"] .ant-card,
+    .dashboard-list-view .ant-card {
+        max-width: 100% !important;
+        min-width: 140px !important;
+    }
+    [data-test="dashboard-list"] .ant-card-cover,
+    .dashboard-list-view .ant-card-cover {
+        height: 80px !important;
+        min-height: 80px !important;
+        max-height: 80px !important;
+    }
+}
+
+@media (max-width: 600px) {
+    [data-test="dashboard-list"] .ant-card,
+    .dashboard-list-view .ant-card {
+        max-width: 100% !important;
+        min-width: 80px !important;
+    }
+    [data-test="dashboard-list"] .ant-card-cover,
+    .dashboard-list-view .ant-card-cover {
+        height: 55px !important;
+        min-height: 55px !important;
+        max-height: 55px !important;
+    }
+}
+
+/* Compactar badges, botones y espaciado general */
+[data-test="dashboard-list"] .ant-card-body > *:not(:last-child),
+.dashboard-list-view .ant-card-body > *:not(:last-child) {
+    margin-bottom: 3px !important;
+}
+
+
+/* Fuerza posición relativa y overflow oculto en tarjetas para efectos */
+.ant-card.ant-card-bordered {
+    position: relative !important;
+    overflow: hidden !important;
+}
+
+/* Efecto visual fuerte en hover */
+.ant-card.ant-card-bordered:hover {
+    box-shadow: 0 6px 24px 0 rgba(37,99,235,0.17), 0 1.5px 6px -1px rgba(0,0,0,0.10) !important;
+    border-color: #2563eb !important;
+    transform: translateY(-4px) scale(1.02) !important;
+    z-index: 22 !important;
+    transition: box-shadow 0.3s cubic-bezier(.4,0,.2,1), transform 0.25s cubic-bezier(.4,0,.2,1);
+}

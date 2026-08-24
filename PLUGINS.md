@@ -32,10 +32,16 @@ superset_proyecto/
 │       └── static/
 │           ├── customcss/
 │           │   ├── custom_login.css
-│           │   └── password_flow.css
+│           │   ├── password_flow.css
+│           │   ├── custom_css_dash.css   (CSS del widget de chat/dashboard)
+│           │   └── estilos_chat.css      (CSS del widget de chat)
 │           └── js_personal/
 │               ├── custom_login.js
-│               └── password_reset.js
+│               ├── password_reset.js
+│               ├── chat.js                     (widget de chat legacy)
+│               ├── permalinks.js
+│               ├── guardar_estado_plan.js
+│               └── cargas_eventos_clientes.js
 ├── migrate-plugins.sh                   ← script que aplica todo a un nuevo Superset
 └── PLUGINS.md                           ← este archivo
 ```
