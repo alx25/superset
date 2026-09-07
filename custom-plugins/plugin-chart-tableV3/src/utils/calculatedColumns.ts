@@ -21,14 +21,15 @@ import { CalculatedColumnConfig } from '../types';
 
 // ---------------------------------------------------------------------------
 // Token pattern for {{ColumnName}} references (same style as Jinja fields)
-// Also accepts col.ColumnName and row.ColumnName as aliases.
+// Also accepts scoped variants: col./row. (alias of the current row, kept for
+// backward compatibility) and total. (the grand total row, see FormulaRowContext).
 // ---------------------------------------------------------------------------
 const COLUMN_REF_REGEX = /\{\{\s*([^}]+?)\s*\}\}/g;
-// Matches col.Name or row.Name where Name is word characters (a-z, A-Z, 0-9, _).
-const COL_ROW_ACCESS_REGEX = /\b(?:col|row)\.(\w+)/g;
-// Strips the col./row. prefix when immediately followed by {{...}} so that
-// col.{{Name}} and row.{{Name}} work identically to plain {{Name}}.
-const COL_ROW_BRACE_PREFIX_REGEX = /\b(?:col|row)\.(?=\{\{)/g;
+// Matches scope.{{Name}}, capturing the scope keyword and the column name.
+const SCOPED_BRACE_REGEX =
+  /\b(total|col|row)\.\{\{\s*([^}]+?)\s*\}\}/g;
+// Matches scope.Name (no braces) where Name is word characters (a-z, A-Z, 0-9, _).
+const SCOPED_BARE_REGEX = /\b(total|col|row)\.(\w+)\b/g;
 const FUNCTION_ALIAS_REGEX = /\b([A-Z_][A-Z0-9_]*)\b/g;
 const COLUMN_REF_PLACEHOLDER_PREFIX = '__CALC_COLUMN_REF__';
 
@@ -50,7 +51,23 @@ const FORMULA_HELPERS = {
 
 const FORMULA_HELPER_NAMES = Object.keys(FORMULA_HELPERS);
 const FORMULA_HELPER_VALUES = Object.values(FORMULA_HELPERS);
-const FORMULA_EVALUATOR_CACHE = new Map<string, (row: DataRecord) => number | null>();
+
+/**
+ * Extra data made available to a formula besides the current row.
+ * `total` is the grand-total row for the whole table (same values shown in
+ * the footer "Total" row), regardless of grouping -- used to resolve
+ * total.{{Metric}} references.
+ */
+export type FormulaRowContext = {
+  total?: DataRecord | null;
+};
+
+type RowEvaluator = (
+  row: DataRecord,
+  context?: FormulaRowContext,
+) => number | null;
+
+const FORMULA_EVALUATOR_CACHE = new Map<string, RowEvaluator>();
 
 /** Map of uppercase function aliases → internal helper names */
 const FUNCTION_ALIASES: Record<string, string> = {
@@ -97,41 +114,86 @@ function buildColumnKeyResolver(columnKeys: string[]) {
   };
 }
 
+/** Map of scope keyword → JS getter function name used inside the compiled body. */
+const SCOPE_GETTERS: Record<string, string> = {
+  total: '__GET_TOTAL',
+  col: '__GET',
+  row: '__GET',
+};
+
+// Matches a single `=` that is not already part of `==`, `!=`, `<=`, `>=`.
+const BARE_EQUALS_REGEX = /(?<![=!<>])=(?!=)/g;
+// Splits on double-quoted string literals (keeping them as odd-indexed
+// segments) so `=` inside a formula's own string values is left untouched.
+const DOUBLE_QUOTED_LITERAL_REGEX = /("(?:[^"\\]|\\.)*")/g;
+
+/**
+ * Formulas are written with Excel/Jinja-style comparisons (`{{Venta}} = 0`),
+ * but the expression is compiled with JS `Function()`, where a bare `=` is
+ * assignment, not comparison, and throws a SyntaxError that gets swallowed
+ * (the whole formula silently evaluates to null forever). Rewrite bare `=`
+ * to `==`, skipping content inside double-quoted string literals.
+ */
+function normalizeComparisonOperators(expression: string): string {
+  return expression
+    .split(DOUBLE_QUOTED_LITERAL_REGEX)
+    .map((segment, index) =>
+      index % 2 === 1 ? segment : segment.replace(BARE_EQUALS_REGEX, '=='),
+    )
+    .join('');
+}
+
 function buildJsExpression(
   expression: string,
   columnKeys: string[],
 ): string | null {
   const resolveColumnKey = buildColumnKeyResolver(columnKeys);
   const columnRefReplacements: string[] = [];
-  let resolved = expression;
+  let resolved = normalizeComparisonOperators(expression);
 
-  // 0. Normalize col./row. prefixes so the rest of the pipeline handles all
-  // variants identically to plain {{...}} syntax:
-  //   col.{{Name}} / row.{{Name}} → {{Name}}  (strip the prefix)
-  //   col.Name     / row.Name     → {{Name}}  (wrap in braces)
-  resolved = resolved.replace(COL_ROW_BRACE_PREFIX_REGEX, '');
+  const pushReplacement = (jsCode: string) => {
+    const placeholderIndex = columnRefReplacements.length;
+    columnRefReplacements.push(jsCode);
+    return `${COLUMN_REF_PLACEHOLDER_PREFIX}${placeholderIndex}__`;
+  };
+
+  const getterFor = (scope: string, key: string | null) =>
+    key ? `${SCOPE_GETTERS[scope]}(${JSON.stringify(key)})` : 'null';
+
+  // 1. Replace scope.{{Name}} references (total.{{Venta}}, col.{{Venta}}, ...)
+  // before the generic {{Name}} pass, so the scope prefix is not left behind.
   resolved = resolved.replace(
-    COL_ROW_ACCESS_REGEX,
-    (_, colName: string) => `{{${colName}}}`,
+    SCOPED_BRACE_REGEX,
+    (_match, scope: string, colName: string) => {
+      const key = resolveColumnKey(colName.trim());
+      return pushReplacement(getterFor(scope, key));
+    },
   );
 
-  // 1. Replace {{ColumnName}} with a placeholder so alias replacement does not
-  // touch quoted column names such as __GET("IF").
+  // 2. Replace scope.Name references without braces (total.Venta, col.Venta, ...).
+  resolved = resolved.replace(
+    SCOPED_BARE_REGEX,
+    (match, scope: string, colName: string) => {
+      const key = resolveColumnKey(colName);
+      if (!key) return match;
+      return pushReplacement(getterFor(scope, key));
+    },
+  );
+
+  // 3. Replace remaining plain {{ColumnName}} with a placeholder so alias
+  // replacement does not touch quoted column names such as __GET("IF").
   resolved = resolved.replace(COLUMN_REF_REGEX, (_match, colName: string) => {
     const trimmed = colName.trim();
     const key = resolveColumnKey(trimmed);
-    const placeholderIndex = columnRefReplacements.length;
-
-    columnRefReplacements.push(key ? `__GET(${JSON.stringify(key)})` : 'null');
-    return `${COLUMN_REF_PLACEHOLDER_PREFIX}${placeholderIndex}__`;
+    return pushReplacement(getterFor('row', key));
   });
 
-  // 2. Replace function aliases (e.g. IF → __IF)
+  // 4. Replace function aliases (e.g. IF → __IF)
   resolved = resolved.replace(FUNCTION_ALIAS_REGEX, (match: string) =>
     FUNCTION_ALIASES[match] !== undefined ? FUNCTION_ALIASES[match] : match,
   );
 
-  // 3. Restore resolved column getters.
+  // 5. Restore resolved column getters.
   columnRefReplacements.forEach((replacement, index) => {
     const placeholder = `${COLUMN_REF_PLACEHOLDER_PREFIX}${index}__`;
     resolved = resolved.split(placeholder).join(replacement);
@@ -153,7 +215,7 @@ function buildFormulaCacheKey(expression: string, columnKeys: string[]) {
 export function compileFormulaEvaluator(
   expression: string,
   columnKeys: string[],
-): (row: DataRecord) => number | null {
+): RowEvaluator {
   if (!expression?.trim()) {
     return () => null;
   }
@@ -176,21 +238,26 @@ export function compileFormulaEvaluator(
     // eslint-disable-next-line no-new-func
     const createEvaluator = new Function(
       ...FORMULA_HELPER_NAMES,
-      `"use strict"; return function __CALCULATED(row) {
-        const __GET = key => {
-          const value = row[key];
+      `"use strict"; return function __CALCULATED(row, total) {
+        const __TO_NUM = value => {
           if (value === null || value === undefined) return null;
           const num = Number(value);
           return Number.isNaN(num) ? null : num;
         };
+        const __GET = key => __TO_NUM(row ? row[key] : undefined);
+        const __GET_TOTAL = key => __TO_NUM(total ? total[key] : undefined);
         return (${jsExpr});
       };`,
-    ) as (...helpers: unknown[]) => (row: DataRecord) => unknown;
+    ) as (
+      ...helpers: unknown[]
+    ) => (row: DataRecord, total?: DataRecord | null) => unknown;
 
     const rowEvaluator = createEvaluator(...FORMULA_HELPER_VALUES);
-    const compiledEvaluator = (row: DataRecord): number | null => {
+    const compiledEvaluator: RowEvaluator = (row, context) => {
       try {
-        return normalizeFormulaResult(rowEvaluator(row));
+        return normalizeFormulaResult(
+          rowEvaluator(row, context?.total ?? null),
+        );
       } catch {
         return null;
       }
@@ -218,8 +285,9 @@ export function evaluateFormula(
   expression: string,
   row: DataRecord,
   columnKeys: string[],
+  context?: FormulaRowContext,
 ): number | null {
-  return compileFormulaEvaluator(expression, columnKeys)(row);
+  return compileFormulaEvaluator(expression, columnKeys)(row, context);
 }
 
 // ---------------------------------------------------------------------------
@@ -267,18 +335,26 @@ export function applyCalculatedColumns(
   data: DataRecord[],
   calcCols: CalculatedColumnConfig[],
   existingColumnKeys: string[],
+  context?: FormulaRowContext,
 ): DataRecord[] {
   if (!calcCols.length) return data;
 
+  // Column keys include every other calculated column's label too, so a
+  // formula can reference an earlier one (e.g. {{var venta}}) -- earlier
+  // meaning defined above it in the "Calculated columns" list, since each
+  // formula is evaluated against the accumulated row below.
+  const allKeys = Array.from(
+    new Set([...existingColumnKeys, ...calcCols.map(({ label }) => label)]),
+  );
   const compiledColumns = calcCols.map(({ label, expression }) => ({
     label,
-    evaluator: compileFormulaEvaluator(expression, existingColumnKeys),
+    evaluator: compileFormulaEvaluator(expression, allKeys),
   }));
 
   return data.map(row => {
     const newRow: DataRecord = { ...row };
     compiledColumns.forEach(({ label, evaluator }) => {
-      newRow[label] = evaluator(row);
+      newRow[label] = evaluator(newRow, context);
     });
     return newRow;
   });

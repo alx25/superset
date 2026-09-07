@@ -183,6 +183,7 @@ function getGroupLabel(value: DataRecordValue) {
 function buildGroupAggregateRow(
   rows: DataRecord[],
   calculatedColumns: CalculatedColumnConfig[] = [],
+  total?: DataRecord | null,
 ): DataRecord {
   const aggregateRow: DataRecord = {};
   const rowKeys = new Set<string>();
@@ -213,7 +214,7 @@ function buildGroupAggregateRow(
     }
   });
 
-  return buildAggregateSummaryRow(aggregateRow, calculatedColumns);
+  return buildAggregateSummaryRow(aggregateRow, calculatedColumns, total);
 }
 
 function buildSummaryValuesFromAggregateRow(
@@ -221,11 +222,13 @@ function buildSummaryValuesFromAggregateRow(
   columns: DataColumnMeta[],
   calculatedColumns: CalculatedColumnConfig[] = [],
   fillMissingNumericColumns = false,
+  total?: DataRecord | null,
 ): Record<string, DataRecordValue> {
   const summaryValues: Record<string, DataRecordValue> = {};
   const aggregateRow = buildAggregateSummaryRow(
     aggregateRowInput,
     calculatedColumns,
+    total,
   );
   const calculatedColumnKeys = new Set(
     calculatedColumns.map(column => column.label),
@@ -250,6 +253,7 @@ function buildSummaryValuesFromAggregateRow(
 function buildAggregateSummaryRow(
   aggregateRowInput: DataRecord,
   calculatedColumns: CalculatedColumnConfig[] = [],
+  total?: DataRecord | null,
 ): DataRecord {
   const aggregateRow: DataRecord = { ...aggregateRowInput };
 
@@ -265,6 +269,7 @@ function buildAggregateSummaryRow(
         expression,
         aggregateRow,
         availableKeys,
+        { total },
       );
     });
   }
@@ -615,6 +620,22 @@ export default function TableChart<D extends DataRecord = DataRecord>(
     topConfig?.topMetrics,
   ]);
 
+  // Grand-total row enriched with calculated columns evaluated against the
+  // total itself (e.g. total.{{var venta}}), so total.{{X}} resolves for
+  // calculated columns too, not just the metrics the backend aggregates.
+  // Computed before dataWithCalcs/footerSummaryRow so both can reuse it.
+  const enrichedTotal = useMemo(
+    () =>
+      totals
+        ? (buildAggregateSummaryRow(
+            totals as unknown as DataRecord,
+            calculatedColumns as CalculatedColumnConfig[],
+            totals as unknown as DataRecord,
+          ) as DataRecord)
+        : null,
+    [totals, calculatedColumns],
+  );
+
   // Feature 9: apply calculated columns to each row
   const dataWithCalcs = useMemo((): D[] => {
     if (!calculatedColumns.length) return data;
@@ -623,8 +644,9 @@ export default function TableChart<D extends DataRecord = DataRecord>(
       data as DataRecord[],
       calculatedColumns as CalculatedColumnConfig[],
       baseKeys,
+      { total: enrichedTotal },
     ) as unknown as D[];
-  }, [data, calculatedColumns]);
+  }, [data, calculatedColumns, enrichedTotal]);
 
   // Feature 9: extended column metadata including calculated columns
   // Uses `label` as both key and display name; applies d3format if provided
@@ -662,16 +684,7 @@ export default function TableChart<D extends DataRecord = DataRecord>(
     ) as typeof columnsMeta;
   }, [columnsMeta, calculatedColumns, columnOrder]);
 
-  const footerSummaryRow = useMemo(
-    () =>
-      totals
-        ? (buildAggregateSummaryRow(
-            totals as unknown as DataRecord,
-            calculatedColumns as CalculatedColumnConfig[],
-          ) as D)
-        : undefined,
-    [totals, calculatedColumns],
-  );
+  const footerSummaryRow = enrichedTotal as unknown as D | undefined;
 
   const footerTotals = useMemo(
     () =>
@@ -1227,6 +1240,7 @@ export default function TableChart<D extends DataRecord = DataRecord>(
           aggregateRow: buildGroupAggregateRow(
             sortedRows as unknown as DataRecord[],
             calculatedColumns as CalculatedColumnConfig[],
+            enrichedTotal,
           ),
         };
       },
@@ -1252,6 +1266,7 @@ export default function TableChart<D extends DataRecord = DataRecord>(
                 groupSummaryColumns,
                 calculatedColumns as CalculatedColumnConfig[],
                 true,
+                enrichedTotal,
               )
             : undefined,
         __isCollapsed: isCollapsed,
@@ -1270,6 +1285,7 @@ export default function TableChart<D extends DataRecord = DataRecord>(
     activeRowGroupingColumn,
     sortBy,
     showRowGroupTotals,
+    enrichedTotal,
   ]);
 
   const hasGroupedData = Boolean(

@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { ChangeEvent, Component, KeyboardEvent, MouseEvent } from 'react';
+import { ChangeEvent, Component } from 'react';
 import PropTypes from 'prop-types';
 import {
   Button,
@@ -147,6 +147,20 @@ export default class FormulaMetricControl extends Component<
 
   static defaultProps = defaultProps;
 
+  // ControlPopover (componente core de Superset) no reenvía el evento nativo
+  // a onOpenChange -- solo pasa el booleano `visible`. Sin el evento no hay
+  // forma de saber si el clic que "cerró" el popover en realidad ocurrió
+  // dentro del dropdown de autocompletado de Ace (que se monta en
+  // document.body, fuera del árbol del popover, por lo que Ant Design lo
+  // trata como "clic afuera"). Para evitarlo, rastreamos nosotros mismos el
+  // último mousedown/keydown en fase de captura, que siempre corre antes que
+  // los listeners de cierre de Ant Design.
+  lastPointerDownTarget: HTMLElement | null = null;
+
+  lastKeyDownTarget: HTMLElement | null = null;
+
+  lastKeyDownKey: string | null = null;
+
   constructor(props: FormulaMetricControlProps) {
     super(props);
 
@@ -159,8 +173,57 @@ export default class FormulaMetricControl extends Component<
     this.onExpressionChange = this.onExpressionChange.bind(this);
     this.openHelpModal = this.openHelpModal.bind(this);
     this.closeHelpModal = this.closeHelpModal.bind(this);
+    this.handleDocumentPointerDown = this.handleDocumentPointerDown.bind(this);
+    this.handleDocumentKeyDown = this.handleDocumentKeyDown.bind(this);
 
     this.state = this.initialState();
+  }
+
+  componentDidMount() {
+    // Bubble-phase listeners (registered on mount, before the popover has
+    // ever opened) run before rc-trigger's own document-level "click
+    // outside" listener, which it only attaches once the popover opens.
+    // That ordering is what lets stopImmediatePropagation() below win.
+    document.addEventListener('mousedown', this.handleDocumentPointerDown);
+    document.addEventListener('keydown', this.handleDocumentKeyDown);
+  }
+
+  componentWillUnmount() {
+    document.removeEventListener('mousedown', this.handleDocumentPointerDown);
+    document.removeEventListener('keydown', this.handleDocumentKeyDown);
+  }
+
+  handleDocumentPointerDown(event: globalThis.MouseEvent) {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    this.lastPointerDownTarget = target;
+    // ControlPopover (core Superset component) closes its own internal
+    // `visible` state unconditionally as soon as Ant Design's Popover
+    // detects a "click outside" -- it does this *before* calling
+    // onOpenChange, so vetoing the close from FormulaMetricControl's side is
+    // too late; the popover has already closed visually by then. Ace's
+    // autocomplete dropdown mounts in document.body, outside the popover's
+    // own DOM, so Ant Design treats clicking a suggestion as "outside".
+    // Since the event already reached its target normally during the
+    // capture/target phase (Ace has processed the click), stopping it here
+    // in the bubble phase, before it reaches Ant Design's document
+    // listener, keeps the suggestion selection working while preventing the
+    // popover from ever finding out about the click.
+    if (this.state.popoverVisible && this.isAceTarget(target)) {
+      event.stopImmediatePropagation();
+    }
+  }
+
+  handleDocumentKeyDown(event: globalThis.KeyboardEvent) {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    this.lastKeyDownTarget = target;
+    this.lastKeyDownKey = event.key;
+    if (
+      this.state.popoverVisible &&
+      event.key === 'Enter' &&
+      this.isAceTarget(target)
+    ) {
+      event.stopImmediatePropagation();
+    }
   }
 
   initialState(): FormulaMetricControlState {
@@ -214,21 +277,27 @@ export default class FormulaMetricControl extends Component<
       .replace(/\}\}\}+/g, '}}');
   }
 
-  shouldIgnorePopoverClose(
-    event?: MouseEvent<HTMLElement> | KeyboardEvent<HTMLDivElement>,
-  ) {
-    if (!event || !event.target || !(event.target instanceof HTMLElement)) {
+  isAceTarget(target: HTMLElement | null) {
+    if (!target) {
       return false;
     }
-    const target = event.target;
-    const aceTarget = target.closest(
+    return !!target.closest(
       '.ace_editor, .ace_autocomplete, .ace_tooltip, .ace_search',
     );
-    if (aceTarget) {
+  }
+
+  shouldIgnorePopoverClose() {
+    // ControlPopover no reenvía el evento del clic que disparó el cierre, así
+    // que usamos el último mousedown/keydown capturados por nuestros propios
+    // listeners (ver componentDidMount) en lugar de un evento recibido acá.
+    if (this.isAceTarget(this.lastPointerDownTarget)) {
       return true;
     }
-    if ('key' in event && event.key === 'Enter') {
-      return !!target.closest('.ace_editor');
+    if (
+      this.lastKeyDownKey === 'Enter' &&
+      this.isAceTarget(this.lastKeyDownTarget)
+    ) {
+      return true;
     }
     return false;
   }
@@ -277,7 +346,7 @@ export default class FormulaMetricControl extends Component<
         score: COLUMN_AUTOCOMPLETE_SCORE - 1,
         docHTML: getTooltipHTML({
           title: `total.{{${name}}}`,
-          body: t('Total across all rows and columns.'),
+          body: t('Grand total of this metric across the whole table.'),
         }),
       },
       {
@@ -287,7 +356,7 @@ export default class FormulaMetricControl extends Component<
         score: COLUMN_AUTOCOMPLETE_SCORE - 1,
         docHTML: getTooltipHTML({
           title: `row.{{${name}}}`,
-          body: t('Total for the current row.'),
+          body: t('Same as {{Metric}}: the value in the current row.'),
         }),
       },
       {
@@ -297,27 +366,7 @@ export default class FormulaMetricControl extends Component<
         score: COLUMN_AUTOCOMPLETE_SCORE - 1,
         docHTML: getTooltipHTML({
           title: `col.{{${name}}}`,
-          body: t('Total for the current column.'),
-        }),
-      },
-      {
-        meta: 'previous',
-        name: `previous.{{${name}}}`,
-        value: `previous.{{${name}}}`,
-        score: COLUMN_AUTOCOMPLETE_SCORE - 1,
-        docHTML: getTooltipHTML({
-          title: `previous.{{${name}}}`,
-          body: t('Value of this metric in the previous row. Returns null on the first row.'),
-        }),
-      },
-      {
-        meta: 'next',
-        name: `next.{{${name}}}`,
-        value: `next.{{${name}}}`,
-        score: COLUMN_AUTOCOMPLETE_SCORE - 1,
-        docHTML: getTooltipHTML({
-          title: `next.{{${name}}}`,
-          body: t('Value of this metric in the next row. Returns null on the last row.'),
+          body: t('Same as {{Metric}}: the value in the current row.'),
         }),
       },
     ]);
@@ -447,8 +496,8 @@ export default class FormulaMetricControl extends Component<
           label={t('Formula')}
           tooltip={t(
             'Use {{Metric}} placeholders, e.g. {{Venta}}/{{Plan}}. ' +
-              'Scopes: total.{{Venta}}, row.{{Venta}}, col.{{Venta}}, ' +
-              'previous.{{Venta}} (row anterior), next.{{Venta}} (row siguiente).',
+              'Scopes: total.{{Venta}} (grand total), row.{{Venta}} / ' +
+              'col.{{Venta}} (same as {{Venta}}).',
           )}
         >
           <EditorWrapper>
@@ -470,14 +519,18 @@ export default class FormulaMetricControl extends Component<
             <div>{t('Examples')}</div>
             <ExampleLine>{'{{Venta}}/{{Plan}}'}</ExampleLine>
             <ExampleLine>{'{{Venta}}/total.{{Venta}}'}</ExampleLine>
-            <ExampleLine>{'{{Venta}} - previous.{{Venta}}'}</ExampleLine>
             <ExampleLine>
               {
                 'IF(OR({{Kg Rech.}} = 0, {{Kg Rech.}} = ""), "", {{Kg Rech.}}/total.{{Kg Rech.}})'
               }
             </ExampleLine>
             <div>{t('Scopes')}</div>
-            <ExampleLine>{'total / row / col / previous / next'}</ExampleLine>
+            <ExampleLine>{'total (grand total) / row, col (same as {{Metric}})'}</ExampleLine>
+            <div>
+              {t(
+                'A formula can reference another calculated column defined above it in this list.',
+              )}
+            </div>
             <div>{t('Functions')}</div>
             <ExampleLine>{'IF, OR, AND, NOT, ISBLANK, ABS, ROUND, MAX, MIN'}</ExampleLine>
             <Button
@@ -534,8 +587,8 @@ export default class FormulaMetricControl extends Component<
             content={this.renderPopover()}
             title={t('Formula metric')}
             open={this.state.popoverVisible}
-            onOpenChange={(visible, event) => {
-              if (!visible && this.shouldIgnorePopoverClose(event)) {
+            onOpenChange={visible => {
+              if (!visible && this.shouldIgnorePopoverClose()) {
                 return;
               }
               this.onPopoverVisibleChange(visible);
@@ -571,30 +624,17 @@ export default class FormulaMetricControl extends Component<
             <HelpSection>
               <HelpTitle>{t('Scopes')}</HelpTitle>
               <HelpItem>
-                <div>{t('Totals across all rows/cols')}</div>
+                <div>{t('Grand total across the whole table')}</div>
                 <HelpExample>{'total.{{Metric}}'}</HelpExample>
-              </HelpItem>
-              <HelpItem>
-                <div>{t('Totals for the current row')}</div>
-                <HelpExample>{'row.{{Metric}}'}</HelpExample>
-              </HelpItem>
-              <HelpItem>
-                <div>{t('Totals for the current column')}</div>
-                <HelpExample>{'col.{{Metric}}'}</HelpExample>
+                <HelpExample>{'{{Venta}}/total.{{Venta}}'}</HelpExample>
               </HelpItem>
               <HelpItem>
                 <div>
-                  {t('Value in the previous row (null on the first row)')}
+                  {t(
+                    'row.{{Metric}} and col.{{Metric}} are aliases: same value as {{Metric}} in the current row.',
+                  )}
                 </div>
-                <HelpExample>{'previous.{{Metric}}'}</HelpExample>
-                <HelpExample>{'{{Venta}} - previous.{{Venta}}'}</HelpExample>
-              </HelpItem>
-              <HelpItem>
-                <div>
-                  {t('Value in the next row (null on the last row)')}
-                </div>
-                <HelpExample>{'next.{{Metric}}'}</HelpExample>
-                <HelpExample>{'next.{{Venta}} - {{Venta}}'}</HelpExample>
+                <HelpExample>{'row.{{Metric}} = col.{{Metric}} = {{Metric}}'}</HelpExample>
               </HelpItem>
             </HelpSection>
             <HelpSection>

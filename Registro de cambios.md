@@ -1,5 +1,98 @@
 ## Registro de cambios
 
+### 2026-09-07
+
+Cambio realizado:
+Se corrigieron tres bugs en el editor de "Calculated columns (Jinja-like)" del plugin
+plugin-chart-tableV3: (1) el popover de edición de fórmula se cerraba solo al hacer clic
+en el autocompletado de Ace; (2) el scope `total.{{Metric}}` siempre evaluaba a null;
+(3) el operador `=` (documentado en los propios ejemplos de ayuda) se interpretaba como
+asignación de JS y rompía la fórmula completa en silencio. También se corrigió la
+documentación del editor: los scopes `row.`/`col.` no calculan ningún total (son alias
+de `{{Metric}}` en la fila actual, pese a que el tooltip decía "Total for the current
+row/column"), y se quitaron las menciones a `previous.`/`next.` del autocompletado y del
+modal de ayuda porque esos scopes no están implementados todavía.
+
+Archivos afectados:
+- `custom-src/FormulaMetricControl/index.tsx`
+- `custom-plugins/plugin-chart-tableV3/src/utils/calculatedColumns.ts`
+- `custom-plugins/plugin-chart-tableV3/src/TableChart.tsx`
+- `custom-plugins/plugin-chart-tableV3/test/calculatedColumns.test.ts`
+
+Que cambia o corrige:
+- `FormulaMetricControl`: ahora rastrea sus propios eventos de mousedown/keydown en fase
+  de captura (`componentDidMount`/`componentWillUnmount`) en vez de depender del evento
+  que `ControlPopover` (core de Superset, no tocado) nunca reenviaba a `onOpenChange` —
+  por eso `shouldIgnorePopoverClose` siempre recibía `undefined` y el popover se cerraba
+  ante cualquier clic en la lista de autocompletado de Ace (que se monta en
+  `document.body`, fuera del árbol del popover).
+- `calculatedColumns.ts`: nuevo scope `total.` (con y sin llaves: `total.{{Metric}}` y
+  `total.Metric`) que resuelve contra un `FormulaRowContext.total` opcional pasado al
+  evaluador. `compileFormulaEvaluator`/`evaluateFormula`/`applyCalculatedColumns` ahora
+  aceptan ese contexto opcional (retrocompatible, default sin contexto = comportamiento
+  previo). Se agregó `normalizeComparisonOperators`: reescribe un `=` suelto a `==` antes
+  de compilar (respetando `==`, `!=`, `<=`, `>=` y el contenido dentro de comillas
+  dobles), porque `=` es asignación en JS y `new Function(...)` lanzaba SyntaxError
+  silenciosamente capturado, dejando la fórmula en null-evaluator para siempre.
+- `TableChart.tsx`: `total.` siempre resuelve contra el total GENERAL real de la tabla
+  (la misma fila de Totales que ya calcula el backend vía la prop `totals`), sin importar
+  si la fórmula se evalúa en una fila normal, en un subtotal de grupo
+  (`buildGroupAggregateRow`) o en la fila de Total al pie (`footerSummaryRow`) — nunca el
+  subtotal del grupo. Se propaga `totals` como `context.total` en los tres puntos donde
+  se evalúan fórmulas.
+- Pendiente (fuera de alcance de este cambio, a pedido del usuario): `previous.{{Metric}}`
+  / `next.{{Metric}}` (valor de la fila anterior/siguiente en el orden visible en
+  pantalla, con reinicio en los bordes de cada grupo cuando hay `rowGroupingColumn`).
+  Requiere extender `compareRowsBySortRules` (hoy solo usada para el modo agrupado) al
+  caso sin agrupar, y tiene una limitación real con `server_pagination` (solo se puede
+  mirar dentro de la página cargada en el cliente).
+
+### 2026-09-07 (2)
+
+Cambio realizado:
+El fix del popover del cambio anterior (mismo día) no era suficiente: el popover seguía
+cerrándose al hacer clic en una sugerencia del autocompletado de Ace, aunque el texto
+seleccionado sí quedaba en el editor. Causa raíz real: `ControlPopover` (core de
+Superset) cierra su propio estado interno `visible` de forma incondicional apenas Ant
+Design detecta un "clic afuera" -- lo hace *antes* de invocar `onOpenChange`, así que
+vetar el cierre desde `FormulaMetricControl` llegaba demasiado tarde (el popover ya se
+había cerrado visualmente). Se corrigió interceptando el evento antes de que llegue al
+listener de "clic afuera" de Ant Design. También se agregó soporte para encadenar
+fórmulas (referenciar una columna calculada desde otra), a pedido del usuario.
+
+Archivos afectados:
+- `custom-src/FormulaMetricControl/index.tsx`
+- `custom-plugins/plugin-chart-tableV3/src/utils/calculatedColumns.ts`
+- `custom-plugins/plugin-chart-tableV3/src/TableChart.tsx`
+- `custom-plugins/plugin-chart-tableV3/test/calculatedColumns.test.ts`
+
+Que cambia o corrige:
+- `FormulaMetricControl`: los listeners de `mousedown`/`keydown` en `document` ahora se
+  registran en fase de burbuja (no de captura) y, cuando el clic/Enter ocurre dentro de
+  un elemento de Ace (`.ace_editor`, `.ace_autocomplete`, `.ace_tooltip`, `.ace_search`)
+  mientras el popover está abierto, llaman a `event.stopImmediatePropagation()`. Como el
+  evento ya llegó normalmente a su target durante la fase de captura/target (Ace procesa
+  la selección de la sugerencia con normalidad), detenerlo recién en la fase de burbuja
+  no rompe el autocompletado -- solo evita que el listener de "clic afuera" de Ant Design,
+  que también escucha en `document`, se entere del clic. Esto funciona porque el listener
+  de `FormulaMetricControl` se registra en `componentDidMount` (montaje del control,
+  temprano), mientras que rc-trigger (la librería detrás de `Popover`) solo agrega su
+  propio listener cuando el popover se abre por primera vez -- así que el de
+  `FormulaMetricControl` siempre corre primero en la fase de burbuja sobre `document`.
+- `calculatedColumns.ts` (`applyCalculatedColumns`): cada fórmula ahora se evalúa contra
+  la fila acumulada (`newRow`), no contra la fila original del backend, y el conjunto de
+  nombres resolubles (`{{...}}`) incluye los labels de todas las columnas calculadas, no
+  solo las columnas base. Esto permite que una fórmula referencie el resultado de otra
+  columna calculada definida *antes* que ella en la lista "Calculated columns" (el orden
+  de la lista es el orden de evaluación; no hay resolución de dependencias -- referenciar
+  una definida después resuelve a null, igual que cualquier columna desconocida).
+- `TableChart.tsx`: se introdujo `enrichedTotal` (el total real del backend con las
+  fórmulas ya evaluadas sobre sí mismo, vía `buildAggregateSummaryRow`), calculado antes
+  que `dataWithCalcs` y reutilizado como `context.total` tanto para las filas normales
+  como para los subtotales de grupo y la fila de Total al pie. Esto es lo que permite que
+  `total.{{var venta}}` funcione cuando "var venta" es en sí una columna calculada, no
+  solo una métrica que el backend agrega directamente.
+
 ### 2026-08-20 (3)
 
 Cambio realizado:
