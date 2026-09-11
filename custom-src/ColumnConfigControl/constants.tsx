@@ -99,9 +99,10 @@ const displayName: ControlFormItemSpec<'Input'> = {
   controlType: 'Input',
   label: t('Display name'),
   description: t(
-    'Custom display name for the column header. Leave empty to use the original column name.',
+    'Custom display name for the column header. Leave empty to use the original column name. ' +
+      'Supports {{Jinja Field}} placeholders resolved from the values selected in "Jinja Fields".',
   ),
-  placeholder: t('Enter custom name...'),
+  placeholder: t('e.g. Ventas {{anio_num}}'),
   debounceDelay: 500,
 };
 

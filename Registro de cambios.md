@@ -1,5 +1,106 @@
 ## Registro de cambios
 
+### 2026-09-11 (2)
+
+Cambio realizado:
+Se corrigió un bug reportado por el usuario en plugin-chart-pivot-tableRx1: con "Mostrar
+subtotal de filas" + "Compact row tree" + "Collapse rows by default" activados, al poner
+"Ordenar filas por" en valor ascendente/descendente (en vez de "clave a-z"), un grupo
+aparecía expandido pero sin ninguna fila hija debajo -- con "clave a-z" agrupaba bien.
+
+Archivos afectados:
+- `custom-plugins/plugin-chart-pivot-tableRx1/src/react-pivottable/utilities.js`
+- `custom-plugins/plugin-chart-pivot-tableRx1/test/react-pivottable/utilities.test.js` (nuevo)
+
+Que cambia o corrige:
+- `PivotData.sortKeys()`: para `rowOrder`/`colOrder` = `value_a_to_z` / `value_z_to_a`,
+  hacía un `.sort()` plano de TODO el array `rowKeys`/`colKeys` comparando el valor
+  agregado de cualquier nodo contra cualquier otro, sin importar su profundidad ni su
+  padre. `rowKeys` mezcla subtotales (arrays cortos) y hojas (arrays completos) de TODAS
+  las ramas del árbol; un sort plano por valor los reordena sin ningún criterio de
+  jerarquía, así que un nodo como "LIMPIEZA" puede terminar lejos de sus propios hijos en
+  el array (que fueron reubicados según SU propio valor, no el de su padre). El renderer
+  (`renderTableRow` + la lógica de colapsar/expandir del "compact row tree") depende de
+  que cada nodo esté seguido inmediatamente por todos sus descendientes para construir el
+  árbol visual -- al romperse eso, un grupo se renderiza expandido pero vacío. El sort por
+  clave (`arrSort`) no tenía este problema porque comparar los prefijos en orden ya
+  preserva la jerarquía.
+- Se agregó `sortKeysByValueHierarchical`: en vez de un sort plano, agrupa las claves por
+  su padre real (prefijo), ordena cada grupo de hermanos entre sí por su propio valor
+  agregado, y reconstruye el array recorriendo el árbol en profundidad (cada nodo seguido
+  de sus propios hijos ya ordenados). Maneja también el caso sin subtotales (cuando el
+  prefijo padre de un nodo no existe como nodo propio en el array, ese nodo se trata como
+  raíz de su propio grupo de hermanos). Verificado con datos de 3 niveles y ambas
+  posiciones de subtotal (arriba/abajo) -- en ambos casos cada grupo queda contiguo con
+  todos sus descendientes.
+- Nota: existe un segundo mecanismo de ordenamiento en `TableRenderers.jsx`
+  (`sortData`/`getAggregatedData`/`sortHierarchicalObject`), activado al hacer clic en el
+  ícono de orden de una columna de datos (no por el control "Ordenar filas por"). Ese
+  camino ya construye el orden jerárquicamente de forma correcta y no se tocó -- de hecho
+  sirvió de referencia para confirmar cuál era el comportamiento esperado.
+
+### 2026-09-11
+
+Cambio realizado:
+Se revisó plugin-chart-pivot-tableRx1 para llevarlo a paridad con los fixes de fórmulas de
+plugin-chart-tableV3 (ambos comparten `FormulaMetricControl`, así que el fix del popover y
+del operador `=` ya aplicaban aquí también sin cambios). Se encontró y corrigió un bug real:
+`total.{{X}}` / `row.{{X}}` / `col.{{X}}` no resolvían cuando X era en sí otra columna
+calculada (fórmula), en vez de una métrica que el backend agrega -- devolvían NaN/null en
+silencio. También se agregó la capacidad pedida por el usuario de usar placeholders Jinja
+(p. ej. "ventas {{anio_num}}") en el nombre personalizado ("Display name") de una columna o
+métrica, algo que plugin-chart-tableV3 ya soportaba pero que en este plugin ni siquiera
+estaba expuesto en el formulario de "Customize columns".
+
+Archivos afectados:
+- `custom-plugins/plugin-chart-pivot-tableRx1/src/react-pivottable/TableRenderers.jsx`
+- `custom-plugins/plugin-chart-pivot-tableRx1/src/plugin/transformProps.ts`
+- `custom-plugins/plugin-chart-pivot-tableRx1/src/plugin/controlPanel.tsx`
+- `custom-plugins/plugin-chart-pivot-tableRx1/src/PivotTableChart.tsx`
+- `custom-plugins/plugin-chart-pivot-tableRx1/src/utils/formatValue.ts`
+- `custom-plugins/plugin-chart-pivot-tableRx1/test/utils/formatValue.test.ts` (nuevo)
+- `custom-src/ColumnConfigControl/constants.tsx`
+
+Que cambia o corrige:
+- `TableRenderers.jsx`: nueva función `getScopedValueForName` que, al resolver
+  `total.`/`row.`/`col.` para un nombre que es en sí una fórmula (`formulaMetrics.find`),
+  la evalúa recursivamente con un `impliedScope` en vez de ir directo a
+  `getMetricScopedTotal` (que solo agrega registros crudos reales -- las fórmulas no
+  tienen registros propios, así que siempre daba null). El `impliedScope` se propaga a las
+  referencias `{{...}}` sin prefijo dentro de esa sub-fórmula, así que
+  `total.{{ratio}}` donde `ratio = {{Venta}}/{{Plan}}` se resuelve como
+  `total.{{Venta}}/total.{{Plan}}` (el ratio sobre el total agregado), no como una suma de
+  ratios por fila. Se agregó detección de ciclos vía el `evaluating` Set ya existente
+  (ahora también cubre este camino) y el cache de resultados ahora incluye el
+  `impliedScope` en su clave. Este es el motor que determina el valor mostrado en cada
+  celda del pivot (siempre activo: el eje "Metrics" del layout usa un `metricKey` fijo),
+  y también alimenta `buildTemplateContext` (usado por los HTML templates de celda), que
+  ahora resuelve fórmulas anidadas en `total`/`row`/`col` igual.
+- `transformProps.ts`: mismo problema en el motor usado para el formato condicional por
+  color (`dataWithFormulas`). Antes de procesar las filas individuales, ahora se evalúan
+  las fórmulas también sobre `totals`/`rowTotalsMap`/`colTotalsMap` (los objetos ya
+  agregados) y el resultado se escribe de vuelta ahí, así que cuando una fila referencia
+  `total.{{formula}}` el valor ya está disponible. A diferencia del motor de
+  TableRenderers.jsx, esto no es recursivo -- solo respeta el orden de la lista
+  "Formula metrics", igual que ya hacía el resto de este motor para el scope sin prefijo.
+- `controlPanel.tsx`: `HTML_COLUMN_CONFIG_LAYOUT` (usado por el control "Customize
+  columns") solo tenía la pestaña "HTML" -- sobrescribía por completo el layout por
+  defecto del `ColumnConfigControl` compartido, que sí incluye "Display name". Se agregó
+  de vuelta una pestaña "Display" con el campo `displayName` para cada tipo de columna.
+- `PivotTableChart.tsx` / `formatValue.ts`: se portaron `resolveJinjaTemplate` /
+  `extractJinjaValues` de plugin-chart-tableV3 (sustitución simple de `{{Jinja Field}}`
+  usando el valor de esa columna en la primera fila de datos -- pensado para dimensiones
+  constantes en toda la consulta, como año/mes). El `namesMapping` que antes era
+  `verboseMap` crudo ahora es un `resolvedNamesMapping` que, para cada entrada de
+  `columnConfig` con un `displayName` configurado, la resuelve vía Jinja y sobrescribe el
+  verbose name. Como `namesMapping` ya alimentaba todos los puntos de header/leyenda del
+  pivot (incluyendo el nombre de la métrica cuando aparece como valor del eje "Metrics"),
+  no hizo falta tocar cada punto de renderizado por separado.
+- `ColumnConfigControl/constants.tsx`: descripción del campo `displayName` actualizada
+  para mencionar el soporte de `{{Jinja Field}}` (afecta a ambos plugins, que comparten
+  este control; tableV3 ya tenía la resolución implementada en su propio
+  `transformProps.ts`, esto solo documenta el comportamiento existente ahí).
+
 ### 2026-09-07
 
 Cambio realizado:

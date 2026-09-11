@@ -686,6 +686,54 @@ export default function transformProps(chartProps: ChartProps<QueryFormData>) {
   const totals = buildMetricTotals(data, metricNamesForTotals);
   const rowTotalsMap = buildGroupTotals(data, rowGroupCols, metricNamesForTotals);
   const colTotalsMap = buildGroupTotals(data, colGroupCols, metricNamesForTotals);
+  // Enrich totals/rowTotals/colTotals with formula metrics evaluated against
+  // the aggregated values themselves, e.g. total.{{ratio}} where
+  // ratio = {{Venta}}/{{Plan}} becomes {{Venta}}_total/{{Plan}}_total, not a
+  // sum of per-row ratios. Formulas are evaluated in list order, so one can
+  // reference another defined above it in the list -- same rule as for
+  // individual rows below.
+  formulaMetricsForFormatting.forEach(metric => {
+    const totalValue = evaluateFormula(
+      metric.expression,
+      totals as unknown as DataRecord,
+      '',
+      '',
+      totals,
+      rowTotalsMap,
+      colTotalsMap,
+    );
+    if (totalValue !== null) {
+      totals[metric.label] = totalValue;
+    }
+    rowTotalsMap.forEach(entry => {
+      const value = evaluateFormula(
+        metric.expression,
+        entry as unknown as DataRecord,
+        '',
+        '',
+        totals,
+        rowTotalsMap,
+        colTotalsMap,
+      );
+      if (value !== null) {
+        entry[metric.label] = value;
+      }
+    });
+    colTotalsMap.forEach(entry => {
+      const value = evaluateFormula(
+        metric.expression,
+        entry as unknown as DataRecord,
+        '',
+        '',
+        totals,
+        rowTotalsMap,
+        colTotalsMap,
+      );
+      if (value !== null) {
+        entry[metric.label] = value;
+      }
+    });
+  });
   let dataWithFormulas: DataRecord[] = data;
   if (formulaMetricsForFormatting.length > 0) {
     const processedData: DataRecord[] = [];

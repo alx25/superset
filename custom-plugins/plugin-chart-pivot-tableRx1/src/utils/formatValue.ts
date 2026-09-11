@@ -18,6 +18,60 @@
  */
 import { DataRecord, DataRecordValue } from '@superset-ui/core';
 
+const JINJA_DISPLAY_NAME_REGEX = /\{\{\s*([^}]+?)\s*\}\}/g;
+
+/**
+ * Resolve {{Jinja Field}} placeholders in a "Display name" using the values
+ * of the metrics/columns selected in the "Jinja Fields" control. Unlike
+ * renderHtmlTemplate below (per-cell HTML with CASE/set/scopes), this is a
+ * plain string substitution meant for a short label shown once per column,
+ * not per row -- same behavior as plugin-chart-tableV3's displayName.
+ */
+export function resolveJinjaTemplate(
+  template: string,
+  jinjaValues: Record<string, unknown>,
+): string {
+  if (!template || typeof template !== 'string') {
+    return template;
+  }
+  return template.replace(JINJA_DISPLAY_NAME_REGEX, (match, rawKey) => {
+    const key = String(rawKey).trim();
+    if (!Object.prototype.hasOwnProperty.call(jinjaValues, key)) {
+      return match;
+    }
+    const value = jinjaValues[key];
+    if (value === null || value === undefined) {
+      return 'NULL';
+    }
+    if (typeof value === 'number') {
+      return value.toLocaleString();
+    }
+    return String(value);
+  });
+}
+
+/**
+ * Extract the resolved value of each "Jinja Field" from the first data
+ * record -- these are typically filter-driven dimensions (year, month) that
+ * are constant across every row of the query result.
+ */
+export function extractJinjaValues(
+  records: DataRecord[] | undefined,
+  jinjaFieldLabels: string[],
+): Record<string, unknown> {
+  const jinjaValues: Record<string, unknown> = {};
+  const firstRecord = records?.[0];
+  if (!firstRecord || !jinjaFieldLabels?.length) {
+    return jinjaValues;
+  }
+  jinjaFieldLabels.forEach(label => {
+    if (Object.prototype.hasOwnProperty.call(firstRecord, label)) {
+      jinjaValues[label] = firstRecord[label];
+    }
+  });
+  return jinjaValues;
+}
+
 type LocalVars = {
   raw: Record<string, string>;
   formatted: Record<string, string>;

@@ -203,17 +203,25 @@ const mergeMetricLists = (
   return merged;
 };
 
+const DISPLAY_NAME_TAB = {
+  tab: t('Display'),
+  children: [['displayName']],
+};
 const HTML_COLUMN_CONFIG_LAYOUT = {
   [GenericDataType.Numeric]: [
+    DISPLAY_NAME_TAB,
     { tab: t('HTML'), children: [['enableHtmlTemplate'], ['htmlTemplate']] },
   ],
   [GenericDataType.String]: [
+    DISPLAY_NAME_TAB,
     { tab: t('HTML'), children: [['enableHtmlTemplate'], ['htmlTemplate']] },
   ],
   [GenericDataType.Temporal]: [
+    DISPLAY_NAME_TAB,
     { tab: t('HTML'), children: [['enableHtmlTemplate'], ['htmlTemplate']] },
   ],
   [GenericDataType.Boolean]: [
+    DISPLAY_NAME_TAB,
     { tab: t('HTML'), children: [['enableHtmlTemplate'], ['htmlTemplate']] },
   ],
 } as any;

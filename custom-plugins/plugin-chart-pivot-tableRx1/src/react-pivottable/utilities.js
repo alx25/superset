@@ -682,6 +682,57 @@ class PivotData {
     };
   }
 
+  // Sorting rowKeys/colKeys by value needs to happen *within* each group of
+  // siblings (same parent prefix), not as a single flat sort across the
+  // whole array. rowKeys/colKeys mix subtotal nodes (shorter arrays) and
+  // leaf nodes (full-length arrays) from every branch of the tree; a flat
+  // sort by aggregated value reorders them without any regard for their
+  // parent-child relationship, so a node can end up far away from its own
+  // children. renderTableRow (and the collapse/expand + "compact row tree"
+  // logic) relies on every node being immediately followed by its own
+  // children in this array to build the visual tree -- break that and a
+  // group renders as expanded but empty. Sorting by key (arrSort) doesn't
+  // have this problem because comparing prefix elements in order already
+  // keeps a hierarchical order.
+  sortKeysByValueHierarchical(keys, getValue, ascending) {
+    const keySet = new Set(keys.map(key => flatKey(key)));
+    const byParentKey = new Map();
+    keys.forEach(key => {
+      const parentKey = flatKey(key.slice(0, -1));
+      if (!byParentKey.has(parentKey)) {
+        byParentKey.set(parentKey, []);
+      }
+      byParentKey.get(parentKey).push(key);
+    });
+
+    const ordered = [];
+    const visitGroup = group => {
+      const sortedGroup = [...group].sort((a, b) => {
+        const comparison = naturalSort(getValue(a), getValue(b));
+        return ascending ? comparison : -comparison;
+      });
+      sortedGroup.forEach(key => {
+        ordered.push(key);
+        const childGroup = byParentKey.get(flatKey(key));
+        if (childGroup) {
+          visitGroup(childGroup);
+        }
+      });
+    };
+
+    // A group is a top-level entry point for the walk when its own parent
+    // isn't itself a node in `keys` -- true for the real root ("[]") and
+    // also, when subtotals are disabled, for every depth (full-length
+    // leaves then become roots of their own sibling group).
+    byParentKey.forEach((group, parentKey) => {
+      if (!keySet.has(parentKey)) {
+        visitGroup(group);
+      }
+    });
+
+    return ordered;
+  }
+
   sortKeys() {
     if (!this.sorted) {
       this.sorted = true;
@@ -693,10 +744,18 @@ class PivotData {
           );
           break;
         case 'value_a_to_z':
-          this.rowKeys.sort((a, b) => naturalSort(v(a, []), v(b, [])));
+          this.rowKeys = this.sortKeysByValueHierarchical(
+            this.rowKeys,
+            key => v(key, []),
+            true,
+          );
           break;
         case 'value_z_to_a':
-          this.rowKeys.sort((a, b) => -naturalSort(v(a, []), v(b, [])));
+          this.rowKeys = this.sortKeysByValueHierarchical(
+            this.rowKeys,
+            key => v(key, []),
+            false,
+          );
           break;
         default:
           this.rowKeys.sort(
@@ -710,10 +769,18 @@ class PivotData {
           );
           break;
         case 'value_a_to_z':
-          this.colKeys.sort((a, b) => naturalSort(v([], a), v([], b)));
+          this.colKeys = this.sortKeysByValueHierarchical(
+            this.colKeys,
+            key => v([], key),
+            true,
+          );
           break;
         case 'value_z_to_a':
-          this.colKeys.sort((a, b) => -naturalSort(v([], a), v([], b)));
+          this.colKeys = this.sortKeysByValueHierarchical(
+            this.colKeys,
+            key => v([], key),
+            false,
+          );
           break;
         default:
           this.colKeys.sort(

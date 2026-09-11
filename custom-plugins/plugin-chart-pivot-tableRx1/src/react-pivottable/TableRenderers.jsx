@@ -630,9 +630,10 @@ export class TableRenderer extends Component {
     colAttrs,
     expression,
     evaluating,
+    impliedScope = '',
   ) {
     this.resetFormulaCache(pivotData);
-    const cacheKey = `${JSON.stringify(rowKey)}|${JSON.stringify(colKey)}|${expression}`;
+    const cacheKey = `${JSON.stringify(rowKey)}|${JSON.stringify(colKey)}|${impliedScope}|${expression}`;
     if (this.formulaResultCache.has(cacheKey)) {
       return this.formulaResultCache.get(cacheKey);
     }
@@ -641,11 +642,37 @@ export class TableRenderer extends Component {
     }
     evaluating.add(cacheKey);
     const result = this.evaluateFormulaExpression(
-      pivotData, rowKey, colKey, rowAttrs, colAttrs, expression, evaluating,
+      pivotData, rowKey, colKey, rowAttrs, colAttrs, expression, evaluating, impliedScope,
     );
     evaluating.delete(cacheKey);
     this.formulaResultCache.set(cacheKey, result);
     return result;
+  }
+
+  // Resolves total.{{name}} / row.{{name}} / col.{{name}} for a given name:
+  // when `name` is itself a formula metric (not a value the backend
+  // aggregates), summing/averaging its per-row results wouldn't be
+  // meaningful, so instead the formula is re-evaluated recursively with
+  // `scope` implied for all of its own unscoped {{...}} references -- e.g.
+  // total.{{ratio}} where ratio = {{Venta}}/{{Plan}} becomes
+  // total.{{Venta}}/total.{{Plan}}, not a sum of per-row ratios.
+  getScopedValueForName(
+    pivotData, rowKey, colKey, rowAttrs, colAttrs, metricKey, name, scope, evaluating,
+  ) {
+    const { formulaMetrics = [] } = this.props;
+    const formulaForName = formulaMetrics.find(m => m.label === name);
+    if (formulaForName) {
+      const fval = this.evaluateFormulaExpressionCached(
+        pivotData, rowKey, colKey, rowAttrs, colAttrs,
+        formulaForName.expression, evaluating || new Set(), scope,
+      );
+      return fval === null ? NaN : fval;
+    }
+    const val = this.getMetricScopedTotal(
+      pivotData, rowKey, colKey, rowAttrs, colAttrs, metricKey, name, scope,
+    );
+    const n = Number(val);
+    return Number.isFinite(n) ? n : NaN;
   }
 
   evaluateFormulaExpression(
@@ -656,6 +683,7 @@ export class TableRenderer extends Component {
     colAttrs,
     expression,
     evaluating,
+    impliedScope = '',
   ) {
     const { metricKey, formulaMetrics = [] } = this.props;
     if (!metricKey || !expression) {
@@ -668,13 +696,17 @@ export class TableRenderer extends Component {
     if (!compiled) return null;
 
     const { paramSpecs, compiledFn } = compiled;
-    const args = paramSpecs.map(({ scope, name }) => {
+    const args = paramSpecs.map(({ scope: rawScope, name }) => {
+      // An explicit scope on the token always wins; an unscoped {{name}}
+      // inherits the scope this whole (sub-)formula is being evaluated
+      // under, so nested formulas resolve consistently (see
+      // getScopedValueForName above).
+      const scope = rawScope || impliedScope;
+
       if (scope === 'total' || scope === 'row' || scope === 'col') {
-        const val = this.getMetricScopedTotal(
-          pivotData, rowKey, colKey, rowAttrs, colAttrs, metricKey, name, scope,
+        return this.getScopedValueForName(
+          pivotData, rowKey, colKey, rowAttrs, colAttrs, metricKey, name, scope, activeEvaluating,
         );
-        const n = Number(val);
-        return Number.isFinite(n) ? n : NaN;
       }
       if (scope === 'previous' || scope === 'next') {
         const adjRowKey = this.getAdjacentRowKey(pivotData, rowKey, rowAttrs, scope);
@@ -692,7 +724,8 @@ export class TableRenderer extends Component {
         const n = Number(val);
         return Number.isFinite(n) ? n : NaN;
       }
-      // Default scope: resolve formula metrics recursively, base metrics via aggregator
+      // No scope at all (not even implied): resolve formula metrics
+      // recursively, base metrics via the aggregator for this exact cell.
       const formulaForName = formulaMetrics.find(m => m.label === name);
       if (formulaForName) {
         const fval = this.evaluateFormulaExpressionCached(
@@ -886,7 +919,7 @@ export class TableRenderer extends Component {
         context[name] = value;
       }
       if (metricKey) {
-        const totalValue = this.getMetricScopedTotal(
+        const totalValue = this.getScopedValueForName(
           pivotData,
           rowKey,
           colKey,
@@ -896,10 +929,10 @@ export class TableRenderer extends Component {
           name,
           'total',
         );
-        if (totalValue !== null && totalValue !== undefined) {
+        if (Number.isFinite(totalValue)) {
           totals[name] = totalValue;
         }
-        const rowTotalValue = this.getMetricScopedTotal(
+        const rowTotalValue = this.getScopedValueForName(
           pivotData,
           rowKey,
           colKey,
@@ -909,10 +942,10 @@ export class TableRenderer extends Component {
           name,
           'row',
         );
-        if (rowTotalValue !== null && rowTotalValue !== undefined) {
+        if (Number.isFinite(rowTotalValue)) {
           rowTotals[name] = rowTotalValue;
         }
-        const colTotalValue = this.getMetricScopedTotal(
+        const colTotalValue = this.getScopedValueForName(
           pivotData,
           rowKey,
           colKey,
@@ -922,7 +955,7 @@ export class TableRenderer extends Component {
           name,
           'col',
         );
-        if (colTotalValue !== null && colTotalValue !== undefined) {
+        if (Number.isFinite(colTotalValue)) {
           colTotals[name] = colTotalValue;
         }
       }

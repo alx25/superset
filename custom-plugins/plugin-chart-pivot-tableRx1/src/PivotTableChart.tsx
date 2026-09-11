@@ -46,6 +46,7 @@ import {
   PivotTableStylesProps,
   SelectedFiltersType,
 } from './types';
+import { extractJinjaValues, resolveJinjaTemplate } from './utils/formatValue';
 
 const Styles = styled.div<PivotTableStylesProps>`
   ${({ height, width, margin }) => `
@@ -200,6 +201,26 @@ export default function PivotTableChart(props: PivotTableProps) {
 } = props;
 
   const theme = useTheme();
+
+  // "Jinja Fields" values (e.g. anio_num) resolved from the first row, used
+  // to fill in {{...}} placeholders in a column/metric's custom "Display
+  // name" -- same mechanism as plugin-chart-tableV3.
+  const jinjaValues = useMemo(
+    () => extractJinjaValues(data, jinjaFields || []),
+    [data, jinjaFields],
+  );
+  const resolvedNamesMapping = useMemo(() => {
+    const mapping: Record<string, string> = { ...verboseMap };
+    Object.entries(columnConfig || {}).forEach(([key, config]) => {
+      const displayName = (config as { displayName?: string } | undefined)
+        ?.displayName;
+      if (displayName) {
+        mapping[key] = resolveJinjaTemplate(displayName, jinjaValues);
+      }
+    });
+    return mapping;
+  }, [verboseMap, columnConfig, jinjaValues]);
+
   const defaultFormatter = useMemo(
     () =>
       currencyFormat?.symbol
@@ -721,7 +742,7 @@ export default function PivotTableChart(props: PivotTableProps) {
           sorters={sorters}
           tableOptions={tableOptions}
           subtotalOptions={subtotalOptions}
-          namesMapping={verboseMap}
+          namesMapping={resolvedNamesMapping}
           onContextMenu={handleContextMenu}
           allowRenderHtml={allowRenderHtml}
           showCellTooltip={showCellTooltip}
