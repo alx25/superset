@@ -704,6 +704,8 @@ def _build_comparison(
         "para exportar EXACTAMENTE ese análisis sin reconstruir parámetros."
     ),
     tags=["irex", "negocio", "comparación", "variación", "alertas", "períodos"],
+    class_permission_name="SQLLab",
+    method_permission_name="execute_sql_query",
 )
 def compare_periods(request: ComparePeriodsRequest) -> dict[str, Any]:
     from .dashboard_dataset_context import _reject_hidden_columns

@@ -411,6 +411,8 @@ class QueryDatasetSqlRequest(BaseModel):
         "brechas entre dos métricas con totales reconciliados, preferir la tool "
         "irex.rank_partitions, que aplica estas reglas automáticamente."
     ),
+    class_permission_name="SQLLab",
+    method_permission_name="execute_sql_query",
 )
 def query_dataset_sql(request: QueryDatasetSqlRequest) -> dict[str, Any]:
     return execute_sql_analysis(

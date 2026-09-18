@@ -631,6 +631,8 @@ class ExportToExcelRequest(BaseModel):
         "aumento y mayor disminución. "
         "Retorna una URL de descarga directa (válida 2 horas)."
     ),
+    class_permission_name="SQLLab",
+    method_permission_name="execute_sql_query",
 )
 def export_to_excel(request: ExportToExcelRequest) -> dict[str, Any]:
     _cleanup_old_exports()

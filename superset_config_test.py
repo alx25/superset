@@ -2730,6 +2730,7 @@ MCP_TOOL_SEARCH_CONFIG = {
         "extensions.irex.irex-mcp-tools.irex.compare_periods",
         "extensions.irex.irex-mcp-tools.irex.export_to_excel",
         "extensions.irex.irex-mcp-tools.irex.query_dataset_sql",
+        "extensions.irex.irex-mcp-tools.irex.get_sql_schema_context",
     ],
 }
 

@@ -538,6 +538,8 @@ def _parse_filter(f: DatasetFilter) -> dict[str, Any]:
         "retranscribirlas a mano en 'selected_groups'."
     ),
     tags=["irex", "negocio", "consulta", "sql", "rls"],
+    class_permission_name="SQLLab",
+    method_permission_name="execute_sql_query",
 )
 def query_dataset(request: QueryDatasetRequest) -> dict[str, Any]:
     from superset.commands.chart.data.get_data_command import ChartDataCommand

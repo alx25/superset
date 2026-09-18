@@ -10,6 +10,8 @@ import { sqlLab, editors as editorsNs } from '@apache-superset/core';
 import type {
   AssistantAction,
   AssistantContext,
+  AssistantLastError,
+  AssistantMode,
 } from '../contracts/assistant';
 import { ASSISTANT_CONTRACT_VERSION } from '../contracts/assistant';
 
@@ -31,9 +33,15 @@ async function getCurrentTabOrThrow(): Promise<sqlLab.Tab> {
 /**
  * Construye el contrato v1 a partir del estado real de la pestaña activa.
  * Lee únicamente la pestaña activa — SQL Lab solo garantiza tener montado
- * el editor de esa pestaña (ver `probeInactiveTabEditors`).
+ * el editor de esa pestaña (ver `probeInactiveTabEditors`). `mode`,
+ * `userMessage` y `lastError` vienen del panel (Fase 5): esta función solo
+ * aporta la parte que se lee en vivo del editor/pestaña.
  */
-export async function readActiveContext(): Promise<AssistantContext> {
+export async function readActiveContext(
+  mode: AssistantMode,
+  userMessage: string,
+  lastError?: AssistantLastError,
+): Promise<AssistantContext> {
   const tab = await getCurrentTabOrThrow();
   const editor = await tab.getEditor();
   const cursor = editor.getCursorPosition();
@@ -41,6 +49,9 @@ export async function readActiveContext(): Promise<AssistantContext> {
   return {
     contractVersion: ASSISTANT_CONTRACT_VERSION,
     source: 'superset_sqllab',
+    mode,
+    userMessage,
+    lastError,
     tab: {
       id: tab.id,
       title: tab.title,

@@ -210,6 +210,8 @@ def _build_forecast_chart(
         "Real + línea punteada Pronóstico) y los datos crudos en 'series'."
     ),
     tags=["irex", "forecast", "pronostico", "proyeccion", "estadistica"],
+    class_permission_name="SQLLab",
+    method_permission_name="execute_sql_query",
 )
 def forecast(request: ForecastRequest) -> dict[str, Any]:
     from superset.commands.chart.data.get_data_command import ChartDataCommand

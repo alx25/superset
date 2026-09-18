@@ -143,6 +143,8 @@ class RankPartitionsRequest(BaseModel):
         "mano (a diferencia de irex.query_dataset, que solo sirve para un "
         "Top-N global, no 'top N por cada partición')."
     ),
+    class_permission_name="SQLLab",
+    method_permission_name="execute_sql_query",
 )
 def rank_partitions(request: RankPartitionsRequest) -> dict[str, Any]:
     groupby = list(request.partition_by) + list(request.detail_by)

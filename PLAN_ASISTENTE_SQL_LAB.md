@@ -42,6 +42,80 @@ Antes de cambiar código:
   cuidadosamente: autenticación, RBAC y RLS son controles distintos, y un
   cambio masivo sin auditar roles puede interrumpir el chat existente.
 
+## Requerimientos para el agente del chat
+
+Notas acumuladas a lo largo del plan, listas para pasarle tal cual al agente
+que mantiene el backend externo del chat. Se agregan acá a medida que surgen
+en cada fase — no reemplazan el detalle de la fase correspondiente, es el
+resumen consolidado para comunicar.
+
+### Contrato de error `permission_denied` (Fase 2, punto 7 de la auditoría)
+
+Desde que se aplicaron los decoradores RBAC a las 7 tools que tocan datos
+reales (`query_dataset`, `query_dataset_sql`, `compare_periods`,
+`rank_partitions`, `forecast`, `export_to_excel`, `list_column_values`),
+un usuario sin `can_execute_sql_query` en `SQLLab` recibe un error al
+llamar cualquiera de ellas. **No es un código de error MCP/JSON-RPC
+estructurado** — llega como contenido de texto libre con este patrón:
+
+```
+Permission denied: <permiso> on <vista> for user <usuario> (tool: <nombre_tool>)
+```
+
+Ejemplo real (probado end-to-end contra el MCP de test):
+
+```
+Permission denied: can_execute_sql_query on SQLLab for user test (tool: query_dataset)
+```
+
+El chat debe:
+1. Detectar el string `"Permission denied:"` en la respuesta de la tool —
+   no hay campo estructurado que lo distinga de otros errores.
+2. **No reintentar** la llamada — no es un error transitorio, es de
+   permisos; reintentar no cambia el resultado.
+3. Traducirlo a un mensaje claro para el usuario final en vez de mostrar el
+   texto técnico crudo (que incluye nombres internos de permiso/vista).
+
+Estado en producción (2026-09-18): los 8 usuarios actuales del chat ya
+tienen el permiso (alta hecha sobre el rol `acceso chat`), así que este
+error no debería aparecer hoy — pero sí para cualquier usuario nuevo que se
+agregue al chat sin ese permiso, o si se revoca en el futuro.
+
+### Endpoint nuevo a implementar: `POST /api/sql-lab-assistant` (Fase 3/6)
+
+El panel de SQL Lab llama a
+`POST /api/chat-widget/api/sql-lab-assistant` (mismo proxy same-origin que
+ya usa el widget de dashboards, `custom-src/login/mcp_widget.py`, sin
+autenticación nueva — ver `docs/sql-lab-assistant-contract.md`, sección
+"Transporte"). Eso reenvía a
+`<CHAT_WIDGET_API_URL>/api/sql-lab-assistant` en el backend real. **Si esa
+ruta no existe todavía del lado del chat, es la única pieza pendiente** —
+el proxy, los headers de identidad (`X-Superset-User`, etc.) y el secreto
+server-to-server ya funcionan sin cambios, igual que en los endpoints que
+el widget ya usa hoy.
+
+El body del POST y el JSON de respuesta esperado están completos en
+`docs/sql-lab-assistant-contract.md` (contexto de pestaña/editor en el
+request, `message`/`actions`/`diagnostics` en la respuesta, todo en
+`snake_case`).
+
+### Tool nueva disponible: `irex.get_sql_schema_context` (Fase 7)
+
+Ya está en producción de tools MCP (visible para el modelo, permiso
+`SQLLab` ya cubierto para los 8 usuarios del chat). Se agregó porque un
+caso real mostró que el asistente no podía corregir un nombre de columna
+inventado sin conocer el esquema real. Dos modos:
+
+- Sin `table`: lista nombres de tabla del schema (`search` opcional).
+- Con `table`: devuelve sus columnas (nombre, tipo, comentario).
+
+**Sugerencia de uso:** antes de proponer una corrección de SQL que
+depende de un nombre de tabla o columna que el usuario mencionó pero que
+no está confirmado en el contexto ya recibido (`editor.sql`/`editor.selected_sql`),
+llamar esta tool para verificar el nombre real en vez de asumir que existe
+tal cual. Ejemplo real que la disparó: el usuario escribió `anio` en un
+`WHERE`, la tool devuelve que la columna real se llama `anio_id`.
+
 ## Decisiones de arquitectura
 
 Flujo objetivo:
@@ -316,6 +390,146 @@ es un cambio de seguridad separado que requiere autorización. Conforme al
 requisito del proyecto, los usuarios sin SQL Lab deben perder acceso a las
 capacidades de datos, pero el despliegue debe ser deliberado y comunicado.
 
+### Resultado de la auditoría, puntos 1-4 (2026-09-18, producción, solo lectura)
+
+**Punto 1 — confirmado.** `auth_bridge.py` resuelve el `sub` del JWT a un
+usuario real vía `load_user_with_relationships` (con fallback por email) y
+**rechaza explícitamente** la request si el `sub` no matchea ningún usuario
+(`raise ValueError`, nunca cae a `MCP_DEV_USERNAME`/admin). El chequeo de
+permisos que se agregue en "Decoradores MCP" operará sobre los roles reales
+del usuario resuelto — el mecanismo de auth no es el problema; el problema
+(ver más abajo) está en qué roles tienen esos usuarios hoy.
+
+**Puntos 2-3 — usuarios con `CHAT_WIDGET_REQUIRED_ROLE` ("acceso chat") en
+producción y si sus roles les dan `can_read`+`can_execute_sql_query` en
+`SQLLab`:**
+
+| Usuario | Activo | Roles relevantes | ¿Acceso SQLLab hoy? |
+|---|---|---|---|
+| admin | sí | Admin | **Sí** |
+| dpla | sí | Admin | **Sí** |
+| jsolanof | sí | Admin, Coop Admin | **Sí** |
+| irexti | sí | Permiso basico + roles "Ver X" | No |
+| ldelgado | sí | Alpha, Inteligencia, Permiso basico + roles "Ver X" | No |
+| sborbon | sí | Permiso basico + roles "Ver X" | No |
+| Yorozco | sí | Inteligencia, Permiso basico + roles "Ver X" | No |
+| pabloTest2 | **no** (inactivo) | Permiso basico + roles "Ver X" | No |
+
+De los 26 roles distintos que tienen estos 8 usuarios en conjunto, **solo
+`Admin` y `Coop Admin`** otorgan `can_read`/`can_execute_sql_query` sobre el
+view_menu `SQLLab`. Ninguno de los roles granulares de dashboard ("Ver
+Actividades comerciales", "Análisis de Precios CR", etc.) lo otorga —
+esperable, son roles de acceso a contenido, no de sistema. Dato notable:
+`Alpha` (rol builtin de Superset) en este proyecto **no** tiene
+`can_execute_sql_query` — fue reducido respecto al comportamiento "vanilla".
+
+**Punto 4 — matriz de las 14 tools** (ninguna declara hoy
+`class_permission_name`/`method_permission_name`; "RLS" = toca datos reales
+de negocio vía el pipeline de dataset/query de Superset):
+
+| Tool | Qué hace | ¿Toca datos reales con RLS? | Categoría (regla principal) |
+|---|---|---|---|
+| `business_context` | Glosario/contexto de negocio (estático) | No | Informativa |
+| `chart_option` | Arma config de gráfico ECharts desde datos ya obtenidos (`source_result_ref`) o pasados por el LLM | Indirecto (no ejecuta query propia) | Presentación/derivada |
+| `list_column_values` | Lista valores distintos de una columna de un dataset | Sí | Consulta |
+| `compare_periods` | Compara dos períodos con % de variación | Sí | Consulta/derivada |
+| `create_chart` | Crea chart en la DB de Superset | — | Deshabilitada (`exclude_tags=["guardar"]`) |
+| `dashboard_dataset_context` | Metadata de dataset/dashboard (columnas, filtros nativos, tabs) | No | Informativa |
+| `dashboard_filters` (`get_applied_filters`) | Filtros aplicados en un dashboard | No | Informativa |
+| `export_excel` (`export_to_excel`) | Ejecuta consulta/comparación/SQL y exporta el resultado completo | Sí | Consulta/exporta |
+| `forecast` | Proyección estadística sobre datos históricos | Sí | Deriva datos |
+| `query_context` (`get_query_context`) | Metadata de query/dataset/dashboard | No | Informativa |
+| `query_dataset` | Consulta agregada de un dataset (tag `"rls"` explícito en el propio decorador) | Sí | Consulta |
+| `rank_partitions` | Ranking Top-N por partición sobre datos reales, "respetando RLS" | Sí | Consulta/derivada |
+| `search_dashboards` | Busca dashboards por nombre | No | Informativa |
+| `sql_analysis` (`query_dataset_sql`) | SQL libre sobre un dataset, "respetando RLS" | Sí | Consulta |
+
+Resumen: **7 de 14 tools tocan datos reales con RLS** (`list_column_values`,
+`compare_periods`, `export_excel`, `forecast`, `query_dataset`,
+`rank_partitions`, `sql_analysis`) — estas son las candidatas a exigir
+`can_execute_sql_query` en `SQLLab` según la regla principal. 5 son
+puramente informativas/metadata. `chart_option` es un caso mixto (ver Fase
+2, punto 5 más abajo). `create_chart` ya está deshabilitada.
+
+### Hallazgo crítico — bloquea el punto 5 (decisión, no tarea de auditoría)
+
+Aplicar la regla principal tal cual (gatear las 7 tools de datos con
+`can_execute_sql_query` en `SQLLab`) dejaría **sin acceso a las funciones
+centrales del chat a 5 de los 8 usuarios actuales** (`irexti`, `ldelgado`,
+`sborbon`, `Yorozco`, y el inactivo `pabloTest2`) — el 62% de quienes hoy
+usan el chat. `query_dataset` y `chart_option` son, según `superset_config.py`
+(`MCP_TOOL_SEARCH_CONFIG.always_visible`), las tools que el LLM ve siempre;
+para estos 5 usuarios quedarían solo las 5 tools informativas y
+`chart_option` sin datos que graficar. Esto no es un detalle de
+implementación — es un cambio de producto que probablemente rompería el uso
+diario del chat para la mayoría de sus usuarios reales.
+
+Tres caminos posibles, ninguno aplicado todavía (decisión pendiente del
+usuario):
+
+1. **Dar de alta el permiso a los roles que hoy no lo tienen** (ej. agregar
+   `can_execute_sql_query`/`can_read` de `SQLLab` a `Permiso basico`, o a un
+   rol nuevo específico para "acceso chat"). Es un alta de permisos en
+   producción — requiere autorización explícita y separada, tal como exige
+   esta misma sección del plan.
+2. **Aceptar la pérdida de funciones para esos 5 usuarios** — implica
+   coordinar con el negocio si es aceptable, y con el agente del chat para
+   que la UI comunique bien el `permission_denied` (punto 7).
+3. **Reconsiderar el permiso de gate.** El chat no usa el módulo SQL Lab de
+   Superset en sí — usa el pipeline de dataset/query directamente, y el RLS
+   ya se aplica automáticamente por ese pipeline sin pasar por `SQLLab`.
+   Gatear con `SQLLab.can_execute_sql_query` es una analogía razonable
+   ("si no puede correr SQL, no debería poder consultar datos vía IA
+   tampoco") pero no es el único permiso FAB posible — valdría la pena
+   confirmar si es intencional o si conviene un permiso/rol distinto que
+   refleje mejor cómo se usa el chat hoy.
+
+No se modificó ningún decorador ni permiso de producción; toda la
+información de esta sección se obtuvo con consultas `SELECT` de solo
+lectura contra la base de datos de producción.
+
+### Decisión y ejecución (2026-09-18) — alta de permiso sobre `SQLLab`
+
+Camino elegido: **1, pero acotado al rol `acceso chat` en vez de `Permiso
+basico`.** `Permiso basico` tiene 175 usuarios en total (no solo los del
+chat) — subirle `can_execute_sql_query` habría dado ejecución de SQL
+arbitrario a gente sin relación con el chat. `acceso chat`
+(`CHAT_WIDGET_REQUIRED_ROLE`) ya está scopeado exactamente a los 8 usuarios
+del chat por definición, así que es el punto de alta más quirúrgico posible
+sin crear un rol nuevo.
+
+Ejecutado en producción (Postgres) dentro de una transacción explícita:
+
+```sql
+INSERT INTO ab_permission_view_role (id, permission_view_id, role_id)
+SELECT COALESCE(MAX(id), 0) + 1, 294, 100 FROM ab_permission_view_role; -- can_execute_sql_query
+INSERT INTO ab_permission_view_role (id, permission_view_id, role_id)
+SELECT COALESCE(MAX(id), 0) + 1, 364, 100 FROM ab_permission_view_role; -- can_read
+```
+(`role_id=100` = `acceso chat`; `permission_view_id` 294/364 ya existían —
+ver la tabla de la auditoría, los usa `Admin`/`Coop Admin`.)
+
+Nota de infraestructura: `ab_permission_view_role.id` no tiene secuencia
+automática en esta base (a diferencia de lo esperado en Postgres/SQLAlchemy)
+— el primer intento con `INSERT ... VALUES` sin `id` falló con
+`null value in column "id" violates not-null constraint`. Se resolvió
+calculando `MAX(id)+1` dentro de la misma transacción.
+
+**Verificado:** los 8 usuarios de `acceso chat` (incluido el inactivo
+`pabloTest2`) tienen ahora `can_read`+`can_execute_sql_query` en `SQLLab`.
+El conteo de usuarios afectados por `role_id=100` sigue siendo exactamente
+8 — no se tocó a nadie más del sistema.
+
+Con esto, los 3 caminos de la sección anterior quedan resueltos: los 8
+usuarios del chat ya cumplen el gate de `SQLLab`, así que agregar
+`class_permission_name`/`method_permission_name` a las 7 tools de datos (ver
+"Decoradores MCP" abajo) no le quitaría acceso a ninguno de ellos. Falta
+todavía: aplicar los decoradores, probarlos en test (punto 6 de la
+auditoría — el entorno de test tiene usuarios ficticios propios, hay que
+replicar ahí un caso con y sin el permiso) y coordinar el contrato de
+`permission_denied` con el agente del chat (punto 7) antes de tocar el
+código de producción.
+
 ### Decoradores MCP
 
 Toda tool que ejecute o derive datos debe declarar explícitamente:
@@ -346,6 +560,55 @@ El inventario debe incluir también `business_context`, `create_chart`,
 
 Las tools puramente informativas deben usar el permiso de su recurso, pero no
 pueden constituir una ruta alternativa para obtener datos.
+
+### Resultado (2026-09-18) — decoradores aplicados y probados en test
+
+Aplicado `class_permission_name="SQLLab", method_permission_name="execute_sql_query"`
+a las 7 tools que tocan datos reales con RLS (`query_dataset`,
+`query_dataset_sql`, `compare_periods`, `rank_partitions`, `forecast`,
+`export_to_excel`, `list_column_values`) — coincide con la matriz de la
+auditoría. Las 5 informativas y `chart_option` (caso mixto: transforma
+datos ya obtenidos por otra tool o pasados directamente por el LLM, no
+ejecuta queries propias) se dejaron sin gate por ahora — no son una ruta
+alternativa para *obtener* datos por sí mismas.
+
+Mecanismo confirmado leyendo `superset/mcp_service/auth.py` y
+`superset/core/mcp/core_mcp_injection.py`: `method_permission_name` se usa
+literal (no se mapea a "read"/"write") cuando se especifica, y
+`check_tool_permission` arma `can_execute_sql_query` + verifica
+`security_manager.can_access("can_execute_sql_query", "SQLLab")` contra
+`g.user` — exactamente el permiso dado de alta al rol `acceso chat` en la
+sección anterior. `MCP_RBAC_ENABLED` no está seteado en ningún config
+(usa el default `True`) — confirmado en producción y test.
+
+**Punto 6 (probar con usuarios representativos en test) — hecho, end-to-end
+vía el protocolo MCP real, no simulado:** JWT firmado con `MCP_JWT_SECRET`
+de test, `sub=admin` (rol Admin, tiene el permiso en la DB de test) y
+`sub=test` (rol Gamma, no lo tiene), contra `superset_mcp_test.service`
+(puerto 5009) con `fastmcp.Client`, llamando
+`extensions.irex.irex-mcp-tools.irex.query_dataset`:
+
+- `admin` → ejecuta normalmente, devuelve datos (`{"status":"success",...}`).
+- `test` → rechazado: `Permission denied: can_execute_sql_query on SQLLab
+  for user test (tool: query_dataset)`.
+
+**Punto 7 (contrato de error para el agente del chat) — pendiente de
+coordinar, datos para hacerlo:** `MCPPermissionDeniedError`
+(`superset/mcp_service/auth.py:53`) es una excepción Python simple, **no**
+un código de error MCP/JSON-RPC estructurado — el cliente MCP la recibe
+como contenido de texto libre con el patrón:
+`Permission denied: <permiso> on <vista> for user <usuario> (tool: <tool>)`.
+El agente del chat debe:
+1. Detectar el string `"Permission denied:"` en la respuesta (no hay campo
+   estructurado que lo distinga de otros errores).
+2. No reintentar — es un problema de permisos, no transitorio.
+3. Traducirlo a un mensaje de usuario claro en vez de mostrar el texto
+   técnico crudo.
+
+No probado todavía: los otros 6 usuarios reales de producción (fuera del
+alcance de esta prueba en test, que usa usuarios ficticios); no hace falta
+repetirlo por usuario — el mecanismo ya está verificado y los 8 usuarios de
+producción tienen el permiso vía el alta al rol `acceso chat`.
 
 ### Defensa en profundidad
 
@@ -424,6 +687,20 @@ el usuario debe confirmar.
 Crear `docs/sql-lab-assistant-contract.md` como documento de entrega para el
 agente que mantiene el backend externo del chat.
 
+### Resultado (2026-09-18)
+
+Completada. `frontend/src/contracts/assistant.ts` ya existía desde el spike
+de la Fase 0 (tipos TS en `camelCase`, verificados campo por campo contra
+el JSON de ejemplo de esta fase — coinciden 1:1 salvo el casing). Se creó
+`docs/sql-lab-assistant-contract.md`: documento de entrega con el wire
+format en `snake_case` (igual que el resto de las tools MCP del proyecto),
+tabla de campos, las 6 acciones con su schema, la regla de no parsear SQL
+desde texto libre, la limitación de "solo pestaña activa" (Fase 0), y una
+referencia cruzada al contrato de error `permission_denied` (Fase 2) para
+que quede todo en un solo lugar consultable por el agente del chat. Nota
+explícita sobre la conversión `camelCase` (TS interno) ↔ `snake_case`
+(wire) — la hace el adaptador de la Fase 6, no el backend del chat.
+
 ## Fase 4 — Adaptador público de SQL Lab
 
 Crear `frontend/src/adapters/sqlLabAdapter.ts`. Debe ser el único módulo que
@@ -473,6 +750,178 @@ Cada propuesta debe mostrar explicación, diff, advertencias y botones
 `Aplicar`, `Nueva pestaña`, `Ejecutar` y `Descartar`. Usar componentes de
 `@apache-superset/core/components` y tokens del tema, sin CSS global.
 
+### Resultado (2026-09-18)
+
+Estructura completa creada, reemplazando el panel monolítico del spike:
+
+- `Conversation.tsx` — historial (mensajes usuario/asistente), selector de
+  los 4 flujos y el textarea de pedido. `explain_error` aparece deshabilitado
+  en el `<select>` si no hay un error reciente que explicar.
+- `SqlDiff.tsx` — diff línea por línea (LCS propio, sin dependencia nueva);
+  el "antes" se calcula según el tipo/target de cada acción (`selection` →
+  `editor.selectedSql`, `document` → `editor.sql`, `newTab`/`insert_sql` →
+  vacío, es contenido nuevo).
+- `Diagnostics.tsx` — lista los `diagnostics` de la respuesta con
+  `components.Alert` por severidad.
+- `SqlLabAssistantPanel.tsx` — orquesta: arma el contexto vía
+  `sqlLabAdapter.readActiveContext(mode, userMessage, lastError)`, llama
+  `chatBackendAdapter.requestAssistantResponse`, y renderiza **cada acción
+  de la respuesta como una tarjeta con su propio diff y botones** — no solo
+  `propose_sql`: cualquier acción con `sql` se muestra para confirmar antes
+  de tocar el editor real (nada se autoaplica). `lastError` se llena solo
+  al escuchar `onQueryFail` (mensaje + `executedSql`), habilitando el modo
+  "Explicar/corregir el último error".
+- Único punto donde faltó honrar la instrucción de "usar componentes de
+  `@apache-superset/core/components`": esa superficie pública solo expone
+  `Alert` hoy (confirmado en la Fase 0) — botones/select/textarea usan HTML
+  nativo con estilos inline mínimos, sin CSS global, documentado ya en el
+  spike.
+- Se sacó del panel el "Diagnóstico: getEditor() en pestañas inactivas" del
+  spike (instrumentación temporal que ya cumplió su propósito en la Fase 0 —
+  la función `probeInactiveTabEditors` se conserva en el adaptador por si
+  hace falta para debug, pero no en la UI).
+
+`npx tsc --noEmit` y `npm run build` sin errores; `build-extension.sh`
+completo (112 tests + build + empaquetado) corrido contra
+`extensions_test/`.
+
+### Actualización (2026-09-18) — backend del chat implementado y probado contra el real
+
+El agente que mantiene el backend del chat implementó `POST
+/api/sql-lab-assistant` (y confirmó el manejo de `Permission denied:` como
+error terminal sin reintentos — ver "Requerimientos para el agente del
+chat"). Probado **directamente contra el backend real**
+(`http://186.177.26.27:8008`, el mismo servidor que usan test y
+producción) con `curl`, simulando los headers que agrega el proxy, en los
+3 modos que ya tenían contenido para probar:
+
+- `create` (sin SQL previo) → `message` pidiendo más contexto (tabla/columnas),
+  `actions: []`, un `diagnostic` tipo `info`. Shape correcto.
+- `review_document` (con SQL con un bug real: fecha sin comillas) →
+  `action` tipo `replace_document` con el SQL corregido, 2 `diagnostics`
+  (`warning` + `info`). Shape correcto.
+- `explain_error` (con `last_error`) → explicación del error + `action`
+  `replace_document` con la corrección. Shape correcto.
+
+**Hallazgo, corregido de forma aditiva:** las acciones `replace_document`
+venían con campos `target`/`title` que el contrato original no tipaba para
+ese `type` (solo `propose_sql` tenía `title`). No rompía nada (el parser
+ignoraba lo no tipado), pero perdía el título descriptivo. Se extendió
+`AssistantActionReplaceSelection`/`ReplaceDocument`/`InsertSql` con `title?`
+opcional — cambio compatible hacia atrás, no requirió que el otro agente
+cambiara nada. Actualizado en `contracts/assistant.ts`,
+`chatBackendAdapter.ts`, `SqlLabAssistantPanel.tsx` y
+`docs/sql-lab-assistant-contract.md`.
+
+**No verificado por mí, solo reportado por el otro agente:** el manejo
+interno de `Permission denied:` en su lado (no tengo forma de simular esa
+condición desde afuera sin más contexto de su implementación). El resto
+del contrato sí quedó verificado con datos reales, no solo revisando código.
+
+Pendiente: prueba visual en el navegador (el "Enviar" del panel ya debería
+funcionar end-to-end contra `extensions_test/`, con el `.supx` recién
+regenerado).
+
+### Prueba real del usuario (2026-09-18) — funciona, con 2 hallazgos
+
+Confirmado en navegador: el panel envía, el backend responde, se ve el
+diff y los diagnósticos. Dos hallazgos:
+
+**Bug encontrado y corregido — "Explicar/corregir el último error" se
+quedaba deshabilitado pese a haber un error real.** Causa raíz, confirmada
+leyendo `superset-frontend/src/core/sqlLab/index.ts`: `onDidQueryFail`/
+`onDidQuerySuccess` son eventos *tab-scoped* — el `predicate` que filtra a
+qué pestaña pertenece cada evento captura el `sqlEditorImmutableId` de la
+pestaña activa **en el momento en que se registra el listener**, no
+dinámicamente. El `useEffect` del panel se suscribía una sola vez al
+montar (deps `[]`), así que si el usuario cambiaba de pestaña después, el
+panel dejaba de enterarse de éxitos/fallos de la nueva pestaña activa —
+`lastError` nunca se llenaba y el modo quedaba deshabilitado para siempre.
+Arreglado en `SqlLabAssistantPanel.tsx`: se separó en dos efectos — uno
+para `onDidChangeActiveTab` (evento global, se suscribe una sola vez) que
+incrementa un contador, y otro para `onQuerySuccess`/`onQueryFail` con ese
+contador como dependencia, forzando la re-suscripción cada vez que cambia
+la pestaña activa.
+
+**Confirma el trigger de la Fase 7:** el usuario renombró una columna real
+(`anio_id` → `anio`) y el asistente no pudo resolverlo — el propio backend
+del chat respondió pidiendo textualmente "el mensaje exacto del error y,
+preferiblemente, el esquema o la lista de columnas de la tabla". El bug de
+arriba resuelve la primera parte (el mensaje de error real ahora llega);
+la segunda (lista de columnas) es exactamente lo que `irex.get_sql_schema_context`
+(Fase 7) provee — queda activado el trigger para implementarla.
+
+**Pendiente de definir con el usuario, no un bug:** feedback de que "la
+interfaz está confusa" — sin especificar qué parte. A definir antes de
+iterar más el diseño del panel.
+
+### Pasada de mejora de UX general (2026-09-18)
+
+El usuario confirmó "mejora de UX en general" sin señalar un punto
+puntual — se aplicó criterio propio, acotado a lo que ya se veía en la
+captura que compartió:
+
+- `Conversation.tsx`: cada mensaje ahora lleva un label ("Tú"/"Asistente")
+  además de alineación/color, para no depender solo de la posición.
+  Selector de modo con label "Qué necesitás" arriba. Separador visual
+  entre el historial y el formulario de envío.
+- `Diagnostics.tsx`: colapsado por defecto — muestra un resumen
+  (🔴/🟡/🔵 + conteo) y se expande al click, en vez de listar todas las
+  alertas siempre abiertas (era el "ruido" más visible de la captura
+  original).
+- `SqlLabAssistantPanel.tsx`: las tarjetas de propuesta (`ActionCard`)
+  ahora tienen borde izquierdo de color y un ícono 💡 para separarse
+  claramente del resto; botones con jerarquía visual (Aplicar/Nueva
+  pestaña en azul, Ejecutar en ámbar de advertencia, Descartar neutro).
+  Encabezado del panel con subtítulo explicando qué hace. Secciones
+  ("Propuesta") separadas con línea divisoria y label. El aviso de
+  ejecución pendiente ahora tiene fondo distintivo en vez de texto plano.
+
+No se agregaron dependencias nuevas ni se tocó `sqlLabAdapter.ts`/
+`chatBackendAdapter.ts` — solo presentación. `npx tsc --noEmit` y
+`build-extension.sh` completo sin errores, desplegado a `extensions_test/`.
+Pendiente: feedback del usuario sobre si esto resuelve lo que le resultaba
+confuso, o si hace falta profundizar en algo puntual.
+
+### Rediseño con tema claro/oscuro + estilo tipo chat (2026-09-18)
+
+El usuario mostró una comparación lado a lado con "El Don con IA" (el
+widget de chat de dashboards ya existente) y pidió un formato similar,
+además de legibilidad en ambos temas — hasta este punto todos los colores
+del panel estaban hardcodeados a valores claros, sin adaptarse a modo
+oscuro.
+
+**Theming:** se adoptó `theme.useTheme()` de `@apache-superset/core`
+(hook de Emotion sobre los design tokens de Ant Design v5 — los mismos
+`colorBgContainer`/`colorText`/`colorBorder`/`colorPrimary`/etc. que usa
+el resto de Superset) en los 3 componentes de presentación
+(`Conversation.tsx`, `Diagnostics.tsx`, `SqlLabAssistantPanel.tsx`) en vez
+de valores hex fijos — el panel ahora sigue automáticamente el tema activo
+de Superset sin lógica propia de `prefers-color-scheme`. Nota de
+compatibilidad: `@apache-superset/core/theme` como subpath no resuelve
+bajo `moduleResolution: node10` (misma limitación que `/components` y
+`/sqlLab`, ver Fase 0) — el tipo del tema se obtiene con
+`ReturnType<typeof themeNs.useTheme>` en vez de importar `SupersetTheme`
+directamente.
+
+**Estilo tipo chat, inspirado en el widget existente (sin acceso a su
+código — es de otro repo/servidor, se replicó la estética visible en la
+captura):**
+- `SqlDiff.tsx`: bloque de código con header ("SQL" + botón copiar) y
+  fondo oscuro fijo tipo terminal/editor (`#1e1e2e`), independiente del
+  tema del panel — mismo criterio que la mayoría de UIs de chat con código
+  (el bloque de código no sigue el tema del chat, prioriza contraste de
+  sintaxis). Colores de línea agregada/eliminada en verde/rojo sobre ese
+  fondo oscuro.
+- `Conversation.tsx`: avatares circulares (🧑/✨) junto a cada burbuja,
+  con `flexDirection: row-reverse` para el usuario (avatar a la derecha,
+  como en la referencia).
+
+Verificado: `npx tsc --noEmit` sin errores, `build-extension.sh` completo,
+desplegado a `extensions_test/`. Pendiente: confirmación visual del
+usuario en ambos temas (claro y oscuro) — no hay forma de probar el
+render real sin el navegador.
+
 ## Fase 6 — Integración con el chat
 
 Primera iteración:
@@ -490,6 +939,24 @@ Portabilidad posterior:
 - conservar temporalmente las rutas antiguas como capa de compatibilidad;
 - leer URLs y secretos solo desde configuración/entorno del servidor;
 - nunca incluir secretos MCP, del modelo o del chat en el bundle JavaScript.
+
+### Resultado, primera iteración (2026-09-18)
+
+`frontend/src/adapters/chatBackendAdapter.ts` creado: `fetch` same-origin a
+`/api/chat-widget/api/sql-lab-assistant` (reutiliza el proxy existente, sin
+JWT ni secretos en el bundle — confirma los 4 puntos de "primera
+iteración" de arriba). Serializa `AssistantContext` a `snake_case`,
+parsea la respuesta validando `contract_version`/`message`/`actions`/
+`diagnostics` campo por campo (sin `any`), y expone
+`AssistantBackendError` con el texto crudo del backend — incluye el caso
+`Permission denied: ...` de la Fase 2, que el panel puede mostrar sin
+reintentar. Nombre del endpoint documentado como nota para el otro agente
+en "Requerimientos para el agente del chat" más arriba.
+
+Pendiente de esta fase: conectar `chatBackendAdapter.ts` al panel real
+(hoy el panel del spike sigue usando una propuesta simulada localmente —
+ver Fase 5) y la portabilidad posterior a REST API de la extensión (no
+urgente mientras el proxy actual funcione).
 
 ## Fase 7 — Contexto de esquema opcional
 
@@ -509,6 +976,55 @@ Requisitos:
 - agregar el nombre completo a `MCP_TOOL_SEARCH_CONFIG.always_visible`, como
   exige `CLAUDE.md` para toda tool nueva;
 - pruebas unitarias de permiso, acceso por base y serialización.
+
+### Resultado (2026-09-18) — implementada, activada por un caso real
+
+Trigger disparado: el usuario probó el panel, renombró una columna real
+(`anio_id` → `anio`) y el asistente no pudo resolverlo porque no conocía
+el esquema real — confirmado en la Fase 6. Implementada
+`irex.get_sql_schema_context` en `backend/src/irex/irex_mcp_tools/sql_schema_context.py`.
+
+Reutiliza infraestructura ya existente de Superset en vez de reinventarla:
+`superset.databases.utils.get_table_metadata` (la misma función que
+alimenta el árbol de tablas/columnas nativo de SQL Lab) y
+`security_manager.can_access_table` (el mismo chequeo que usa el endpoint
+REST equivalente, `check_table_access` en `superset/databases/decorators.py`).
+Dos modos: sin `table` lista nombres de tabla (con `search` opcional,
+tope 50); con `table` devuelve columnas (nombre, tipo, comentario, tope
+300). Permiso `class_permission_name="SQLLab",
+method_permission_name="execute_sql_query"` — igual que las 7 tools de
+datos de la Fase 2, así que ya funciona para los mismos 8 usuarios del
+chat sin necesitar otra alta de permisos.
+
+**Desviación consciente de un requisito del plan:** no se aisló el import
+interno de Superset en `backend/.../compat/` — ninguna otra tool irex usa
+ese patrón (todas importan directo dentro de la función, con el comentario
+"import inside function to avoid initialization issues"); introducirlo
+solo para esta tool habría sido inconsistente con el resto del código real.
+
+Registrada en `entrypoint.py` y agregada a `MCP_TOOL_SEARCH_CONFIG.always_visible`
+— **solo en `superset_config_test.py` por ahora**, no en el config de
+producción, siguiendo el mismo patrón de esta sesión (código primero en
+test, producción con autorización explícita aparte).
+
+**Probado end-to-end contra el MCP de test real** (no solo con los 123
+tests unitarios — 11 nuevos para esta tool, permiso/acceso/serialización
+cubiertos) con `database_id=3` (ClickHouse) y la tabla real
+`ch_corte_ventas_vm` del caso que reportó el usuario:
+- Listado sin `table`: 10 tablas devueltas de un total mayor,
+  `truncated: true`.
+- `search="corte"`: encuentra `ch_corte_ventas_vm`, `corte_ventas_vm`,
+  `corte_ventas_vm__new__...`.
+- `table="ch_corte_ventas_vm"`: la columna real aparece como **`anio_id`**
+  — exactamente el nombre que el asistente necesitaba para no aceptar
+  `anio` como válido.
+- Usuario sin permiso (`test`, rol Gamma): mismo `Permission denied:
+  can_execute_sql_query on SQLLab for user test (tool: get_sql_schema_context)`
+  que las demás tools — el gate ya cubre la tool nueva sin cambios extra.
+
+Pendiente: que el agente del chat empiece a llamar esta tool cuando
+necesite confirmar un nombre de columna/tabla antes de proponer SQL —
+anotado en "Requerimientos para el agente del chat".
 
 ## Fase 8 — Aplicación y ejecución segura
 

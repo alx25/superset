@@ -140,6 +140,8 @@ def _query_single_column(
         "{column:'marca', search:'irex'}]"
     ),
     tags=["irex", "negocio", "consulta", "filtros"],
+    class_permission_name="SQLLab",
+    method_permission_name="execute_sql_query",
 )
 def list_column_values(request: ListColumnValuesRequest) -> dict[str, Any]:
     ts = datetime.now(timezone.utc).isoformat()

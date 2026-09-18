@@ -28,11 +28,29 @@ export interface AssistantEditorContext {
   cursor: AssistantCursorPosition;
 }
 
+/**
+ * Los 4 flujos ofrecidos por el panel (Fase 5). Determinan qué le pide el
+ * usuario al asistente sobre el contexto adjunto:
+ * - create: partir de cero, sin SQL previo relevante.
+ * - review_document: revisar/corregir todo el contenido del editor.
+ * - review_selection: revisar/corregir solo el texto seleccionado.
+ * - explain_error: explicar y proponer una corrección para `lastError`.
+ */
+export type AssistantMode = 'create' | 'review_document' | 'review_selection' | 'explain_error';
+
+export interface AssistantLastError {
+  message: string;
+  sql: string;
+}
+
 export interface AssistantContext {
   contractVersion: typeof ASSISTANT_CONTRACT_VERSION;
   source: 'superset_sqllab';
+  mode: AssistantMode;
+  userMessage: string;
   tab: AssistantTabContext;
   editor: AssistantEditorContext;
+  lastError?: AssistantLastError;
 }
 
 export type AssistantActionTarget = 'selection' | 'document' | 'newTab';
@@ -47,16 +65,20 @@ export interface AssistantActionProposeSql {
 export interface AssistantActionReplaceSelection {
   type: 'replace_selection';
   sql: string;
+  /** Opcional: si viene, se muestra como título de la tarjeta en vez del genérico. */
+  title?: string;
 }
 
 export interface AssistantActionReplaceDocument {
   type: 'replace_document';
   sql: string;
+  title?: string;
 }
 
 export interface AssistantActionInsertSql {
   type: 'insert_sql';
   sql: string;
+  title?: string;
 }
 
 export interface AssistantActionCreateTab {

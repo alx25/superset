@@ -1,7 +1,16 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { components } from '@apache-superset/core';
-import type { AssistantContext, AssistantResponse } from '../contracts/assistant';
-import { ASSISTANT_CONTRACT_VERSION } from '../contracts/assistant';
+import React, { useCallback, useState } from 'react';
+import { components, theme as themeNs } from '@apache-superset/core';
+import type {
+  AssistantAction,
+  AssistantContext,
+  AssistantLastError,
+  AssistantMode,
+  AssistantResponse,
+} from '../contracts/assistant';
+import {
+  AssistantBackendError,
+  requestAssistantResponse,
+} from '../adapters/chatBackendAdapter';
 import {
   applyAction,
   cancelQuery,
@@ -10,157 +19,297 @@ import {
   onActiveTabChanged,
   onQueryFail,
   onQuerySuccess,
-  probeInactiveTabEditors,
   readActiveContext,
-  type TabEditorProbeResult,
 } from '../adapters/sqlLabAdapter';
+import { Conversation, type ConversationMessage } from './Conversation';
+import { Diagnostics } from './Diagnostics';
+import { SqlDiff } from './SqlDiff';
 
-/**
- * Panel del spike (Fase 0). No llama a ningún backend real todavía —
- * la "propuesta" se genera localmente para validar el ciclo completo
- * (leer contexto -> mostrar diff -> aplicar -> ejecutar confirmado)
- * antes de conectar el contrato con el chat externo en la Fase 6.
- */
-function buildSimulatedProposal(context: AssistantContext): AssistantResponse {
-  const { editor } = context;
+type PanelTheme = ReturnType<typeof themeNs.useTheme>;
 
-  if (editor.selectedSql.trim().length > 0) {
-    return {
-      contractVersion: ASSISTANT_CONTRACT_VERSION,
-      message: 'Propuesta simulada: envolver la selección en un conteo de filas.',
-      actions: [
-        {
-          type: 'propose_sql',
-          target: 'selection',
-          title: 'Contar filas de la selección',
-          sql: `SELECT COUNT(*) AS row_count\nFROM (\n${editor.selectedSql}\n) AS subquery`,
-        },
-      ],
-      diagnostics: [],
-    };
-  }
-
+function buttonBase(theme: PanelTheme): React.CSSProperties {
   return {
-    contractVersion: ASSISTANT_CONTRACT_VERSION,
-    message: 'Propuesta simulada: agregar un LIMIT de seguridad al documento.',
-    actions: [
-      {
-        type: 'propose_sql',
-        target: 'document',
-        title: 'Agregar LIMIT 100',
-        sql: `${editor.sql.trimEnd()}\nLIMIT 100`,
-      },
-      {
-        type: 'create_tab',
-        title: 'Consulta de ejemplo (spike)',
-        sql: 'SELECT 1 AS spike_probe',
-      },
-    ],
-    diagnostics: [],
+    border: '1px solid transparent',
+    borderRadius: theme.borderRadiusSM,
+    padding: '4px 10px',
+    fontSize: 12,
+    cursor: 'pointer',
   };
+}
+function buttonPrimary(theme: PanelTheme): React.CSSProperties {
+  return { ...buttonBase(theme), background: theme.colorPrimary, color: theme.colorWhite ?? '#fff' };
+}
+function buttonWarning(theme: PanelTheme): React.CSSProperties {
+  return {
+    ...buttonBase(theme),
+    background: theme.colorBgContainer,
+    color: theme.colorWarningText ?? theme.colorWarning,
+    borderColor: theme.colorWarningBorder ?? theme.colorWarning,
+  };
+}
+function buttonGhost(theme: PanelTheme): React.CSSProperties {
+  return {
+    ...buttonBase(theme),
+    background: theme.colorBgContainer,
+    color: theme.colorTextSecondary,
+    borderColor: theme.colorBorder,
+  };
+}
+
+/** Texto contra el que se calcula el diff visual de cada acción, según su tipo y target. */
+function diffBeforeFor(action: AssistantAction, context: AssistantContext): string {
+  if (action.type === 'propose_sql') {
+    if (action.target === 'selection') return context.editor.selectedSql;
+    if (action.target === 'document') return context.editor.sql;
+    return ''; // newTab: no hay contenido previo
+  }
+  if (action.type === 'replace_selection') return context.editor.selectedSql;
+  if (action.type === 'replace_document') return context.editor.sql;
+  return ''; // insert_sql / create_tab / suggest_execution: contenido nuevo, sin "antes"
+}
+
+function titleFor(action: AssistantAction): string {
+  switch (action.type) {
+    case 'propose_sql':
+      return action.title;
+    case 'replace_selection':
+      return action.title ?? 'Reemplazar selección';
+    case 'replace_document':
+      return action.title ?? 'Reemplazar documento';
+    case 'insert_sql':
+      return action.title ?? 'Insertar en el cursor';
+    case 'create_tab':
+      return action.title ?? 'Nueva pestaña';
+    case 'suggest_execution':
+      return action.reason ?? 'Ejecutar SQL sugerido';
+    default:
+      return 'Acción';
+  }
+}
+
+interface ActionCardProps {
+  action: AssistantAction;
+  context: AssistantContext;
+  onDismiss: () => void;
+  onExecuted: (queryId: string) => void;
+}
+
+function ActionCard({ action, context, onDismiss, onExecuted }: ActionCardProps): React.ReactElement {
+  const theme = themeNs.useTheme();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+
+  const runApply = useCallback(
+    async (
+      applied: AssistantAction | { type: 'propose_sql_apply'; target: 'selection' | 'document' | 'newTab'; sql: string; title: string },
+    ) => {
+      setBusy(true);
+      setError(undefined);
+      try {
+        if (applied.type === 'propose_sql_apply') {
+          if (applied.target === 'selection') {
+            await applyAction({ type: 'replace_selection', sql: applied.sql });
+          } else if (applied.target === 'document') {
+            await applyAction({ type: 'replace_document', sql: applied.sql });
+          } else {
+            await applyAction({ type: 'create_tab', sql: applied.sql, title: applied.title });
+          }
+        } else {
+          await applyAction(applied);
+        }
+        onDismiss();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [onDismiss],
+  );
+
+  const runExecute = useCallback(
+    async (sql: string) => {
+      const confirmed = window.confirm(
+        `Vas a ejecutar este SQL contra la base de la pestaña activa:\n\n${sql}\n\n¿Confirmar ejecución?`,
+      );
+      if (!confirmed) return;
+      setBusy(true);
+      setError(undefined);
+      try {
+        const queryId = await executeConfirmed(sql);
+        onExecuted(queryId);
+        onDismiss();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [onDismiss, onExecuted],
+  );
+
+  const before = diffBeforeFor(action, context);
+  const sql = 'sql' in action ? action.sql : '';
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${theme.colorPrimaryBorder ?? theme.colorBorder}`,
+        borderLeft: `3px solid ${theme.colorPrimary}`,
+        borderRadius: theme.borderRadius,
+        padding: 10,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        background: theme.colorPrimaryBg ?? theme.colorBgContainer,
+      }}
+    >
+      <strong style={{ fontSize: 12.5, color: theme.colorText }}>💡 {titleFor(action)}</strong>
+      <SqlDiff before={before} after={sql} />
+      {error && <components.Alert type="error" message={error} showIcon />}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {action.type === 'propose_sql' && (
+          <>
+            <button
+              type="button"
+              disabled={busy}
+              style={buttonPrimary(theme)}
+              onClick={() =>
+                runApply({ type: 'propose_sql_apply', target: action.target, sql: action.sql, title: action.title })
+              }
+            >
+              {action.target === 'newTab' ? 'Nueva pestaña' : 'Aplicar'}
+            </button>
+            <button type="button" disabled={busy} style={buttonWarning(theme)} onClick={() => runExecute(action.sql)}>
+              Ejecutar
+            </button>
+          </>
+        )}
+        {(action.type === 'replace_selection' ||
+          action.type === 'replace_document' ||
+          action.type === 'insert_sql') && (
+          <button type="button" disabled={busy} style={buttonPrimary(theme)} onClick={() => runApply(action)}>
+            Aplicar
+          </button>
+        )}
+        {action.type === 'create_tab' && (
+          <button type="button" disabled={busy} style={buttonPrimary(theme)} onClick={() => runApply(action)}>
+            Nueva pestaña
+          </button>
+        )}
+        {action.type === 'suggest_execution' && (
+          <button type="button" disabled={busy} style={buttonWarning(theme)} onClick={() => runExecute(action.sql)}>
+            Ejecutar
+          </button>
+        )}
+        <button type="button" disabled={busy} style={buttonGhost(theme)} onClick={onDismiss}>
+          Descartar
+        </button>
+      </div>
+    </div>
+  );
 }
 
 type QueryEventStatus = { kind: 'success' } | { kind: 'error'; message: string };
 
 export function SqlLabAssistantPanel(): React.ReactElement {
-  const [context, setContext] = useState<AssistantContext | undefined>();
-  const [contextError, setContextError] = useState<string | undefined>();
+  const theme = themeNs.useTheme();
+  const [mode, setMode] = useState<AssistantMode>('create');
+  const [userMessage, setUserMessage] = useState('');
+  const [history, setHistory] = useState<ConversationMessage[]>([]);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | undefined>();
   const [proposal, setProposal] = useState<AssistantResponse | undefined>();
-  const [lastQueryEvent, setLastQueryEvent] = useState<QueryEventStatus | undefined>();
+  const [proposalContext, setProposalContext] = useState<AssistantContext | undefined>();
+  const [lastError, setLastError] = useState<AssistantLastError | undefined>();
   const [pendingQueryId, setPendingQueryId] = useState<string | undefined>();
-  const [probeResults, setProbeResults] = useState<TabEditorProbeResult[] | undefined>();
-  const [probeRunning, setProbeRunning] = useState(false);
+  const [lastQueryEvent, setLastQueryEvent] = useState<QueryEventStatus | undefined>();
+  const [contextUnavailable, setContextUnavailable] = useState<string | undefined>();
+  const [activeTabVersion, setActiveTabVersion] = useState(0);
 
-  const refreshContext = useCallback(() => {
-    readActiveContext()
-      .then(next => {
-        setContext(next);
-        setContextError(undefined);
-      })
-      .catch((error: unknown) => {
-        setContext(undefined);
-        setContextError(
-          error instanceof NoActiveTabError
-            ? error.message
-            : `No se pudo leer el contexto: ${String(error)}`,
-        );
-      });
+  // onDidChangeActiveTab es un evento global (no atado a una pestaña), así
+  // que este efecto se suscribe una sola vez.
+  React.useEffect(() => {
+    const activeTabDisposable = onActiveTabChanged(() => {
+      setContextUnavailable(undefined);
+      // onQuerySuccess/onQueryFail SÍ son tab-scoped: el filtro de a qué
+      // pestaña pertenecen queda fijado en el momento en que se registra el
+      // listener (ver superset-frontend/src/core/sqlLab/index.ts, `predicate`).
+      // Sin este bump, el panel seguiría escuchando solo la pestaña que
+      // estaba activa cuando se montó, y nunca se enteraría de un error
+      // ocurrido en otra pestaña a la que el usuario cambió después.
+      setActiveTabVersion(v => v + 1);
+    });
+    return () => activeTabDisposable.dispose();
   }, []);
 
-  useEffect(() => {
-    refreshContext();
-    const activeTabDisposable = onActiveTabChanged(() => refreshContext());
+  // Tab-scoped: se re-suscribe cada vez que cambia la pestaña activa.
+  React.useEffect(() => {
     const successDisposable = onQuerySuccess(() => {
       setLastQueryEvent({ kind: 'success' });
       setPendingQueryId(undefined);
-      refreshContext();
     });
     const failDisposable = onQueryFail((result: unknown) => {
       const message =
         typeof result === 'object' && result !== null && 'errorMessage' in result
           ? String((result as { errorMessage: unknown }).errorMessage)
           : 'La consulta falló.';
+      const executedSql =
+        typeof result === 'object' && result !== null && 'executedSql' in result
+          ? String((result as { executedSql: unknown }).executedSql ?? '')
+          : '';
       setLastQueryEvent({ kind: 'error', message });
+      setLastError({ message, sql: executedSql });
       setPendingQueryId(undefined);
     });
     return () => {
-      activeTabDisposable.dispose();
       successDisposable.dispose();
       failDisposable.dispose();
     };
-  }, [refreshContext]);
+  }, [activeTabVersion]);
 
-  const handleSimulateProposal = useCallback(() => {
-    if (!context) {
+  const handleSend = useCallback(async () => {
+    if (!userMessage.trim() && mode !== 'explain_error') {
       return;
     }
-    setProposal(buildSimulatedProposal(context));
-  }, [context]);
+    setSending(true);
+    setSendError(undefined);
+    setHistory(prev => [...prev, { role: 'user', text: userMessage || `[${mode}]` }]);
 
-  const handleApply = useCallback(async () => {
-    if (!proposal) {
-      return;
-    }
-    for (const action of proposal.actions) {
-      if (action.type === 'propose_sql') {
-        if (action.target === 'selection') {
-          await applyAction({ type: 'replace_selection', sql: action.sql });
-        } else if (action.target === 'document') {
-          await applyAction({ type: 'replace_document', sql: action.sql });
-        } else if (action.target === 'newTab') {
-          await applyAction({ type: 'create_tab', sql: action.sql, title: action.title });
-        }
-      } else if (action.type === 'create_tab') {
-        // La acción create_tab de ejemplo solo se aplica explícitamente,
-        // vía el botón "Nueva pestaña de ejemplo" (no con "Aplicar").
+    try {
+      const context = await readActiveContext(
+        mode,
+        userMessage,
+        mode === 'explain_error' ? lastError : undefined,
+      );
+      const response = await requestAssistantResponse(context);
+      setProposal(response);
+      setProposalContext(context);
+      setHistory(prev => [...prev, { role: 'assistant', text: response.message }]);
+      setUserMessage('');
+    } catch (e) {
+      let message: string;
+      if (e instanceof NoActiveTabError) {
+        message = e.message;
+      } else if (e instanceof AssistantBackendError) {
+        message = e.message;
+      } else {
+        message = e instanceof Error ? e.message : String(e);
       }
+      setSendError(message);
+      setHistory(prev => [...prev, { role: 'assistant', text: `Error: ${message}` }]);
+    } finally {
+      setSending(false);
     }
-    setProposal(undefined);
-    refreshContext();
-  }, [proposal, refreshContext]);
+  }, [mode, userMessage, lastError]);
 
-  const handleCreateExampleTab = useCallback(async () => {
-    const createTabAction = proposal?.actions.find(action => action.type === 'create_tab');
-    if (createTabAction?.type === 'create_tab') {
-      await applyAction(createTabAction);
-    }
-  }, [proposal]);
-
-  const handleExecuteConfirmed = useCallback(async () => {
-    const proposeSqlAction = proposal?.actions.find(action => action.type === 'propose_sql');
-    if (proposeSqlAction?.type !== 'propose_sql') {
-      return;
-    }
-    const confirmed = window.confirm(
-      `Vas a ejecutar este SQL contra la base de la pestaña activa:\n\n${proposeSqlAction.sql}\n\n¿Confirmar ejecución?`,
-    );
-    if (!confirmed) {
-      return;
-    }
-    const queryId = await executeConfirmed(proposeSqlAction.sql);
-    setPendingQueryId(queryId);
-    setLastQueryEvent(undefined);
-  }, [proposal]);
+  const dismissAction = useCallback((index: number) => {
+    setProposal(prev => {
+      if (!prev) return prev;
+      const actions = prev.actions.filter((_, i) => i !== index);
+      return { ...prev, actions };
+    });
+  }, []);
 
   const handleCancelQuery = useCallback(() => {
     if (pendingQueryId) {
@@ -168,114 +317,107 @@ export function SqlLabAssistantPanel(): React.ReactElement {
     }
   }, [pendingQueryId]);
 
-  const handleRunProbe = useCallback(async () => {
-    setProbeRunning(true);
-    try {
-      const results = await probeInactiveTabEditors(1500);
-      setProbeResults(results);
-    } finally {
-      setProbeRunning(false);
-    }
-  }, []);
-
-  const sqlPreview = useMemo(() => {
-    if (!context) return '';
-    const { sql } = context.editor;
-    return sql.length > 300 ? `${sql.slice(0, 300)}…` : sql;
-  }, [context]);
-
   return (
-    <div style={{ padding: 12, fontSize: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div>
-        <strong>Asistente SQL Lab — spike (Fase 0)</strong>
-        <p style={{ color: '#666', margin: '4px 0' }}>
-          Panel descartable para validar la API de SQL Lab. No conecta con el chat todavía.
-        </p>
+    <div
+      style={{
+        padding: 14,
+        fontSize: 12,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 14,
+        background: theme.colorBgContainer,
+        color: theme.colorText,
+        height: '100%',
+        boxSizing: 'border-box',
+      }}
+    >
+      <div style={{ borderBottom: `1px solid ${theme.colorBorderSecondary}`, paddingBottom: 8 }}>
+        <div style={{ fontSize: 14, fontWeight: 700 }}>Asistente SQL Lab</div>
+        <div style={{ fontSize: 11, color: theme.colorTextSecondary }}>
+          Propone cambios sobre la pestaña activa — nada se aplica ni se ejecuta sin confirmación.
+        </div>
       </div>
 
-      <section>
-        <button type="button" onClick={refreshContext}>
-          Actualizar contexto
-        </button>
-        {contextError && <components.Alert type="warning" message={contextError} showIcon />}
-        {context && (
-          <dl style={{ fontFamily: 'monospace', fontSize: 11 }}>
-            <div>tab.id: {context.tab.id}</div>
-            <div>tab.title: {context.tab.title}</div>
-            <div>databaseId: {context.tab.databaseId}</div>
-            <div>schema: {context.tab.schema ?? '(ninguno)'}</div>
-            <div>cursor: L{context.editor.cursor.line + 1}:C{context.editor.cursor.column + 1}</div>
-            <div>selección: {context.editor.selectedSql ? `${context.editor.selectedSql.length} caracteres` : '(vacía)'}</div>
-            <pre style={{ whiteSpace: 'pre-wrap', background: '#f5f5f5', padding: 6 }}>{sqlPreview || '(editor vacío)'}</pre>
-          </dl>
-        )}
-      </section>
+      <Conversation
+        history={history}
+        mode={mode}
+        onModeChange={setMode}
+        userMessage={userMessage}
+        onUserMessageChange={setUserMessage}
+        onSend={handleSend}
+        sending={sending}
+        sendDisabledReason={contextUnavailable}
+        explainErrorDisabled={!lastError}
+      />
 
-      <section>
-        <button type="button" onClick={handleSimulateProposal} disabled={!context}>
-          Simular propuesta
-        </button>
-        {proposal && (
-          <div style={{ border: '1px solid #ddd', padding: 8, marginTop: 6 }}>
-            <div>{proposal.message}</div>
-            {proposal.actions
-              .filter(action => action.type === 'propose_sql')
-              .map(action =>
-                action.type === 'propose_sql' ? (
-                  <pre key={action.title} style={{ whiteSpace: 'pre-wrap', background: '#eef7ee', padding: 6 }}>
-                    {action.sql}
-                  </pre>
-                ) : null,
-              )}
-            <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-              <button type="button" onClick={handleApply}>Aplicar</button>
-              {proposal.actions.some(action => action.type === 'create_tab') && (
-                <button type="button" onClick={handleCreateExampleTab}>Nueva pestaña de ejemplo</button>
-              )}
-              <button type="button" onClick={handleExecuteConfirmed}>Ejecutar (con confirmación)</button>
-              <button type="button" onClick={() => setProposal(undefined)}>Descartar</button>
-            </div>
-          </div>
-        )}
-        {pendingQueryId && (
-          <div style={{ marginTop: 6 }}>
-            Ejecutando queryId={pendingQueryId}...{' '}
-            <button type="button" onClick={handleCancelQuery}>Cancelar</button>
-          </div>
-        )}
-        {lastQueryEvent?.kind === 'success' && <components.Alert type="success" message="Consulta ejecutada correctamente." showIcon />}
-        {lastQueryEvent?.kind === 'error' && <components.Alert type="error" message={lastQueryEvent.message} showIcon />}
-      </section>
+      {sendError && <components.Alert type="error" message={sendError} showIcon />}
 
-      <section>
-        <button type="button" onClick={handleRunProbe} disabled={probeRunning}>
-          {probeRunning ? 'Midiendo…' : 'Diagnóstico: getEditor() en pestañas inactivas'}
-        </button>
-        {probeResults && (
-          <table style={{ fontSize: 11, marginTop: 6, borderCollapse: 'collapse', width: '100%' }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid #ccc' }}>Pestaña</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid #ccc' }}>Activa</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid #ccc' }}>Estado</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid #ccc' }}>ms</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid #ccc' }}>Detalle</th>
-              </tr>
-            </thead>
-            <tbody>
-              {probeResults.map(result => (
-                <tr key={result.tabId}>
-                  <td>{result.tabTitle}</td>
-                  <td>{result.isActive ? 'sí' : 'no'}</td>
-                  <td>{result.status}</td>
-                  <td>{result.elapsedMs.toFixed(0)}</td>
-                  <td>{result.valuePreview ?? result.errorMessage ?? ''}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
+      {proposal && proposalContext && proposal.actions.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            borderTop: `1px solid ${theme.colorBorderSecondary}`,
+            paddingTop: 10,
+          }}
+        >
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 600,
+              color: theme.colorTextSecondary,
+              textTransform: 'uppercase',
+              letterSpacing: 0.3,
+            }}
+          >
+            Propuesta
+          </span>
+          <Diagnostics diagnostics={proposal.diagnostics} />
+          {proposal.actions.map((action, index) => (
+            <ActionCard
+              // eslint-disable-next-line react/no-array-index-key
+              key={index}
+              action={action}
+              context={proposalContext}
+              onDismiss={() => dismissAction(index)}
+              onExecuted={setPendingQueryId}
+            />
+          ))}
+        </div>
+      )}
+      {proposal && proposal.actions.length === 0 && (
+        <Diagnostics diagnostics={proposal.diagnostics} />
+      )}
+
+      {pendingQueryId && (
+        <div
+          style={{
+            background: theme.colorWarningBg ?? theme.colorBgContainer,
+            border: `1px solid ${theme.colorWarningBorder ?? theme.colorWarning}`,
+            borderRadius: theme.borderRadius,
+            padding: '6px 10px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <span>Ejecutando queryId={pendingQueryId}…</span>
+          <button type="button" style={buttonGhost(theme)} onClick={handleCancelQuery}>
+            Cancelar
+          </button>
+        </div>
+      )}
+      {lastQueryEvent?.kind === 'success' && (
+        <components.Alert type="success" message="Consulta ejecutada correctamente." showIcon />
+      )}
+      {lastQueryEvent?.kind === 'error' && (
+        <components.Alert
+          type="error"
+          message={`${lastQueryEvent.message} — podés usar "Explicar/corregir el último error" para pedir ayuda.`}
+          showIcon
+        />
+      )}
     </div>
   );
 }

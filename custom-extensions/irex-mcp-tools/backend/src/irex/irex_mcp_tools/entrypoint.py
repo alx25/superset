@@ -12,6 +12,7 @@ from . import compare_periods  # noqa: F401
 from . import export_excel  # noqa: F401
 from . import sql_analysis  # noqa: F401
 from . import rank_partitions  # noqa: F401
+from . import sql_schema_context  # noqa: F401
 from .auth_bridge import install_auth_bridge
 
 install_auth_bridge()

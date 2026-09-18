@@ -1,5 +1,417 @@
 ## Registro de cambios
 
+### 2026-09-18 (15) (rediseño: tema claro/oscuro + estilo tipo chat)
+
+Cambio realizado:
+El usuario comparó el panel con "El Don con IA" (widget de chat de dashboards existente,
+de otro repo/servidor) y pidió un formato similar, legible en tema claro y oscuro. Todos
+los colores del panel estaban hardcodeados a valores claros — se migró a los design
+tokens de tema de Superset, y se rediseñaron los bloques de código y el historial con
+estilo tipo chat.
+
+Archivos afectados:
+- `frontend/src/assistant/SqlDiff.tsx` (bloque de código con header + botón copiar, fondo
+  oscuro fijo tipo terminal)
+- `frontend/src/assistant/Conversation.tsx` (avatares, colores vía `theme.useTheme()`)
+- `frontend/src/assistant/Diagnostics.tsx` (colores vía tema)
+- `frontend/src/assistant/SqlLabAssistantPanel.tsx` (botones y contenedores vía tema)
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (regenerado)
+- `PLAN_ASISTENTE_SQL_LAB.md` (resultado en la Fase 5)
+
+Que cambia o corrige:
+- Se adoptó `theme.useTheme()` de `@apache-superset/core` (tokens de Ant Design v5 que ya
+  usa el resto de Superset) en vez de colores hex fijos — el panel ahora sigue el tema
+  activo (claro/oscuro) automáticamente, sin lógica propia de `prefers-color-scheme`.
+- Nota de compatibilidad: `@apache-superset/core/theme` como subpath no resuelve bajo
+  `moduleResolution: node10` (misma limitación ya documentada para `/components` y
+  `/sqlLab` en la Fase 0) — el tipo del tema se obtiene con
+  `ReturnType<typeof themeNs.useTheme>` en vez de importar `SupersetTheme` directamente.
+- El bloque de código SQL (`SqlDiff`) usa un fondo oscuro fijo independiente del tema del
+  panel — mismo criterio que la mayoría de UIs de chat con código, prioriza contraste de
+  sintaxis sobre seguir el tema circundante.
+- Avatares circulares agregados al historial de conversación, inspirados en la estética
+  del widget de chat existente (no se tuvo acceso a su código — vive en otro repo/servidor
+  mantenido por el otro agente — se replicó solo lo visible en la captura compartida).
+
+Verificacion:
+- `npx tsc --noEmit` sin errores tras migrar los 3 componentes de presentación.
+- `build-extension.sh` completo, `.supx` desplegado en `extensions_test/`.
+- Pendiente: confirmación visual del usuario en tema claro y oscuro — no hay forma de
+  probar el render real sin el navegador.
+
+### 2026-09-18 (14) (mejora de UX general del panel de SQL Lab)
+
+Cambio realizado:
+Pasada de mejora de UX sobre el panel, a pedido genérico del usuario ("mejora de UX en
+general", sin un punto puntual) tras ver la interfaz en la primera prueba real. Solo
+presentación — sin cambios de lógica ni dependencias nuevas.
+
+Archivos afectados:
+- `frontend/src/assistant/Conversation.tsx`
+- `frontend/src/assistant/Diagnostics.tsx`
+- `frontend/src/assistant/SqlLabAssistantPanel.tsx`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (regenerado)
+- `PLAN_ASISTENTE_SQL_LAB.md` (resultado en la Fase 5)
+
+Que cambia o corrige:
+- Mensajes del historial ahora llevan label "Tú"/"Asistente" además de color/alineación.
+- Diagnósticos colapsados por defecto (resumen con conteo por severidad + expandir) en vez
+  de mostrar todas las alertas siempre abiertas.
+- Tarjetas de propuesta con borde de color e ícono para distinguirse del resto; botones
+  con jerarquía visual (Aplicar en azul, Ejecutar en ámbar de advertencia, Descartar
+  neutro).
+- Encabezado del panel con subtítulo explicativo; secciones separadas con línea divisoria
+  y label ("Propuesta").
+
+Verificacion:
+- `npx tsc --noEmit` y `build-extension.sh` completo sin errores.
+- Pendiente: confirmación del usuario de que esto atiende lo que le resultaba confuso.
+
+### 2026-09-18 (13) (Fase 7 del asistente SQL Lab — tool irex.get_sql_schema_context)
+
+Cambio realizado:
+Se implementó la tool de esquema real (Fase 7), activada por un caso concreto: el usuario
+renombró una columna real (`anio_id`) a un nombre inexistente (`anio`) y el asistente no
+pudo resolverlo por falta de contexto de esquema. Probada end-to-end contra datos reales
+de ClickHouse en el entorno de test.
+
+Archivos afectados:
+- `backend/src/irex/irex_mcp_tools/sql_schema_context.py` (nuevo)
+- `backend/tests/test_sql_schema_context.py` (nuevo — 11 tests: permiso, acceso por base y
+  tabla, serialización, truncamiento)
+- `backend/src/irex/irex_mcp_tools/entrypoint.py` (import agregado)
+- `superset_config_test.py` (`MCP_TOOL_SEARCH_CONFIG.always_visible` — solo test, no
+  producción todavía)
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (regenerado)
+- `PLAN_ASISTENTE_SQL_LAB.md` (resultado en la Fase 7, nota para el agente del chat)
+
+Que cambia o corrige:
+- Reutiliza `superset.databases.utils.get_table_metadata` (la misma función que alimenta
+  el árbol de tablas/columnas nativo de SQL Lab) y `security_manager.can_access_table`
+  (mismo chequeo que el endpoint REST equivalente) — no reinventa el acceso a metadata.
+- Dos modos: sin `table` lista nombres de tabla (tope 50, filtro `search` opcional); con
+  `table` devuelve columnas (nombre, tipo, comentario, tope 300).
+- Mismo gate RBAC que las 7 tools de datos de la Fase 2 (`SQLLab`/`can_execute_sql_query`)
+  — ya cubierto para los 8 usuarios del chat, sin necesitar otra alta de permisos.
+- Desviación consciente de un requisito del plan: no se aisló el import interno de
+  Superset en `backend/.../compat/` — ninguna otra tool irex usa ese patrón, todas
+  importan directo dentro de la función; introducirlo solo acá habría sido inconsistente.
+- El campo de request `schema` se renombró a `schema_name` antes de terminar (Pydantic
+  advertía que sombreaba un atributo heredado de `BaseModel`) — sin impacto porque la tool
+  todavía no se había desplegado ni comunicado con ese nombre.
+
+Verificacion:
+- 123 tests totales (112 + 11 nuevos) pasan sin warnings.
+- `build-extension.sh` completo, `.supx` desplegado en `extensions_test/`.
+- Prueba real contra el MCP de test (`database_id=3`, ClickHouse) con `fastmcp.Client`:
+  listado de tablas (truncado a 10), búsqueda por `search="corte"` (3 resultados), columnas
+  reales de `ch_corte_ventas_vm` — la columna `anio_id` aparece exactamente donde el
+  usuario esperaba encontrar el nombre correcto. Usuario sin permiso (`test`, rol Gamma)
+  recibe el mismo `Permission denied` que las demás tools.
+- Pendiente: que el agente del chat empiece a llamar esta tool activamente; agregar el
+  tool al `always_visible` de producción cuando se autorice el despliegue completo.
+
+### 2026-09-18 (12) (bug fix: "Explicar/corregir el último error" quedaba deshabilitado)
+
+Cambio realizado:
+El usuario probó el panel en el navegador real: funciona (envía, recibe diff y
+diagnósticos), pero reportó que el modo "Explicar/corregir el último error" salía
+deshabilitado pese a tener un error de ejecución real visible en pantalla. Investigado y
+corregido.
+
+Archivos afectados:
+- `frontend/src/assistant/SqlLabAssistantPanel.tsx`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (regenerado)
+- `PLAN_ASISTENTE_SQL_LAB.md` (hallazgo documentado en la Fase 6)
+
+Que cambia o corrige:
+- Causa raíz confirmada leyendo `superset-frontend/src/core/sqlLab/index.ts`:
+  `onDidQueryFail`/`onDidQuerySuccess` son eventos tab-scoped cuyo filtro de pestaña
+  (`predicate`) captura el `sqlEditorImmutableId` de la pestaña activa en el momento en
+  que se registra el listener, no dinámicamente. El panel se suscribía una sola vez al
+  montar, así que si el usuario cambiaba de pestaña después, dejaba de enterarse de
+  éxitos/fallos — `lastError` nunca se llenaba.
+- Se separó el `useEffect` único en dos: uno para `onDidChangeActiveTab` (evento global,
+  suscripción única) que incrementa un contador `activeTabVersion`, y otro para
+  `onQuerySuccess`/`onQueryFail` con ese contador como dependencia — se re-suscribe cada
+  vez que cambia la pestaña activa.
+- Se confirmó además que el shape del objeto de error (`errorMessage`, `executedSql`) que
+  ya usaba el panel es correcto — no era un problema de parsing, solo de cuándo se
+  escuchaba el evento.
+
+Verificacion:
+- `npx tsc --noEmit` sin errores.
+- `build-extension.sh` completo contra `extensions_test/`.
+- Pendiente: confirmación del usuario en navegador de que el modo ya se habilita
+  correctamente tras cambiar de pestaña y fallar una consulta ahí.
+
+### 2026-09-18 (11) (Fase 6 del asistente SQL Lab — backend del chat probado contra el real)
+
+Cambio realizado:
+El agente que mantiene el backend del chat implementó `POST /api/sql-lab-assistant`.
+Se probó directamente contra el servidor real (`http://186.177.26.27:8008`, compartido
+por test y producción) con `curl`, simulando los headers del proxy, en 3 modos distintos.
+Se encontró y corrigió una discrepancia menor y aditiva del contrato.
+
+Archivos afectados:
+- `frontend/src/contracts/assistant.ts` (`title?` opcional agregado a
+  `AssistantActionReplaceSelection`/`ReplaceDocument`/`InsertSql`)
+- `frontend/src/adapters/chatBackendAdapter.ts` (parser actualizado para leer ese `title`)
+- `frontend/src/assistant/SqlLabAssistantPanel.tsx` (`titleFor` usa el título si viene)
+- `docs/sql-lab-assistant-contract.md` (documentada la extensión)
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (regenerado)
+- `PLAN_ASISTENTE_SQL_LAB.md` (resultado de la prueba real documentado en la Fase 6)
+
+Que cambia o corrige:
+- El backend real responde con el shape exacto del contrato v1 en los 3 modos probados
+  (`create`, `review_document`, `explain_error`): `contract_version`, `message`,
+  `actions`, `diagnostics` correctos.
+- Las acciones `replace_document` que devolvió el backend real traían `target`/`title`
+  extra que el contrato no tipaba para ese `type` — no rompía nada (el parser ignora
+  campos no tipados), pero se perdía el título descriptivo generado por el modelo. Se
+  agregó `title?` opcional de forma aditiva (compatible hacia atrás, no requirió cambios
+  del otro agente).
+
+Verificacion:
+- 3 llamadas `curl` reales contra `http://186.177.26.27:8008/api/sql-lab-assistant` con
+  los headers `X-Service-Secret`/`X-Superset-User` que agrega el proxy: las 3
+  respondieron 200 con JSON válido y coherente semánticamente (pidió contexto cuando no
+  había SQL, corrigió un bug real de fecha sin comillas en los otros dos modos).
+- `npx tsc --noEmit` y `build-extension.sh` completo (112 tests + build + empaquetado)
+  tras el ajuste del contrato.
+- **No verificado por esta sesión:** el manejo interno de `Permission denied:` del lado
+  del backend del chat — reportado por el otro agente, no hay forma de simular esa
+  condición desde afuera sin más contexto de su implementación.
+- Pendiente: prueba visual del panel completo en el navegador contra `extensions_test/`.
+
+### 2026-09-18 (10) (Fases 5 y 6 del asistente SQL Lab — panel completo + adaptador del chat)
+
+Cambio realizado:
+Se construyó la interfaz completa del asistente (Fase 5, reemplazando el panel
+monolítico del spike) y el adaptador hacia el backend del chat (Fase 6, primera
+iteración). Se detectó y corrigió un vacío del contrato v1 antes de que el otro agente
+lo implemente: no tenía campo para el pedido del usuario ni el flujo elegido.
+
+Archivos afectados:
+- `frontend/src/contracts/assistant.ts` (agregado `AssistantMode`, `AssistantLastError`,
+  y los campos `mode`/`userMessage`/`lastError` en `AssistantContext`)
+- `frontend/src/adapters/chatBackendAdapter.ts` (nuevo — `fetch` same-origin, serialización
+  snake_case, parseo validado de la respuesta, `AssistantBackendError`)
+- `frontend/src/adapters/sqlLabAdapter.ts` (`readActiveContext` ahora recibe
+  `mode`/`userMessage`/`lastError`)
+- `frontend/src/assistant/Conversation.tsx` (nuevo)
+- `frontend/src/assistant/SqlDiff.tsx` (nuevo — diff LCS propio, sin dependencia nueva)
+- `frontend/src/assistant/Diagnostics.tsx` (nuevo)
+- `frontend/src/assistant/SqlLabAssistantPanel.tsx` (reescrito completo)
+- `docs/sql-lab-assistant-contract.md` (endpoint `POST /api/sql-lab-assistant` vía el
+  proxy existente, campos nuevos del contrato)
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (regenerado)
+- `PLAN_ASISTENTE_SQL_LAB.md` (resultados en Fases 5 y 6, nuevo requerimiento para el
+  agente del chat)
+
+Que cambia o corrige:
+- El contrato v1 original (Fase 3) solo llevaba `tab`/`editor` — no había forma de
+  decirle al backend qué flujo eligió el usuario (Crear SQL / Revisar consulta / Revisar
+  selección / Explicar error) ni qué pidió en texto libre. Se agregó antes de que el
+  backend del chat implementara nada, así que no rompe compatibilidad con código
+  existente.
+- El panel ahora trata **toda** acción con `sql` (no solo `propose_sql`) como una
+  propuesta que requiere confirmación explícita con su propio diff — ninguna acción se
+  autoaplica al recibir la respuesta del backend.
+- Se identificó el endpoint concreto que falta del lado del chat:
+  `POST /api/sql-lab-assistant`, reenviado por el proxy same-origin que ya existe
+  (`custom-src/login/mcp_widget.py`) — sin autenticación nueva que implementar ahí.
+
+Verificacion:
+- `npx tsc --noEmit` sin errores tras el refactor completo (7 módulos nuevos).
+- `npm run build` (webpack) compiló los 7 módulos correctamente.
+- `build-extension.sh` completo contra `extensions_test/`: 112 tests backend OK, build OK,
+  `.supx` validado.
+- **No probado en navegador todavía.** El flujo de "Enviar" no puede probarse end-to-end
+  hasta que el backend del chat implemente `POST /api/sql-lab-assistant` — sin esa ruta,
+  el proxy fallará al reenviar, que es el comportamiento esperado (no un bug del panel).
+  Pendiente: validar visualmente la estructura del panel (selector de modo, textarea,
+  historial) aunque el envío real todavía no pueda completarse.
+
+### 2026-09-18 (9) (Fase 3 del asistente SQL Lab — documento de contrato)
+
+Cambio realizado:
+Se cerró la Fase 3 del plan: se verificó que `contracts/assistant.ts` (creado en el spike
+de la Fase 0) coincide campo por campo con el JSON de ejemplo del plan, y se creó el
+documento de entrega `docs/sql-lab-assistant-contract.md` para el agente del chat.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/docs/sql-lab-assistant-contract.md` (nuevo)
+- `PLAN_ASISTENTE_SQL_LAB.md` (resultado documentado en la Fase 3)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- Deja explícito que el wire format hacia el backend del chat es `snake_case` (igual que
+  el resto de las tools MCP), mientras que `contracts/assistant.ts` usa `camelCase`
+  internamente — la conversión es responsabilidad del adaptador de la Fase 6, no del
+  backend del chat.
+- Documenta las 6 acciones (`propose_sql`, `replace_selection`, `replace_document`,
+  `insert_sql`, `create_tab`, `suggest_execution`) con su schema y la regla de no parsear
+  SQL desde texto libre del modelo.
+- Referencia cruzada al contrato de error `permission_denied` (Fase 2) para que el agente
+  del chat tenga todo en un solo documento.
+
+Verificacion:
+- Comparación campo por campo entre `contracts/assistant.ts` y el JSON de ejemplo del
+  plan: coinciden 1:1 salvo el casing (camelCase vs snake_case), sin discrepancias de
+  estructura.
+
+### 2026-09-18 (8) (nota para el agente del chat: contrato de error permission_denied)
+
+Cambio realizado:
+Se agregó al plan una sección consolidada "Requerimientos para el agente del chat", con
+el contrato de error `permission_denied` (texto libre, patrón exacto, ejemplo real, y las
+3 reglas que el chat debe seguir) listo para comunicarle al agente que mantiene el backend
+externo. Solo documentación — sin cambios de código.
+
+Archivos afectados:
+- `PLAN_ASISTENTE_SQL_LAB.md` (nueva sección, antes de "Decisiones de arquitectura")
+- `Registro de cambios.md`
+
+### 2026-09-18 (7) (Fase 2 del asistente SQL Lab — decoradores RBAC, probados en test)
+
+Cambio realizado:
+Se agregó `class_permission_name="SQLLab", method_permission_name="execute_sql_query"`
+a las 7 tools irex que tocan datos reales con RLS, y se probó el gate end-to-end contra
+`superset_mcp_test.service` con JWTs reales de dos usuarios representativos (uno con
+permiso, uno sin). No se tocó producción con este cambio de código todavía — solo test.
+
+Archivos afectados:
+- `backend/src/irex/irex_mcp_tools/query_dataset.py`
+- `backend/src/irex/irex_mcp_tools/sql_analysis.py` (tool `query_dataset_sql`)
+- `backend/src/irex/irex_mcp_tools/compare_periods.py`
+- `backend/src/irex/irex_mcp_tools/rank_partitions.py`
+- `backend/src/irex/irex_mcp_tools/forecast.py`
+- `backend/src/irex/irex_mcp_tools/export_excel.py` (tool `export_to_excel`)
+- `backend/src/irex/irex_mcp_tools/column_values.py` (tool `list_column_values`)
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (regenerado con `build-extension.sh` e
+  instalado en test)
+- `PLAN_ASISTENTE_SQL_LAB.md` (resultado documentado en la Fase 2)
+
+Que cambia o corrige:
+- Las 7 tools que consultan/derivan/exportan datos reales (`query_dataset`,
+  `query_dataset_sql`, `compare_periods`, `rank_partitions`, `forecast`,
+  `export_to_excel`, `list_column_values`) ahora exigen `can_execute_sql_query` en
+  `SQLLab` antes de ejecutar — antes ninguna tool irex declaraba RBAC alguno.
+  `chart_option` y las 5 tools informativas quedaron sin gate deliberadamente
+  (`chart_option` no ejecuta queries propias; las informativas no exponen datos).
+- Se verificó leyendo `superset/mcp_service/auth.py` y
+  `superset/core/mcp/core_mcp_injection.py` que `method_permission_name="execute_sql_query"`
+  se usa literal (arma `can_execute_sql_query`), confirmando que el gate corresponde
+  exactamente al permiso dado de alta al rol `acceso chat` en el cambio anterior.
+
+Verificacion:
+- `build-extension.sh` completo: 112 tests OK, `py_compile` de 18 archivos OK, build
+  frontend OK, `.supx` validado y desplegado en `extensions_test/`.
+- Prueba end-to-end real contra el MCP de test (no simulada): JWT `sub=admin` (rol
+  Admin, con permiso) ejecutó `irex.query_dataset` normalmente y devolvió datos reales;
+  JWT `sub=test` (rol Gamma, sin permiso) fue rechazado con
+  `Permission denied: can_execute_sql_query on SQLLab for user test (tool: query_dataset)`.
+- Confirmado que `MCP_RBAC_ENABLED` no está deshabilitado en ningún config (usa el
+  default `True`) en producción ni en test.
+- Pendiente: coordinar con el agente del chat el contrato de error
+  `Permission denied: <permiso> on <vista> for user <usuario> (tool: <tool>)` — es texto
+  libre, sin código estructurado, así que el chat debe matchear el string
+  `"Permission denied:"` y no reintentar. Pendiente también: desplegar este cambio de
+  código a producción (`extensions/irex-mcp-tools-0.1.0.supx`) — no se hizo todavía,
+  solo está en `extensions_test/`.
+
+### 2026-09-18 (6) (Fase 2 del asistente SQL Lab — alta de permiso SQLLab en producción)
+
+Cambio realizado:
+Con autorización explícita del usuario, se dio de alta `can_read` y `can_execute_sql_query`
+sobre `SQLLab` al rol `acceso chat` (`role_id=100`) en la base de datos de producción
+(Postgres), para resolver el hallazgo crítico de la auditoría: 5 de los 8 usuarios del chat
+no tenían acceso real a SQLLab y perderían las funciones centrales del chat si se aplicara
+el gate RBAC planeado en los decoradores MCP.
+
+Archivos/sistemas afectados:
+- Base de datos de producción (Postgres, `ab_permission_view_role`): 2 filas nuevas
+  (`permission_view_id=294` → `can_execute_sql_query`, `permission_view_id=364` →
+  `can_read`, ambas con `role_id=100` = rol `acceso chat`). No se tocó código ni
+  configuración.
+- `PLAN_ASISTENTE_SQL_LAB.md` (decisión y ejecución documentadas en la Fase 2)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- Se descartó agregar el permiso a `Permiso basico` (175 usuarios totales, la gran mayoría
+  sin relación con el chat) por blast radius desproporcionado — se confirmó el conteo antes
+  de decidir.
+- Se usó `acceso chat` (`CHAT_WIDGET_REQUIRED_ROLE`) en su lugar: ya está scopeado
+  exactamente a los 8 usuarios del chat por definición, sin necesidad de crear un rol nuevo.
+- Los 3 caminos planteados en el hallazgo crítico de la auditoría quedan resueltos: los 8
+  usuarios del chat ya cumplen el gate de `SQLLab` que exigirán los decoradores MCP
+  pendientes (Fase 2, sección "Decoradores MCP", todavía no aplicados al código).
+
+Verificacion:
+- Antes del alta: `SELECT` confirmó que `acceso chat` no tenía ningún permiso sobre
+  `SQLLab` (0 filas).
+- El primer intento de `INSERT` (sin `id` explícito) falló con
+  `null value in column "id" violates not-null constraint` — la tabla
+  `ab_permission_view_role` no tiene secuencia automática en esta base. Se resolvió
+  calculando `MAX(id)+1` dentro de la misma transacción, sin dejar escritura parcial (el
+  primer intento no comprometió nada, confirmado por el 0 filas post-fallo).
+- Post-alta: los 8 usuarios de `acceso chat` (incluido el inactivo `pabloTest2`) tienen
+  `can_read`+`can_execute_sql_query` en `SQLLab` vía ese rol. El conteo de usuarios con
+  `role_id=100` se mantuvo en 8 — ningún otro usuario del sistema quedó afectado.
+- Todas las consultas y el alta se corrieron contra producción porque los usuarios reales
+  del chat solo existen ahí (el entorno de test tiene usuarios ficticios propios); es un
+  cambio de datos (rol/permiso), no de código, así que no pasa por el flujo de deploy de
+  `.supx`.
+- Pendiente: aplicar los decoradores `class_permission_name`/`method_permission_name` a
+  las 7 tools de datos, probarlos primero en test con usuarios representativos (punto 6 de
+  la auditoría) y coordinar el contrato de `permission_denied` con el agente del chat
+  (punto 7) antes de tocar código de producción.
+
+### 2026-09-18 (5) (Fase 2 del asistente SQL Lab — auditoría RBAC, sin cambios de permisos)
+
+Cambio realizado:
+Se ejecutó la auditoría previa obligatoria de la Fase 2 (puntos 1-4, de solo lectura):
+confirmación del auth bridge JWT→usuario, usuarios con rol "acceso chat" en producción
+y sus permisos reales en `SQLLab`, y matriz de las 14 tools irex por si tocan datos
+reales con RLS. No se modificó ningún decorador, permiso, ni rol.
+
+Archivos afectados:
+- `PLAN_ASISTENTE_SQL_LAB.md` (resultados de la auditoría y hallazgo crítico documentados
+  en la Fase 2)
+- `Registro de cambios.md`
+- Ningún archivo de código ni configuración de producción — solo consultas `SELECT` contra
+  la base de datos de producción (Postgres) y lectura de los 14 archivos de tools.
+
+Que cambia o corrige:
+- Confirma que `auth_bridge.py` ya resuelve el `sub` del JWT a un usuario real y rechaza
+  (no admin-fallback) si no matchea — el gate de permisos que se agregue en el futuro
+  operará correctamente sobre roles reales.
+- De los 8 usuarios con rol "acceso chat" en producción, solo 3 (`admin`, `dpla`,
+  `jsolanof`) tienen hoy `can_read`+`can_execute_sql_query` en `SQLLab` (vía rol Admin o
+  Coop Admin). Los otros 5 (`irexti`, `ldelgado`, `sborbon`, `Yorozco`, y el inactivo
+  `pabloTest2`) no lo tienen en ninguno de sus roles — incluidos los 26 roles distintos
+  que tiene el conjunto, de los cuales ninguno de los roles granulares de dashboard lo
+  otorga.
+- De las 14 tools, 7 tocan datos reales con RLS (`query_dataset`, `query_dataset_sql`,
+  `compare_periods`, `rank_partitions`, `forecast`, `export_to_excel`,
+  `list_column_values`) y serían candidatas al gate de `SQLLab` según la regla principal
+  del plan; 5 son puramente informativas; `chart_option` es un caso mixto; `create_chart`
+  ya está deshabilitada.
+- **Hallazgo crítico, bloquea el punto 5 de la auditoría:** aplicar el gate tal cual
+  dejaría sin las funciones centrales del chat (`query_dataset`, `chart_option`, etc.) al
+  62% de los usuarios actuales (5 de 8). Es una decisión de producto, no solo técnica —
+  quedó planteada en el plan con 3 caminos posibles (dar de alta el permiso a esos roles,
+  aceptar la pérdida de funciones, o reconsiderar qué permiso FAB usar como gate) y sin
+  resolver, a la espera de que el usuario decida antes de tocar cualquier decorador.
+
+Verificacion:
+- Todas las consultas contra producción fueron `SELECT` — se verificó explícitamente antes
+  de correr cada una que no incluía `INSERT`/`UPDATE`/`DELETE`.
+- La matriz de tools se construyó leyendo los 14 archivos fuente (`grep` de los decoradores
+  `@tool`, `tags=`, y búsqueda de ejecución de queries reales) más el `AGENTS.md` del MCP,
+  no por inferencia.
+
 ### 2026-09-18 (4) (Fase 1 del asistente SQL Lab — fuente canónica y build reproducible)
 
 Cambio realizado:
