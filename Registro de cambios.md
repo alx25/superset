@@ -1,5 +1,185 @@
 ## Registro de cambios
 
+### 2026-09-18 (4) (Fase 1 del asistente SQL Lab — fuente canónica y build reproducible)
+
+Cambio realizado:
+Se movió `irex-mcp-tools` a una fuente canónica fuera de `superset_v*/`, siguiendo el
+mismo patrón que `custom-plugins/`/`custom-src/` (symlink), y se creó un build
+reproducible (`scripts/build-extension.sh`) que reemplaza el empaquetado manual con
+`zip -u` para cambios que tocan el frontend.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/` (nuevo — fuente canónica: `extension.json`,
+  `backend/`, `frontend/`, `docs/`, `scripts/`, `COMPATIBILITY.md`, y el `.supx` de
+  producción vigente, copiados desde `superset_v6_1_0/irex-mcp-tools/`)
+- `superset_v6_1_0/irex-mcp-tools` (convertido de directorio real a symlink hacia
+  `../custom-extensions/irex-mcp-tools`; el directorio original se conservó como
+  `superset_v6_1_0/irex-mcp-tools.pre-symlink-backup/` en vez de borrarse)
+- `custom-extensions/irex-mcp-tools/scripts/build-extension.sh` (nuevo)
+- `custom-extensions/irex-mcp-tools/scripts/package_supx.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/scripts/smoke_test.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/COMPATIBILITY.md` (nuevo)
+- `PLUGINS.md` (sección "Al cambiar irex-mcp-tools" + entrada en el árbol de
+  fuentes canónicas)
+- `CLAUDE.md` (raíz) (sección "Fuente canónica de irex-mcp-tools" con el comando de
+  build reproducible, antes de la sección de deploy manual existente)
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (regenerado con el nuevo pipeline)
+- `PLAN_ASISTENTE_SQL_LAB.md` (resultados de la Fase 1 documentados)
+
+Que cambia o corrige:
+- `zip -u` sobre el `.supx` puede dejar archivos obsoletos y, como mostró el
+  Hallazgo 1 de la Fase 0, nunca cubrió el frontend en absoluto (el `.supx` de
+  producción no tenía el `remoteEntry` embebido). `package_supx.py` reconstruye el
+  `.supx` completo desde cero en cada build: manifest generado desde
+  `extension.json` + el hash real del `remoteEntry` detectado en `frontend/dist/` +
+  todo `backend/src/irex/irex_mcp_tools/*.py` + `frontend/dist/*.js`, validando que
+  las rutas internas coincidan con lo que espera
+  `superset/extensions/utils.py` (`FRONTEND_REGEX`/`BACKEND_REGEX`) antes de darlo
+  por bueno.
+- `build-extension.sh` no depende de `superset-extensions build`/`bundle` (el CLI
+  oficial): ese CLI exige `npm >= 10.8.2` y este entorno tiene `10.2.4`, así que
+  falla antes de compilar nada. Documentado en `COMPATIBILITY.md`.
+- Se completó el entregable "comando de smoke test" pendiente de la Fase 1:
+  `smoke_test.py` carga el `.supx` generado en un app context real de Superset
+  (`discover_and_load_extensions`) sin necesitar levantar el servidor ni el
+  navegador, y falla explícitamente si el `remoteEntry` del manifest no está
+  presente en el zip.
+- "Plantilla de configuración sin secretos" (otro entregable de la Fase 1): no
+  aplica — `irex-mcp-tools` no lee secretos propios, todos viven en
+  `superset_config.py`/`superset_config_test.py` del host.
+
+Verificacion:
+- `diff -rq` entre el directorio original y la copia canónica (excluyendo
+  `node_modules`, `dist`, `__pycache__`, `.egg-info`, `.venv`) solo mostró los dos
+  directorios nuevos agregados a propósito (`docs/`, `scripts/`); el resto del
+  código es idéntico.
+- `npx tsc --noEmit` y `npm run build` corridos desde la ruta symlinkeada
+  (`superset_v6_1_0/irex-mcp-tools/frontend`) sin errores, mismo hash de
+  `remoteEntry` que en la Fase 0 (build determinístico).
+- `build-extension.sh` corrido completo contra `superset_v6_1_0` con destino
+  `extensions_test/irex-mcp-tools-0.1.0.supx`: 112 tests backend (`pytest`) OK,
+  `py_compile` de 18 archivos OK, build de frontend OK, `.supx` validado
+  (manifest + remoteEntry presente + rutas internas correctas).
+- `smoke_test.py` contra ese mismo `.supx`: carga limpia en app context de test,
+  `irex.irex-mcp-tools` con 2 archivos frontend y 18 backend, `remoteEntry`
+  coincide con el manifest.
+- `extensions/irex-mcp-tools-0.1.0.supx` (producción) no fue tocado en ningún
+  momento de esta fase.
+- Confirmado por el usuario en el navegador: el panel sigue funcionando igual
+  tras reiniciar `superset_test.service`/`superset_mcp_test.service` con el
+  `.supx` generado por el pipeline nuevo. `irex-mcp-tools.pre-symlink-backup/`
+  eliminado tras la confirmación — Fase 1 cerrada.
+
+### 2026-09-18 (3) (spike Fase 0 del asistente SQL Lab — ejecutado en test)
+
+Cambio realizado:
+Se ejecutó la Fase 0 del plan: panel mínimo en `sqllab.rightSidebar`, contrato v1,
+adaptador de SQL Lab y probe de `getEditor()` en pestañas inactivas, probado en vivo
+en `superset_test.service` (puerto 9090) por el usuario. Demostración funcional
+confirmada: contexto de pestaña activa, propuesta simulada, aplicar sobre
+selección/documento, crear pestaña de ejemplo, ejecutar con confirmación y
+diagnóstico de pestañas inactivas.
+
+Archivos afectados:
+- `superset_v6_1_0/irex-mcp-tools/frontend/src/index.tsx` (reemplaza el placeholder
+  en `sqllab.panels` por el registro del panel en `sqllab.rightSidebar`)
+- `superset_v6_1_0/irex-mcp-tools/frontend/src/contracts/assistant.ts` (nuevo)
+- `superset_v6_1_0/irex-mcp-tools/frontend/src/adapters/sqlLabAdapter.ts` (nuevo)
+- `superset_v6_1_0/irex-mcp-tools/frontend/src/assistant/SqlLabAssistantPanel.tsx` (nuevo)
+- `superset_v6_1_0/irex-mcp-tools/dist/manifest.json` (hash de `remoteEntry` actualizado)
+- `superset_config_test.py` (`EXTENSIONS_PATH` aislado de producción)
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (nuevo, paquete de test — no se toca
+  `extensions/irex-mcp-tools-0.1.0.supx`, que sigue siendo el de producción)
+- Base de datos de test (`~/.superset/superset.db`, SQLite): `superset init` agregó
+  permission_views faltantes de FAB (no afecta la base de producción, que es Postgres)
+- `PLAN_ASISTENTE_SQL_LAB.md` (resultados y hallazgos documentados en la Fase 0)
+
+Que cambia o corrige:
+- `EXTENSIONS_PATH` de test y de producción apuntaban al mismo directorio
+  (`extensions/`); ahora test usa `extensions_test/`, evitando que un `.supx` de
+  prueba quede listo para desplegarse sin querer en el próximo reinicio de
+  `superset.service`.
+- El `.supx` de producción nunca tuvo el frontend embebido: el manifest referenciaba
+  un `remoteEntry` que no estaba en el zip, porque el procedimiento de `CLAUDE.md`
+  (`zip -u ... backend/src/...`) nunca cubrió `frontend/dist/`. El placeholder
+  original jamás se ejecutó en un navegador real; el fallo es silencioso a nivel de
+  arranque de Superset (solo se ve como 404 en devtools al abrir SQL Lab).
+- Bloqueante encontrado y resuelto: `admin` recibía 403 en `GET /api/v1/extensions/`
+  porque `AppBuilder` corre con `update_perms=False`
+  (`superset/extensions/__init__.py:130`) y el permiso real
+  (`can_get_list on ExtensionsRestApi`, distinto de `can_read on Extensions`) nunca
+  se había sincronizado en la DB de test. Se corrigió corriendo `superset init` con
+  `SUPERSET_CONFIG_PATH=superset_config_test.py` (idempotente, solo agrega permisos
+  faltantes, no toca producción).
+- Hallazgo central del punto 6: `tab.getEditor()` de una pestaña que no es la activa
+  nunca se resuelve (timeout consistente a los ~1504ms con 2 pestañas inactivas, sin
+  resolución tardía). El contexto de pestañas inactivas para las Fases 5/6 debe salir
+  de un cache poblado la última vez que esa pestaña estuvo activa, nunca de una
+  lectura en caliente.
+- Hallazgo incidental no bloqueante: `Failed to sync configuration to database:
+  cannot import name 'BaseCommand'...` aparece en cada arranque de
+  `superset.service`/`superset_test.service` desde antes del 2026-09-16 (preexistente,
+  no introducido por este cambio); solo afecta seed de temas/tagging, no permisos FAB.
+
+Verificacion:
+- `npx tsc --noEmit` y `npm run build` (webpack, modo producción) sin errores.
+- Carga de la extensión validada de forma aislada vía script Python
+  (`discover_and_load_extensions`) antes de tocar el navegador: manifest, 2 archivos
+  de frontend y 18 archivos de backend leídos correctamente del `.supx` de test.
+- Probado en navegador real por el usuario en `superset_test.service`: todos los
+  botones del panel funcionan: actualizar contexto, simular propuesta, aplicar,
+  nueva pestaña de ejemplo, ejecutar con confirmación, diagnóstico de pestañas
+  inactivas.
+- `extensions/irex-mcp-tools-0.1.0.supx` (producción) no fue modificado en ningún
+  momento; se verificó por md5sum que difiere del `.supx` de test.
+- Pendiente: decisión explícita de continuar a la Fase 1, o iterar más sobre el
+  spike; decidir si el aislamiento de `EXTENSIONS_PATH` de test se vuelve permanente.
+
+### 2026-09-18 (2) (ajuste del plan de asistente SQL Lab)
+
+Cambio realizado:
+Se incorporó al plan la revisión técnica de un segundo agente sobre el código real:
+validar primero la UX mediante un spike pequeño y auditar permisos antes de cambiar los
+decoradores MCP existentes.
+
+Archivos afectados:
+- `PLAN_ASISTENTE_SQL_LAB.md`
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- Se corrige el alcance: hay 14 módulos/tools registrados con `@tool` y ninguno declara
+  actualmente `class_permission_name`/`method_permission_name`.
+- Se agrega una Fase 0 no productiva para probar `sqllab.rightSidebar`, el adaptador, el
+  contrato y el comportamiento real de `getEditor()` con pestañas inactivas antes de
+  invertir en la reestructuración portable.
+- Se exige auditar los usuarios habilitados para el chat y sus roles FAB efectivos antes
+  de aplicar RBAC. Se aclara que el JWT `sub` resuelve un usuario y sus roles; el issuer
+  no representa por sí mismo un rol.
+- Se incorpora despliegue gradual, coordinación del error `permission_denied` con el
+  backend externo y autorización separada para cualquier cambio de roles en producción.
+
+### 2026-09-18 (plan de asistente IA para SQL Lab)
+
+Cambio realizado:
+Se documentó el plan completo para implementar un asistente IA integrado en SQL Lab,
+preparado para que otro agente lo ejecute por fases y para empaquetarse como extensión
+portable a versiones posteriores de Superset.
+
+Archivos afectados:
+- `PLAN_ASISTENTE_SQL_LAB.md` (nuevo)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- Define fuente canónica fuera de `superset_v*`, build `.supx` reproducible, adaptadores
+  basados solo en APIs públicas y pruebas de compatibilidad por versión.
+- Especifica la integración con pestaña/editor activos, diff, aplicación y ejecución
+  confirmada mediante `sqlLab.executeQuery()`.
+- Convierte RBAC en requisito bloqueante: las tools que consultan o derivan datos deben
+  exigir `can_execute_sql_query` en `SQLLab`, además del acceso a base/dataset y RLS;
+  incluye casos negativos para usuario sin SQL Lab y JWT sin usuario válido.
+- Incluye contrato versionado con el backend externo del chat, estrategia de migración,
+  fases, criterios de aceptación y elementos fuera del alcance inicial.
+
 ### 2026-09-11 (2)
 
 Cambio realizado:

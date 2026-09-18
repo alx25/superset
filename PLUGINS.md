@@ -42,6 +42,13 @@ superset_proyecto/
 │               ├── permalinks.js
 │               ├── guardar_estado_plan.js
 │               └── cargas_eventos_clientes.js
+├── custom-extensions/                   ← FUENTE de extensiones .supx (distinto de custom-plugins/)
+│   └── irex-mcp-tools/                  (extensión MCP: tools irex + asistente de SQL Lab)
+│       ├── extension.json
+│       ├── frontend/src/                (contrato, adaptador de sqlLab, panel del asistente)
+│       ├── backend/src/irex/irex_mcp_tools/  (14 tools MCP)
+│       ├── scripts/build-extension.sh   ← build reproducible, arma el .supx desde cero
+│       └── COMPATIBILITY.md
 ├── migrate-plugins.sh                   ← script que aplica todo a un nuevo Superset
 └── PLUGINS.md                           ← este archivo
 ```
@@ -50,6 +57,12 @@ Los directorios de `superset_v6_1_0/superset-frontend/plugins/plugin-chart-*` y
 `superset_v6_1_0/superset-frontend/src/explore/components/controls/FormulaMetricControl/`
 son **symlinks** que apuntan a las fuentes canónicas.
 Editar en `custom-plugins/` o `custom-src/` se refleja inmediatamente, sin re-correr el script.
+
+`superset_v6_1_0/irex-mcp-tools` es, de la misma forma, un **symlink** a
+`custom-extensions/irex-mcp-tools/`. A diferencia de los plugins de chart, no
+lo gestiona `migrate-plugins.sh` — tiene su propio build (`scripts/build-extension.sh`)
+y su propio empaquetado a `.supx`. Ver la sección "Al cambiar irex-mcp-tools"
+más abajo y `CLAUDE.md` (raíz) para el flujo de deploy a `extensions/`.
 
 ---
 
@@ -177,6 +190,43 @@ columnas y revalida su valor contra el datasource — como los items de estos co
 control completo se vacía (vuelve a `default: []`), sin importar qué se haya editado del
 dataset. Usar `datasourceColumns` (ya aplicado en ambos plugins y en
 `custom-src/FormulaMetricControl/index.tsx`).
+
+### Al cambiar irex-mcp-tools (extensión MCP: tools irex + asistente SQL Lab)
+
+Fuente canónica: `custom-extensions/irex-mcp-tools/`. `superset_v6_1_0/irex-mcp-tools`
+es un symlink a ese directorio (mismo patrón que `custom-plugins/`/`custom-src/`, pero
+con su propio flujo de build — no pasa por `migrate-plugins.sh`).
+
+1. Editar en `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/` (tools MCP)
+   o `custom-extensions/irex-mcp-tools/frontend/src/` (asistente de SQL Lab: `contracts/`,
+   `adapters/sqlLabAdapter.ts`, `assistant/`). El symlink propaga el cambio automáticamente.
+2. Buildear y empaquetar con el script reproducible (no usar `zip -u` a mano salvo el caso
+   documentado en `CLAUDE.md` para parches puntuales de un solo archivo backend):
+   ```bash
+   cd custom-extensions/irex-mcp-tools
+   ./scripts/build-extension.sh \
+     /home/imercados/superset_proyecto/superset_v6_1_0 \
+     /home/imercados/superset_proyecto/extensions_test/irex-mcp-tools-0.1.0.supx
+   ```
+   Compila TypeScript estricto, corre `pytest` sobre las 14 tools, compila el frontend con
+   webpack y reconstruye el `.supx` completo (manifest + backend + frontend) desde cero.
+3. Probar primero en `extensions_test/` (ver `superset_config_test.py`, `EXTENSIONS_PATH`
+   aislado de producción) reiniciando `superset_test.service`/`superset_mcp_test.service`.
+4. Solo tras validar en test, repetir el build apuntando a
+   `extensions/irex-mcp-tools-0.1.0.supx` y reiniciar `superset.service`/`superset_mcp.service`
+   con autorización explícita — nunca automático.
+
+**Por qué no usar `superset-extensions build`/`bundle` (el CLI oficial):** requiere
+`npm >= 10.8.2`; este entorno tiene una versión menor y el CLI falla antes de compilar.
+`scripts/build-extension.sh` no depende de él. Ver `COMPATIBILITY.md` dentro de la fuente
+canónica para el detalle y qué revisar si se actualiza el npm del sistema.
+
+**Hallazgo de infraestructura a tener presente:** el `AppBuilder` de Superset corre con
+`update_perms=False` (`superset/extensions/__init__.py:130`), así que un entorno nuevo (o
+un permiso nuevo agregado a una tool) requiere correr `superset init` una vez con el
+`SUPERSET_CONFIG_PATH` correspondiente antes de que ese permiso exista para asignar a un
+rol — si no, la API/tool responde 403 aunque el usuario tenga el rol correcto. Detalle
+completo en la Fase 0 de `PLAN_ASISTENTE_SQL_LAB.md`.
 
 ---
 

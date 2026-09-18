@@ -2621,7 +2621,11 @@ except ImportError:
 
 LOCAL_EXTENSIONS: list[str] = []
 #EXTENSIONS_PATH: str | None = None
-EXTENSIONS_PATH = "/home/imercados/superset_proyecto/extensions"
+# Aislado de producción (extensions/) para el spike del asistente SQL Lab —
+# ver PLAN_ASISTENTE_SQL_LAB.md Fase 0. Antes compartía el mismo path que
+# producción, así que cualquier .supx probado en test ya quedaba en el
+# artefacto que superset.service carga en el próximo reinicio.
+EXTENSIONS_PATH = "/home/imercados/superset_proyecto/extensions_test"
 # Default polling interval for tasks (seconds)
 TASK_ABORT_POLLING_DEFAULT_INTERVAL = 10
 

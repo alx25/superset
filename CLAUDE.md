@@ -36,7 +36,34 @@ El proyecto
     -H "X-Superset-User: admin" \
     "http://186.177.26.27:8008/api/logs/sessions/<SESSION_ID>"
 
-  Rebuild y deploy de la extensión MCP irex
+  Fuente canónica de irex-mcp-tools
+
+  Desde 2026-09-18, `superset_v6_1_0/irex-mcp-tools` es un symlink a
+  `custom-extensions/irex-mcp-tools/` (misma lógica que `custom-plugins/`/`custom-src/`
+  para los plugins de chart, ver PLUGINS.md). Editar ahí o a través del symlink es
+  equivalente. Para cambios que tocan el frontend del asistente de SQL Lab (no solo
+  un archivo backend puntual), usar el build reproducible en vez del zip manual:
+
+  cd custom-extensions/irex-mcp-tools
+  ./scripts/build-extension.sh \
+    /home/imercados/superset_proyecto/superset_v6_1_0 \
+    /home/imercados/superset_proyecto/extensions_test/irex-mcp-tools-0.1.0.supx
+  # validar en test, reiniciar superset_test.service/superset_mcp_test.service,
+  # y solo después repetir apuntando a extensions/ + reiniciar los servicios de
+  # producción, con autorización explícita.
+
+  Compila TypeScript estricto, corre los tests backend, compila el frontend con
+  webpack y reconstruye el .supx completo (manifest + backend + frontend) desde
+  cero — evita el problema de "zip -u deja archivos obsoletos" y el de "el .supx
+  nunca tuvo el frontend embebido" que tenía el flujo puramente manual (ver Fase 0
+  de PLAN_ASISTENTE_SQL_LAB.md). Detalle y limitación conocida del CLI oficial
+  (`superset-extensions build/bundle`, requiere npm >= 10.8.2) en
+  `custom-extensions/irex-mcp-tools/COMPATIBILITY.md`.
+
+  Nota: `EXTENSIONS_PATH` de test (`superset_config_test.py`) está aislado en
+  `extensions_test/` — no es el mismo directorio que `extensions/` (producción).
+
+  Rebuild y deploy manual (parche puntual de un solo archivo backend)
 
   ⚠️  CRÍTICO — el zip SIEMPRE debe correrse desde superset_v6_1_0/irex-mcp-tools/
   para que los archivos queden en backend/src/... dentro del ZIP.
