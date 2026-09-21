@@ -120,6 +120,63 @@ export function setDiagnostics(annotations: editorsNs.EditorAnnotation[]): Promi
   );
 }
 
+/** Lee el documento completo de la pestaña activa (para snapshots de deshacer/rehacer). */
+export async function getCurrentDocumentValue(): Promise<string> {
+  const tab = await getCurrentTabOrThrow();
+  const editor = await tab.getEditor();
+  return editor.getValue();
+}
+
+/**
+ * Encuentra el primer y último índice de línea (0-based, sobre `after`) que
+ * cambiaron entre dos documentos completos, recortando el prefijo/sufijo
+ * común. No es un diff completo (no distingue líneas movidas); alcanza para
+ * ubicar dónde mirar en el editor tras aplicar un cambio.
+ */
+function changedLineRange(before: string, after: string): { start: number; end: number } | undefined {
+  if (before === after) return undefined;
+  const a = before.split('\n');
+  const b = after.split('\n');
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start += 1;
+  let aEnd = a.length - 1;
+  let bEnd = b.length - 1;
+  while (aEnd >= start && bEnd >= start && a[aEnd] === b[bEnd]) {
+    aEnd -= 1;
+    bEnd -= 1;
+  }
+  return { start, end: Math.max(start, bEnd) };
+}
+
+/**
+ * Acerca la experiencia de "Aplicar cambio" a un editor de código nativo:
+ * selecciona en el editor real de SQL Lab exactamente el rango que cambió,
+ * hace scroll hasta ahí y deja una anotación con el motivo. `EditorHandle`
+ * no expone decoraciones/diff inline (ver `@apache-superset/core/editors`),
+ * así que esto es lo más cercano disponible sin tocar el host.
+ */
+export async function revealChange(before: string, after: string, message: string): Promise<void> {
+  const range = changedLineRange(before, after);
+  if (!range) return;
+  const tab = await getCurrentTabOrThrow();
+  const editor = await tab.getEditor();
+  const afterLines = after.split('\n');
+  editor.setSelection({
+    start: { line: range.start, column: 0 },
+    end: { line: range.end, column: afterLines[range.end]?.length ?? 0 },
+  });
+  editor.scrollToLine(range.start);
+  editor.setAnnotations([{ line: range.start, message, severity: 'info' }]);
+  editor.focus();
+}
+
+/** Limpia la anotación dejada por `revealChange` (p. ej. al deshacer). */
+export async function clearRevealedChange(): Promise<void> {
+  const tab = await getCurrentTabOrThrow();
+  const editor = await tab.getEditor();
+  editor.clearAnnotations();
+}
+
 /**
  * Ejecuta SQL vía el pipeline normal de SQL Lab (RLS, historial, permisos
  * de base/dataset incluidos). Debe llamarse solo tras una confirmación

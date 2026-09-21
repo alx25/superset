@@ -73,6 +73,39 @@ const LINE_PREFIX: Record<DiffLineKind, string> = {
   removed: '- ',
 };
 
+type DisplayItem = { kind: 'line'; line: DiffLine } | { kind: 'collapsed'; lines: DiffLine[] };
+
+// Contexto tipo `git diff`: tramos largos sin cambios se colapsan detrás de
+// un separador clickeable, mostrando solo CONTEXT líneas a cada lado del
+// cambio real. Evita que una propuesta sobre una consulta larga muestre la
+// consulta entera de nuevo por un ajuste de una línea.
+const CONTEXT = 2;
+const COLLAPSE_THRESHOLD = 2 * CONTEXT + 3;
+
+function buildDisplayItems(lines: DiffLine[]): DisplayItem[] {
+  const items: DisplayItem[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (lines[i].kind !== 'same') {
+      items.push({ kind: 'line', line: lines[i] });
+      i += 1;
+      continue;
+    }
+    let j = i;
+    while (j < lines.length && lines[j].kind === 'same') j += 1;
+    const runLength = j - i;
+    if (runLength <= COLLAPSE_THRESHOLD) {
+      for (let k = i; k < j; k += 1) items.push({ kind: 'line', line: lines[k] });
+    } else {
+      for (let k = i; k < i + CONTEXT; k += 1) items.push({ kind: 'line', line: lines[k] });
+      items.push({ kind: 'collapsed', lines: lines.slice(i + CONTEXT, j - CONTEXT) });
+      for (let k = j - CONTEXT; k < j; k += 1) items.push({ kind: 'line', line: lines[k] });
+    }
+    i = j;
+  }
+  return items;
+}
+
 export interface SqlDiffProps {
   before: string;
   after: string;
@@ -80,6 +113,9 @@ export interface SqlDiffProps {
 
 export function SqlDiff({ before, after }: SqlDiffProps): React.ReactElement {
   const lines = useMemo(() => computeLineDiff(before, after), [before, after]);
+  const displayItems = useMemo(() => buildDisplayItems(lines), [lines]);
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  React.useEffect(() => setExpanded(new Set()), [before, after]);
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -94,6 +130,17 @@ export function SqlDiff({ before, after }: SqlDiffProps): React.ReactElement {
 
   return (
     <div style={{ borderRadius: 6, overflow: 'hidden', border: '1px solid rgba(0,0,0,0.15)' }}>
+      {/* El tema claro/oscuro de Superset venía ganándole al `background`/
+          `color` inline de más abajo (se veía en blanco sobre blanco en modo
+          claro). `!important` vía un <style> propio es la única forma de
+          garantizar que este bloque de código se vea siempre igual, sin
+          importar qué CSS del host tenga más especificidad. */}
+      <style>{`
+        .irex-sqldiff-body {
+          background-color: ${CODE_BG} !important;
+          color: ${CODE_TEXT} !important;
+        }
+      `}</style>
       <div
         style={{
           background: '#181825',
@@ -124,27 +171,74 @@ export function SqlDiff({ before, after }: SqlDiffProps): React.ReactElement {
           {copied ? '✓ copiado' : 'copiar'}
         </button>
       </div>
-      <pre
+      <div
+        className="irex-sqldiff-body"
         style={{
           fontFamily: "'SF Mono', Consolas, Monaco, monospace",
           fontSize: 11.5,
           lineHeight: 1.5,
           whiteSpace: 'pre-wrap',
           background: CODE_BG,
+          color: CODE_TEXT,
           padding: 8,
           margin: 0,
           maxHeight: 240,
           overflowY: 'auto',
         }}
       >
-        {lines.map((line, index) => (
-          // eslint-disable-next-line react/no-array-index-key
-          <div key={index} style={LINE_STYLE[line.kind]}>
-            {LINE_PREFIX[line.kind]}
-            {line.text}
-          </div>
-        ))}
-      </pre>
+        {displayItems.map((item, index) => {
+          if (item.kind === 'line') {
+            return (
+              // eslint-disable-next-line react/no-array-index-key
+              <div key={index} style={LINE_STYLE[item.line.kind]}>
+                {LINE_PREFIX[item.line.kind]}
+                {item.line.text}
+              </div>
+            );
+          }
+          const isOpen = expanded.has(index);
+          return (
+            // eslint-disable-next-line react/no-array-index-key
+            <React.Fragment key={index}>
+              <button
+                type="button"
+                onClick={() =>
+                  setExpanded(prev => {
+                    const next = new Set(prev);
+                    if (next.has(index)) next.delete(index);
+                    else next.add(index);
+                    return next;
+                  })
+                }
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  textAlign: 'left',
+                  background: 'rgba(255,255,255,0.04)',
+                  border: 'none',
+                  color: '#9399b2',
+                  fontFamily: 'inherit',
+                  fontSize: 11,
+                  padding: '2px 4px',
+                  margin: '2px 0',
+                  borderRadius: 3,
+                  cursor: 'pointer',
+                }}
+              >
+                {isOpen ? '▾' : '▸'} {item.lines.length} línea{item.lines.length === 1 ? '' : 's'} sin cambios
+              </button>
+              {isOpen &&
+                item.lines.map((line, lineIndex) => (
+                  // eslint-disable-next-line react/no-array-index-key
+                  <div key={lineIndex} style={LINE_STYLE[line.kind]}>
+                    {LINE_PREFIX[line.kind]}
+                    {line.text}
+                  </div>
+                ))}
+            </React.Fragment>
+          );
+        })}
+      </div>
     </div>
   );
 }

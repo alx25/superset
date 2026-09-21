@@ -1,5 +1,641 @@
 ## Registro de cambios
 
+### 2026-09-18 (31) (progreso real vía SSE en la burbuja "Pensando…")
+
+Cambio realizado:
+Implementado el lado frontend del progreso paso a paso acordado con el
+agente del chat: `sql-lab-assistant` ahora se consume como SSE
+(`Accept: text/event-stream`) sobre el mismo POST, mostrando los pasos
+reales que manda el backend en vez de la burbuja genérica "Pensando…".
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/chatBackendAdapter.ts`
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlLabAssistantPanel.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/Conversation.tsx`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- `requestAssistantResponse` manda `Accept: text/event-stream` y, si el
+  `Content-Type` de la respuesta lo confirma, lee `response.body` como
+  `ReadableStream`, separa frames por línea vacía y parsea `event:`/`data:`
+  — implementación SSE genérica (soporta `data:` multilínea, ignora
+  `id:`/`retry:`/comentarios), no algo atado al formato puntual que manda
+  hoy el backend.
+- Eventos manejados: `status` (`thinking`/`calling_tool`/`responding`,
+  mapeados a una etiqueta genérica) y `activity` (mensaje textual del
+  backend, se muestra tal cual — son los pasos reales: "Analizando la
+  consulta de SQL Lab.", "Obteniendo el plan de ejecución.", etc.). `done`
+  resuelve con `sql_lab_response` (mismo contrato v1 de siempre, vía
+  `parseAssistantResponse`); `error` corta el stream y lanza
+  `AssistantBackendError`. Eventos desconocidos se ignoran en silencio
+  (adelante a futuro). NO se procesan `tool_call`/`tool_result` — el
+  backend explícitamente no los expone por SSE.
+- **Fallback intacto**: si el `Content-Type` de la respuesta no es
+  `text/event-stream` (backend todavía no desplegado con este soporte), se
+  procesa como el JSON v1 plano de siempre — mismo código de antes, sin
+  cambios de comportamiento en ese caso.
+- El panel guarda el último evento de progreso (`progressLabel`) y se lo
+  pasa a `TypingIndicator`, que lo muestra en vez del "Pensando…" animado
+  cuando hay uno disponible — cae al genérico si todavía no llegó ningún
+  evento o si el backend no manda SSE. Se limpia al iniciar cada pedido, al
+  terminar (éxito/error/abort) y en "Nueva sesión".
+
+Build: `./scripts/build-extension.sh` (TypeScript estricto OK, 154 tests
+backend sin cambios, webpack, .supx reconstruido) sobre `extensions_test/`.
+Pendiente reiniciar `superset_test.service`/`superset_mcp_test.service`
+(sudo interactivo no disponible en esta sesión) y probar contra el backend
+real una vez que el agente del chat confirme que su lado ya está
+desplegado con soporte SSE.
+
+### 2026-09-18 (30) (índices/claves en get_sql_schema_context; fix: explain_query rechazaba SQL con Jinja sin renderizar)
+
+Cambio realizado:
+Dos cosas pedidas juntas: (1) sumar a `get_sql_schema_context` lo que le
+faltaba al LLM para sugerir índices con criterio — qué índices/claves ya
+existen —, y (2) un bug real: `irex.explain_query` rechazaba cualquier SQL
+con templating Jinja como "no es SELECT/WITH", en vez de resolver el
+template primero (igual que hace la ejecución real de SQL Lab).
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/sql_schema_context.py`
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/explain_query.py`
+- `custom-extensions/irex-mcp-tools/backend/tests/test_sql_schema_context.py`
+- `custom-extensions/irex-mcp-tools/backend/tests/test_explain_query.py`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- **`get_sql_schema_context` + índices**: `get_table_metadata` (que la tool
+  ya llamaba) calcula `primaryKey`/`foreignKeys`/`indexes` pero se
+  descartaban. Ahora `table.keys` (pk/fk/index, con `column_names` y, para
+  fk, `referred_table`/`referred_columns`) viene de ahí — básicamente
+  gratis, sin conexión adicional. Para ClickHouse (que no tiene FKs ni
+  índices secundarios tradicionales — `keys` le va a venir vacío) se agregó
+  `table.table_definition`: el DDL real vía `SHOW CREATE TABLE`, que es
+  donde vive el ENGINE/ORDER BY/PARTITION BY — el equivalente de ClickHouse
+  a un índice. Es best-effort (conexión aparte, mismo patrón que
+  `explain_query`): si falla, `table_definition` queda en `None` sin romper
+  el resto de la respuesta (columnas/keys siguen siendo el dato principal).
+- **Fix de `explain_query`**: la validación de solo-lectura corría sobre
+  `request.sql` CRUDO. Cualquier consulta parametrizada de SQL Lab real
+  (`{% set %}` antes del SELECT, `{{ from_dttm }}`, etc.) se rechazaba con
+  `INVALID_SQL_ERROR` sin llegar a resolverse — el mensaje del LLM
+  reportado por el usuario ("no es una única sentencia SELECT/WITH ya
+  resuelta") era literalmente ese error. Ahora se renderiza con
+  `get_template_processor(database).process_template(sql)` PRIMERO (mismo
+  orden que `QueryEstimationCommand`, el "estimar costo" nativo de SQL Lab)
+  y se valida/ejecuta sobre el resultado. Variables sin valor (fuera de un
+  dashboard, `from_dttm`/`to_dttm` no están definidas) no rompen nada:
+  `DebugUndefined` las evalúa como falsy en un `{% if %}`, así que una
+  consulta bien escrita con su propio fallback cae a un valor por defecto
+  en vez de fallar — tal como planteó el usuario. Un error real de
+  templating (sintaxis de Jinja rota) se reporta como `JINJA_TEMPLATE_ERROR`
+  nuevo, no como si el SQL no fuera un SELECT.
+- 8 tests nuevos (154 en total): mapeo de pk/fk/index, `table_definition`
+  de ClickHouse (éxito y falla-no-rompe-nada), ausencia en Postgres, y para
+  `explain_query`: render antes de validar, SQL sin Jinja sin cambios
+  (regresión), y error de templating reportado sin romper.
+
+Build: `./scripts/build-extension.sh` (TypeScript estricto OK, 154 tests
+backend, webpack, .supx reconstruido) sobre `extensions_test/`. Pendiente
+reiniciar `superset_test.service`/`superset_mcp_test.service` (sudo
+interactivo no disponible en esta sesión) antes de validar en el navegador
+— en particular, volver a probar el caso real que reportó el usuario (SQL
+con Jinja) contra el test config.
+
+### 2026-09-18 (29) (nueva tool irex.explain_query — EXPLAIN/ANALYZE para verificar optimizaciones)
+
+Cambio realizado:
+Se agregó una tool nueva para que el LLM pueda pedir el plan de ejecución
+(EXPLAIN) de una consulta SELECT — pensada para verificar si una
+optimización propuesta realmente mejora el plan/costo antes de sugerirla
+como definitiva, y para fundamentar sugerencias de índices con datos reales
+del planner en vez de intuición.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/explain_query.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/entrypoint.py`
+- `custom-extensions/irex-mcp-tools/backend/tests/test_explain_query.py` (nuevo)
+- `/home/imercados/.superset/superset_config.py` (paso 6 obligatorio: `always_visible`)
+- `superset_config_test.py` (ídem, config de test)
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- `sql` está restringido a una única sentencia SELECT/WITH de solo lectura
+  (mismo criterio que `_validate_sql` de `sql_analysis.py`) — cualquier
+  INSERT/UPDATE/DELETE/DDL o múltiples sentencias con `;` se rechaza sin
+  ejecutar nada. Esto es lo que hace seguro el punto siguiente.
+- **Excepción deliberada a "confirmación obligatoria"**: con `analyze=true`
+  en PostgreSQL, la tool ejecuta `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`
+  — la consulta CORRE DE VERDAD (mide tiempos/filas reales), de forma
+  autónoma, sin que el usuario confirme nada — a diferencia de todo lo
+  demás en el asistente de SQL Lab (que exige click + `window.confirm()`
+  antes de correr cualquier SQL). Decisión explícita del usuario: en SELECT
+  no hay riesgo de escritura, así que no hace falta la ceremonia de
+  confirmación. Documentado tanto en el docstring del módulo como en la
+  descripción de la tool para que quede visible, no escondido.
+- No se arma un diff automático entre el plan "antes" y "después" de un
+  ajuste — los formatos de cada motor son demasiado distintos para
+  normalizar de forma confiable. La tool está pensada para llamarse dos
+  veces (una por versión de la consulta) y dejar que el LLM compare los
+  dos planes de texto/JSON en su propio razonamiento.
+- Cobertura por motor (clave = `db_engine_spec.engine`):
+  - **PostgreSQL** (probado): `EXPLAIN (FORMAT JSON)` sin analyze, `EXPLAIN
+    (ANALYZE, BUFFERS, FORMAT JSON)` con analyze.
+  - **ClickHouse** (probado): `EXPLAIN PLAN indexes = 1` siempre; con
+    analyze suma `EXPLAIN ESTIMATE` — que da estimaciones reales de
+    filas/marks a leer SIN ejecutar nada (a diferencia de Postgres,
+    ClickHouse no necesita correr la consulta para esto).
+  - **MSSQL/Oracle** (best-effort, **sin validar contra una instancia
+    real** — no hay ninguna disponible en este entorno): MSSQL vía
+    `SET SHOWPLAN_XML ON/OFF` alrededor de la consulta; Oracle vía
+    `EXPLAIN PLAN FOR` + `DBMS_XPLAN.DISPLAY`. Ninguno de los dos ejecuta
+    la consulta real (`analyze` en estos dos todavía no tiene un modo real
+    implementado — devuelve el plan estimado con un warning). Cualquier
+    tests con estos dos solo fija el contrato del SQL que el código manda,
+    no valida contra un servidor real — si falla en la práctica, reportarlo
+    en la sesión en vez de asumir que el SQL de entrada está mal.
+  - Otros motores (MySQL, Trino, etc.): `ENGINE_NOT_SUPPORTED_ERROR`
+    explícito en vez de una sintaxis adivinada sin testear.
+- Usa `database.get_raw_connection()` directo (mismo patrón que
+  `estimate_query_cost` nativo de Superset) — no pasa por el pipeline de
+  RLS de datasets, pero eso ya es igual a como funciona hoy "Ejecutar con
+  confirmación" en SQL Lab con SQL de mano: Superset no aplica RLS a SQL
+  Lab de texto libre (solo a queries de datasets/charts), así que esta tool
+  no introduce una superficie nueva de exposición de datos más allá de la
+  que ya acepta el propio SQL Lab.
+- 15 tests nuevos (146 en total): validación de solo-lectura, permisos,
+  y el SQL exacto enviado a cada motor via un cursor/conexión fake.
+
+Build: `./scripts/build-extension.sh` (TypeScript estricto OK, 146 tests
+backend, webpack, .supx reconstruido) sobre `extensions_test/`. Pendiente:
+reiniciar `superset_test.service`/`superset_mcp_test.service` para probar
+(sudo interactivo no disponible en esta sesión); y — recién después de
+validar en test contra Postgres/ClickHouse reales — repetir el flujo hacia
+`extensions/` + reinicio de producción, con autorización explícita (ya se
+agregó `explain_query` al `always_visible` de producción como preparación,
+pero el .supx de producción todavía no tiene el código ni se reinició el
+servicio).
+
+### 2026-09-18 (28) (botón "Ejecutar con confirmación" ausente según el `action.type` que elige el backend)
+
+Cambio realizado:
+El usuario notó que la misma pregunta a veces trae el botón "Ejecutar con
+confirmación" y a veces no. Investigado: no era un bug, es 100% el
+`action.type` que devuelve el backend del chat en esa respuesta puntual —
+el frontend solo renderiza según ese campo.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlLabAssistantPanel.tsx`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- Antes: "Ejecutar con confirmación" solo aparecía para `propose_sql` (junto
+  a "Aplicar cambio") y `suggest_execution` (solo). Para `replace_document`/
+  `replace_selection`/`insert_sql` solo había "Aplicar cambio" — el backend
+  eligió `replace_document` en el caso reportado (reescritura completa del
+  documento) en vez de `propose_sql`, así que no había botón de ejecutar
+  aunque el SQL fuera perfectamente ejecutable.
+- Se agrega "Ejecutar con confirmación" también para `replace_document`
+  — mismo criterio que `propose_sql`: reemplaza el documento COMPLETO, así
+  que es una consulta coherente, segura de probar antes de aplicar.
+  Deliberadamente NO se agrega a `replace_selection` ni `insert_sql`: esos
+  pueden ser un fragmento (una cláusula suelta, no una consulta completa) y
+  ejecutarlos solos podría fallar de forma confusa sin ser un error real.
+- No se tocó el backend del chat — el `action.type` sigue siendo decisión
+  suya; esto solo hace que el frontend ofrezca "probar antes de aplicar"
+  de forma consistente para los dos tipos de acción que representan una
+  consulta completa (`propose_sql` y `replace_document`), en vez de
+  depender de cuál de los dos haya elegido el LLM en cada respuesta.
+
+Build: `./scripts/build-extension.sh` (TypeScript estricto OK, 131 tests
+backend, webpack, .supx reconstruido) sobre `extensions_test/`. Pendiente
+reiniciar `superset_test.service`/`superset_mcp_test.service` (sudo
+interactivo no disponible en esta sesión) antes de validar en el navegador.
+
+### 2026-09-18 (27) (fix: "Ejecutar con confirmación" descartaba la propuesta, sin poder aplicarla después)
+
+Cambio realizado:
+Al ejecutar una propuesta con "Ejecutar con confirmación", la tarjeta de
+propuesta desaparecía — dejando sin forma de después usar "Aplicar cambio"
+sobre la misma propuesta ya probada.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlLabAssistantPanel.tsx`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- `runExecute` llamaba `onDismiss()` después de una ejecución exitosa,
+  igual que `runApply`. La diferencia: aplicar SÍ escribe el SQL en el
+  editor (con eso la tarjeta ya cumplió su propósito), pero ejecutar NO
+  toca el editor — es una forma de probar el resultado antes de decidir si
+  aplicarlo. Descartar la tarjeta ahí cortaba ese flujo (probar y después
+  aplicar).
+- Se saca el `onDismiss()` de `runExecute`. La tarjeta ahora queda visible
+  después de ejecutar, para poder aplicar el cambio o descartarla a mano
+  con el botón "Descartar propuesta" cuando ya no se necesite.
+
+Build: `./scripts/build-extension.sh` (TypeScript estricto OK, 131 tests
+backend, webpack, .supx reconstruido) sobre `extensions_test/`. Pendiente
+reiniciar `superset_test.service`/`superset_mcp_test.service` (sudo
+interactivo no disponible en esta sesión) antes de validar en el navegador.
+
+### 2026-09-18 (26) (Markdown y espaciado en los mensajes del asistente)
+
+Cambio realizado:
+Los mensajes del asistente se mostraban como texto plano — negrita, listas
+y bloques de código de la respuesta del LLM llegaban con los asteriscos y
+backticks literales. Se agregó un renderer de Markdown liviano y se mejoró
+el espaciado de las burbujas de chat.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/ChatMarkdown.tsx` (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/Conversation.tsx`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- `ChatMarkdown` es un subconjunto propio de Markdown (párrafos, listas con
+  `-`/`*`/`1.`, bloques ```` ``` ````, negrita/itálica e inline code) — no
+  una librería como `react-markdown`: el bundle de esta extensión es
+  chico (~35KB) y las respuestas del chat no usan tablas/links/headers, así
+  que sumar una dependencia nueva era más costo que beneficio. Nunca usa
+  `dangerouslySetInnerHTML` — arma nodos React directamente, así el texto
+  del backend del chat (semi-confiable) no puede inyectar HTML.
+- Se aplica solo a mensajes `role: 'assistant'`. Los mensajes del usuario
+  siguen como texto plano a propósito — es lo que la persona tipeó
+  literalmente, no algo que deba interpretarse como Markdown.
+- Espaciado: más padding en las burbujas (9px 11px → 10px 13px), más
+  separación entre mensajes del historial (12px → 16px), y los bloques
+  internos de Markdown (párrafos/listas/código) tienen su propio espaciado
+  vertical de 8px entre sí.
+
+Build: `./scripts/build-extension.sh` (TypeScript estricto OK, 131 tests
+backend, webpack, .supx reconstruido) sobre `extensions_test/`. Pendiente
+reiniciar `superset_test.service`/`superset_mcp_test.service` (sudo
+interactivo no disponible en esta sesión) antes de validar en el navegador.
+
+### 2026-09-18 (25) (fix: click en "Pedir propuesta" rompía con "circular structure to JSON")
+
+Cambio realizado:
+Regresión introducida en (22) al agregar `overrideMode?` a `handleSend`
+(para el botón "Corregir error"): el botón "Pedir propuesta" quedó
+rompiendo con `Error: Converting circular structure to JSON → ... object
+with constructor 'HTMLButtonElement' ... property '__reactFiber$...'`.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlLabAssistantPanel.tsx`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- Causa: `Conversation.tsx` usa el prop `onSend` como manejador nativo de
+  click (`<button onClick={onSend}>`), así que React lo invoca con el
+  `SyntheticEvent` del click como primer argumento. `SqlLabAssistantPanel`
+  pasaba `onSend={handleSend}` directo, y como `handleSend` ahora acepta
+  `overrideMode?: AssistantMode` como primer parámetro, el evento del click
+  terminaba asignado a `overrideMode` en vez de `undefined`. Ese "modo"
+  (un objeto DOM/React, no un string) viajaba hasta `readActiveContext` y de
+  ahí a `JSON.stringify()` en `requestAssistantResponse` — que revienta
+  porque un nodo DOM con su fiber de React tiene referencias circulares.
+  TypeScript no lo marcó porque una función con un parámetro opcional es
+  asignable a un tipo que espera cero parámetros (`() => void`); eso es
+  válido para el chequeo de tipos pero no protege en runtime cuando el
+  consumidor real la usa como handler de evento.
+- Fix: `onSend={() => { void handleSend(); }}` — descarta explícitamente
+  cualquier argumento que el `onClick` nativo le pase. El otro call-site
+  nuevo (`handleFixError`, botón "Corregir error") ya estaba bien porque
+  llama `handleSend('explain_error')` con un string literal, no como
+  referencia de función cruda.
+- El atajo Ctrl/Cmd+Enter nunca tuvo este bug — en `Conversation.tsx` se
+  invoca explícitamente como `onSend()` dentro de un callback propio, no
+  como referencia directa de handler.
+
+Build: `./scripts/build-extension.sh` (TypeScript estricto OK, 131 tests
+backend, webpack, .supx reconstruido) sobre `extensions_test/`. Pendiente
+reiniciar `superset_test.service`/`superset_mcp_test.service` (sudo
+interactivo no disponible en esta sesión) antes de validar en el navegador.
+
+### 2026-09-18 (24) (irex.get_sql_schema_context: metadata del motor — engine, versión, Jinja, notas de dialecto)
+
+Cambio realizado:
+Se amplió `irex.get_sql_schema_context` para que, además de tablas/columnas,
+devuelva metadata del motor de base de datos: dialecto normalizado, versión,
+soporte y macros de Jinja disponibles, y notas curadas del dialecto. Ver
+análisis previo en esta conversación (viabilidad campo por campo contra
+`superset/db_engine_specs` y `superset/jinja_context.py`).
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/sql_schema_context.py`
+- `custom-extensions/irex-mcp-tools/backend/tests/test_sql_schema_context.py`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- Campos nuevos en `SqlSchemaContextResponse`, todos `Optional` y solo
+  poblados cuando `success=true` (en errores como `DATABASE_NOT_FOUND_ERROR`
+  no hay motor que reportar): `engine`, `engine_version`, `supports_jinja`,
+  `jinja_context`, `sql_dialect_notes`.
+- `engine` = `database.db_engine_spec.engine` (el nombre normalizado que
+  Superset ya usa internamente, sin mapeo propio).
+- `engine_version` abre una conexión liviana adicional vía
+  `database.get_sqla_engine()` para leer `dialect.server_version_info`. Es
+  "mejor esfuerzo": cualquier falla (motor caído, driver que no expone
+  versión) cae a `None` sin romper el resto de la respuesta.
+- `supports_jinja` refleja el feature flag `ENABLE_TEMPLATE_PROCESSING`
+  (está en `true` en esta instalación) — es global, no por motor, salvo la
+  familia presto/hive/spark/trino que además suma macros propias.
+- `jinja_context` lista los NOMBRES de `get_template_processor(database).get_context().keys()`
+  — nunca invoca esos callables. Varios (`current_user_rls_rules`,
+  `current_user_email`, `current_user_roles`, `current_username`,
+  `filter_values`) devuelven datos del usuario/RLS si se ejecutan; listar la
+  key es seguro, resolverla no. Queda comentado en el código como
+  restricción a respetar en cambios futuros.
+- `sql_dialect_notes` es contenido curado a mano (`_SQL_DIALECT_NOTES`),
+  deliberadamente acotado a los motores realmente conectados en esta
+  instalación (ClickHouse) en vez de una matriz especulativa multi-motor —
+  sumar entradas cuando se conecte una base con un motor nuevo.
+- La descripción de la tool para el LLM se actualizó para mencionar que
+  también sirve para dudas de dialecto (LIMIT vs TOP, funciones de fecha,
+  CTEs), no solo para nombres de tabla/columna.
+- 7 tests nuevos (131 en total): engine/versión reportados, degradación
+  ante fallas de conexión o de template processor, jinja_context ausente
+  cuando `supports_jinja=false`, notas presentes solo para motores con
+  entrada curada, y ausencia total de estos campos en respuestas de error.
+
+Build: `./scripts/build-extension.sh` (TypeScript estricto OK, 131 tests
+backend, webpack, .supx reconstruido) sobre `extensions_test/`. Pendiente
+reiniciar `superset_test.service`/`superset_mcp_test.service` (sudo
+interactivo no disponible en esta sesión) antes de validar, y coordinar con
+el agente del chat el uso del contrato ampliado (ver mensaje aparte).
+
+### 2026-09-18 (23) (botón "Nueva sesión" en el asistente SQL Lab)
+
+Cambio realizado:
+Se agregó un botón para vaciar la conversación actual del asistente y
+empezar de cero, a pedido del usuario.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/chatBackendAdapter.ts`
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlLabAssistantPanel.tsx`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- Alcance: esto reinicia el estado LOCAL del panel (historial, propuesta
+  activa, último error, aviso de deshacer/rehacer, modo, texto del input).
+  No toca el SQL ya aplicado en el editor de la pestaña — "nueva sesión" es
+  sobre la conversación, no sobre el código.
+- Duda abierta sobre el backend del chat: el contrato actual
+  (`sql-lab-assistant`) ya es stateless de nuestro lado — cada pedido manda
+  el contexto completo (modo, mensaje, último error, tab/editor), nunca el
+  historial previo. No tengo visibilidad del backend externo del chat (lo
+  mantiene el otro agente, ver CLAUDE.md) para saber si además guarda su
+  propia memoria de conversación del lado del servidor (p. ej. por cookie o
+  por usuario) que un reset puramente de frontend no tocaría. Si la
+  mantiene, hace falta coordinar con el otro agente para que el contrato
+  sume algo como `new_session: true` o un endpoint de reset — quedó pendiente
+  de confirmar, no bloqueó esta implementación.
+- `requestAssistantResponse` acepta ahora un `AbortSignal` opcional: "Nueva
+  sesión" cancela un pedido en vuelo si lo hay, para que su respuesta no
+  reaparezca en la conversación recién vaciada.
+
+Build: `./scripts/build-extension.sh` (TypeScript estricto OK, 124 tests
+backend, webpack, .supx reconstruido) sobre `extensions_test/`. Pendiente
+reiniciar `superset_test.service`/`superset_mcp_test.service` (sudo
+interactivo no disponible en esta sesión) antes de validar en el navegador.
+
+### 2026-09-18 (22) (preview de código ilegible en modo claro, botón "Corregir error" que quedaba activo tras usarse)
+
+Cambio realizado:
+Dos bugs reportados al probar (21) en el navegador: el bloque de código
+(diff SQL) no se veía en modo claro, y el botón "Corregir error" seguía
+visible y clickeable después de que el LLM ya había entregado la propuesta
+de corrección.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlDiff.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlLabAssistantPanel.tsx`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- `SqlDiff` no depende de ningún token de tema (fondo/texto del bloque de
+  código están hardcodeados a propósito, independientes de modo claro/oscuro
+  de Superset) — así que si se veía distinto entre modos, algo del host le
+  estaba ganando en especificidad al `background`/`color` inline. No pude
+  confirmar la regla exacta por análisis estático (el CSS real en runtime lo
+  sirve el host vía Module Federation, no el `node_modules` local usado para
+  tipos); se blindó con un `<style>` propio (`!important`) sobre el
+  contenedor del código y se cambió `<pre>` por `<div>` para descartar
+  cualquier regla que apuntara específicamente a la etiqueta `pre`. A
+  confirmar en el navegador — si sigue sin verse bien, hace falta el
+  `background-color`/`color` computados del inspector para seguir.
+- `handleSend`: cuando `effectiveMode === 'explain_error'` y la propuesta de
+  corrección llega bien, se limpia `lastQueryEvent` — antes solo se
+  actualizaba desde los listeners de éxito/fallo de consulta, así que pedir
+  una corrección nunca hacía desaparecer el aviso de error ni su botón,
+  que quedaba clickeable de nuevo en cuanto terminaba el pedido (`sending`
+  vuelve a `false`).
+
+Build: `./scripts/build-extension.sh` (TypeScript estricto OK, 124 tests
+backend, webpack, .supx reconstruido) sobre `extensions_test/`. Pendiente
+reiniciar `superset_test.service`/`superset_mcp_test.service` (sudo
+interactivo no disponible en esta sesión) antes de validar en el navegador.
+
+### 2026-09-18 (21) (diff compacto, resaltado nativo en el editor con deshacer/rehacer, botón directo para corregir error)
+
+Cambio realizado:
+Tres ajustes de UX pedidos tras probar (20): las propuestas de SQL ocupaban
+demasiado espacio, el "deshacer" no tenía forma de "rehacer" y no se veía
+nada en el editor real de SQL Lab (solo en el panel), y corregir un error
+requería encontrar la tarjeta "Corregir el error" entre las acciones rápidas
+en vez de tener un botón junto al error mismo.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlDiff.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/sqlLabAdapter.ts`
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlLabAssistantPanel.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/Conversation.tsx`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- Límite conocido de la API de extensiones: `EditorHandle`
+  (`@apache-superset/core/editors`) no expone decoraciones ni diff inline
+  tipo Copilot — solo `setSelection`/`scrollToLine`/`setAnnotations`/`focus`.
+  No hay forma de pintar un diff dentro del editor de SQL Lab sin tocar el
+  host; lo que sigue es lo más cercano posible con esa API.
+- `SqlDiff`: los tramos largos sin cambios ahora se colapsan (estilo
+  `git diff`, 2 líneas de contexto) detrás de un separador clickeable en vez
+  de repetir la consulta completa por un ajuste de una línea.
+- Nuevo `sqlLabAdapter.revealChange(before, after, message)`: calcula qué
+  líneas cambiaron (recorte de prefijo/sufijo común) y selecciona ese rango
+  en el editor real de la pestaña activa, hace scroll, dejar una anotación
+  con el motivo y devuelve el foco — para que "Aplicar cambio" se vea
+  también donde realmente importa, no solo en el panel.
+- El "Deshacer" ahora guarda el documento completo antes *y después* del
+  cambio (no solo "antes"), y se agregó "Rehacer": alterna entre ambos
+  estados restaurando siempre con `replace_document` (no depende del undo
+  nativo del editor, que `setValue` resetea igual).
+- Cuando falla una consulta, el error ya no menciona la acción rápida por
+  texto: el `Alert` lleva un botón "Corregir error" (prop `action` de antd
+  Alert) que dispara el modo `explain_error` y envía la solicitud en el
+  mismo click. Se sacó la tarjeta correspondiente del grid de acciones
+  rápidas en `Conversation.tsx` (quedaba redundante con el botón nuevo,
+  ambos aparecían exactamente en el mismo momento).
+
+Build: `./scripts/build-extension.sh` (TypeScript estricto OK, 124 tests
+backend, webpack, .supx reconstruido) sobre `extensions_test/`. Pendiente
+reiniciar `superset_test.service`/`superset_mcp_test.service` (sudo
+interactivo no disponible en esta sesión) antes de validar en el navegador.
+
+### 2026-09-18 (20) (botón "Deshacer" tras aplicar una propuesta)
+
+Cambio realizado:
+Se agregó un punto de control para revertir una propuesta ya aplicada al
+editor de SQL Lab, a pedido del usuario: si el LLM propone un cambio, se
+aprueba, y después resulta que faltan campos o el resultado no es correcto,
+ahora se puede deshacer sin depender del undo nativo del editor.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlLabAssistantPanel.tsx`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- Alcance deliberadamente acotado a texto del editor: `applyAction` (aplicar
+  propuesta) nunca ejecuta SQL, solo escribe en el editor, así que el
+  "deshacer" es 100% frontend. Ejecutar SQL con confirmación (`executeConfirmed`,
+  botón "Ejecutar con confirmación") sigue sin ningún filtro de solo-lectura
+  — se decidió explícitamente no tocar eso en esta pasada.
+- Antes de cada `Aplicar cambio`/`Reemplazar selección`/`Reemplazar documento`/
+  `Insertar` que sobrescribe contenido existente (no aplica a "Abrir en nueva
+  pestaña", que no pisa nada), se guarda el documento completo previo
+  (`context.editor.sql`, el mismo snapshot que ya se usaba para el diff) junto
+  con el título de la pestaña.
+- Aparece una barra fija bajo el header del panel: "Último cambio aplicado en
+  <pestaña>" con botón "Deshacer" (restaura el documento completo vía
+  `replace_document`) y botón para descartar el aviso.
+- El snapshot se invalida automáticamente si el usuario cambia de pestaña
+  activa antes de deshacer, para no sobrescribir el contenido de una pestaña
+  distinta a la que originó el cambio.
+
+Build: `./scripts/build-extension.sh` sobre `extensions_test/`. Pendiente
+reiniciar `superset_test.service`/`superset_mcp_test.service` (sudo
+interactivo no disponible en esta sesión) antes de validar en el navegador.
+
+### 2026-09-18 (19) (corrección de UX del asistente SQL Lab: compositor no fijo, input no se limpiaba, sin indicador de carga)
+
+Cambio realizado:
+Se corrigieron tres problemas reportados al probar el rediseño (18) en el
+navegador: el compositor no quedaba anclado al fondo del panel, el texto
+escrito permanecía en el input después de enviarlo, y no había ningún
+indicador visual de que el LLM estuviera generando la respuesta.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlLabAssistantPanel.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/Conversation.tsx`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- Causa raíz del compositor no fijo: el panel usaba `height: calc(100vh - 16px)`
+  asumiendo que el panel arranca en el tope del viewport, pero `ViewListExtension`
+  lo monta dentro del sidebar derecho de SQL Lab, por debajo del header y la
+  barra de pestañas — así que el panel terminaba más alto que el espacio real
+  disponible y el compositor quedaba renderizado fuera de la pantalla visible
+  (recortado por el `overflow: hidden` propio, no por scroll de Superset).
+  Ahora se mide con `getBoundingClientRect()` + `window.innerHeight` cuánto
+  espacio queda realmente hasta el fondo del viewport (recalculado en resize
+  y con `ResizeObserver`), y se quita el `position: sticky` que no cumplía
+  ninguna función una vez corregida la altura.
+- El input ya no esperaba a la respuesta del backend para limpiarse
+  (`setUserMessage('')` solo corría en el `try` tras la respuesta exitosa);
+  ahora se limpia apenas se presiona enviar, antes del `await`, así nunca
+  "retiene" el texto ya enviado sin importar si la respuesta tarda o falla.
+- Se agrega una burbuja "Pensando…" (con puntos animados) en el historial
+  mientras `sending` es true, más auto-scroll al fondo del historial para
+  que quede visible sin que el usuario tenga que desplazarse manualmente.
+
+Build: `./scripts/build-extension.sh` (TypeScript estricto, 124 tests backend,
+webpack, .supx reconstruido) sobre `extensions_test/`. Pendiente reiniciar
+`superset_test.service` y `superset_mcp_test.service` (requiere sudo
+interactivo, no disponible en esta sesión) antes de validar en el navegador.
+
+### 2026-09-18 (18) (UX del asistente SQL Lab)
+
+Cambio realizado:
+Se rediseñó el panel del asistente SQL Lab para aprovechar mejor el sidebar y
+ofrecer acciones contextuales en lugar de un selector genérico.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/Conversation.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlLabAssistantPanel.tsx`
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- El historial, diagnósticos y propuestas ahora usan un área central desplazable;
+  el compositor queda siempre visible al final del panel.
+- El selector nativo se reemplaza por acciones rápidas: corregir el último error
+  cuando existe, revisar/optimizar consulta, revisar selección y crear SQL.
+- Se mejora la jerarquía visual, tamaños, tarjetas de conversación, estados de
+  propuesta y etiquetas de confirmación para acciones que modifican o ejecutan SQL.
+- Se agrega el atajo Ctrl/Cmd+Enter para enviar una solicitud.
+- El panel se ancla al viewport: solo se desplazan mensajes y propuestas; el
+  compositor nunca queda fuera de pantalla al crecer la conversación.
+
+### 2026-09-18 (16) (corrección de get_sql_schema_context)
+
+Cambio realizado:
+Se investigó la llamada MCP de SQL Lab y se corrigieron dos problemas que impedían
+usar la tool desde el flujo real: el request público enviaba `schema`, pero el modelo
+solo aceptaba `schema_name`; además, producción no tenía la tool en la lista de tools
+fijadas para descubribilidad. Los logs confirmaron que el error interno de producción
+era `Unknown tool` al reenviar desde `call_tool`, no un fallo de ClickHouse.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/sql_schema_context.py`
+- `custom-extensions/irex-mcp-tools/backend/tests/test_sql_schema_context.py`
+- `/home/imercados/.superset/superset_config.py`
+
+Que cambia o corrige:
+- `schema` es ahora el nombre público y se mantiene `schema_name` como alias compatible.
+- `get_sql_schema_context` queda fijada en `MCP_TOOL_SEARCH_CONFIG.always_visible` de
+  producción, además del registro existente en test.
+- Se agrega una prueba del alias público.
+
+Verificacion:
+- 12 tests focalizados y 124 tests del build completos sin errores.
+- `.supx` de test reconstruido desde cero y smoke test de carga correcto; la tool queda
+  registrada en el catálogo de la extensión.
+- La llamada real existente con `schema_name` devuelve las columnas de ClickHouse,
+  incluida `anio_id`; la forma pública con `schema` queda cubierta por test y lista
+  para validarse al recargar el servicio.
+- Pendiente operativo: reiniciar `superset_test.service` y `superset_mcp_test.service`
+  introduciendo la contraseña local de `sudo`; después repetir la llamada MCP y reiniciar
+  producción solo con autorización explícita.
+
+### 2026-09-18 (17) (diagnóstico de sesión SQL Lab sqllab-2498ad2692c7db97838d566170131e3c26a94cbf0d33d0b5c8a4a2d378ca439a)
+
+Resultado de investigación:
+- El backend del chat envió correctamente `database_id=3`, `schema=default` y
+  `table=ch_corte_ventas_vm` después de detectar `UNKNOWN_IDENTIFIER` para `anio`.
+- El MCP de producción respondió `Unknown tool` (`err_1789750959`), porque su proceso
+  sigue arrancado desde el 2026-09-09 y su `.supx` instalado es del 2026-06-29; ese ZIP
+  no contiene `sql_schema_context.py`.
+- El servicio de test, reiniciado a las 11:00:56, sí registra y descubre la tool, y la
+  llamada con `schema` devuelve las columnas reales, incluida `anio_id`.
+
+Conclusión:
+La corrección de código está validada en test. La sesión falló porque todavía consume
+el artefacto/proceso antiguo de producción. Promover el `.supx` nuevo a `extensions/` y
+reiniciar `superset.service`/`superset_mcp.service` requiere autorización explícita.
+
 ### 2026-09-18 (15) (rediseño: tema claro/oscuro + estilo tipo chat)
 
 Cambio realizado:

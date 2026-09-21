@@ -11,11 +11,35 @@ REST equivalente (`check_table_access` en `superset/databases/decorators.py`).
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 from superset_core.mcp.decorators import tool
 
 _MAX_TABLES = 50
 _MAX_COLUMNS = 300
+
+# Notas curadas por motor (clave = `db_engine_spec.engine`, el nombre
+# normalizado de Superset — ver superset/db_engine_specs/*.py). A propósito
+# solo cubre los motores realmente conectados en esta instalación (ClickHouse):
+# no hay forma de derivar esto de Superset automáticamente, así que mantener
+# una matriz especulativa para motores que no existen acá es puro costo de
+# mantenimiento sin beneficio. Sumar una entrada cuando se conecte una base
+# con un motor nuevo.
+_SQL_DIALECT_NOTES: dict[str, list[str]] = {
+    "clickhouse": [
+        "Usar LIMIT, no TOP.",
+        "Funciones de fecha con el dialecto propio de ClickHouse "
+        "(toDate, toStartOfMonth, toYear, etc.), no ANSI SQL ni el dialecto "
+        "de Postgres/MySQL.",
+        "UPDATE/DELETE no son transaccionales estilo OLTP: son operaciones "
+        "asíncronas (ALTER TABLE ... UPDATE/DELETE) y no se reflejan de "
+        "inmediato en lecturas posteriores.",
+        "WITH (CTEs) soportado; WITH RECURSIVE no está disponible.",
+    ],
+}
+# Mismo motor real, otra clase de engine_spec según el conector configurado
+# (legado sqlalchemy vs. clickhouse-connect) — ver
+# superset/db_engine_specs/clickhouse.py.
+_SQL_DIALECT_NOTES["clickhousedb"] = _SQL_DIALECT_NOTES["clickhouse"]
 
 
 class SqlSchemaContextRequest(BaseModel):
@@ -23,7 +47,13 @@ class SqlSchemaContextRequest(BaseModel):
     catalog: str | None = Field(
         None, description="Catálogo, solo para bases que los usan (ej. Trino). None en la mayoría de los casos."
     )
-    schema_name: str = Field(..., description="Nombre del schema (ej. 'default', 'public').")
+    schema_name: str = Field(
+        ...,
+        alias="schema",
+        validation_alias=AliasChoices("schema", "schema_name"),
+        serialization_alias="schema",
+        description="Nombre del schema (ej. 'default', 'public').",
+    )
     table: str | None = Field(
         None,
         description=(
@@ -48,10 +78,41 @@ class SqlSchemaColumn(BaseModel):
     comment: str | None = None
 
 
+class SqlSchemaKey(BaseModel):
+    type: str = Field(..., description="'pk', 'fk' o 'index'.")
+    name: str | None = None
+    column_names: list[str] = Field(default_factory=list)
+    referred_table: str | None = Field(None, description="Solo presente cuando type='fk'.")
+    referred_columns: list[str] | None = Field(None, description="Solo presente cuando type='fk'.")
+    unique: bool | None = Field(None, description="Solo presente cuando type='index'.")
+
+
 class SqlSchemaTableInfo(BaseModel):
     name: str
     columns: list[SqlSchemaColumn]
     comment: str | None = None
+    keys: list[SqlSchemaKey] = Field(
+        default_factory=list,
+        description=(
+            "Primary key, foreign keys e índices existentes — de la reflexión "
+            "estándar de SQLAlchemy. Útil para no sugerir un índice que ya "
+            "existe, o para entender por qué uno existente no se está usando "
+            "en un plan de irex.explain_query. Motores sin este concepto (ej. "
+            "ClickHouse no tiene FKs ni índices secundarios tradicionales) "
+            "devuelven lista vacía — no es un error, ver 'table_definition'."
+        ),
+    )
+    table_definition: str | None = Field(
+        None,
+        description=(
+            "DDL crudo de la tabla cuando el motor lo expone de forma más útil "
+            "que 'keys' (hoy solo ClickHouse, vía SHOW CREATE TABLE): ahí está "
+            "el ENGINE/ORDER BY/PARTITION BY reales, que es el equivalente de "
+            "ClickHouse a un índice — no la reflexión genérica de SQLAlchemy, "
+            "que no tiene un concepto de 'primary key' aplicable a MergeTree. "
+            "None para otros motores o si no se pudo obtener."
+        ),
+    )
 
 
 class SqlSchemaContextResponse(BaseModel):
@@ -66,6 +127,41 @@ class SqlSchemaContextResponse(BaseModel):
         None, description="Columnas de la tabla pedida, cuando se especificó 'table'."
     )
     truncated: bool = Field(False, description="True si el listado de tablas o columnas se recortó por el límite.")
+    engine: str | None = Field(
+        None,
+        description=(
+            "Dialecto normalizado del motor (ej. 'clickhouse', 'postgresql', 'mysql'). "
+            "Solo presente cuando success=true."
+        ),
+    )
+    engine_version: str | None = Field(
+        None, description="Versión del servidor de base de datos, si se pudo determinar. Puede ser null."
+    )
+    supports_jinja: bool | None = Field(
+        None,
+        description=(
+            "Si el templating Jinja de SQL Lab está habilitado. Hoy es un flag global de "
+            "Superset (ENABLE_TEMPLATE_PROCESSING), no una capacidad por motor: si es true, "
+            "vale igual para cualquier base conectada."
+        ),
+    )
+    jinja_context: list[str] | None = Field(
+        None,
+        description=(
+            "Nombres de variables/macros Jinja disponibles en SQL Lab para este motor "
+            "(ej. 'filter_values', 'current_user_id') — solo nombres, nunca sus valores "
+            "resueltos. None si supports_jinja=false o no se pudo determinar. Algunas "
+            "(from_dttm, to_dttm) solo aplican con contexto de dashboard/filtros, no sueltas "
+            "en una consulta manual de SQL Lab."
+        ),
+    )
+    sql_dialect_notes: list[str] | None = Field(
+        None,
+        description=(
+            "Notas curadas del motor (quoting, LIMIT/TOP, funciones de fecha, CTEs, etc.). "
+            "None si todavía no hay notas cargadas para este motor."
+        ),
+    )
     error: str | None = None
     error_type: str | None = None
 
@@ -83,21 +179,122 @@ def _error(
     )
 
 
+def _engine_metadata(database: Any) -> dict[str, Any]:
+    """Metadata del motor para acompañar cualquier respuesta exitosa.
+
+    Nunca levanta: cada pieza (versión, soporte de Jinja, macros) se calcula
+    por separado y cae a None/False ante cualquier falla, para que un motor
+    exótico o una conexión momentáneamente inestable no rompan la consulta de
+    esquema (que es el propósito principal de la tool).
+    """
+    from superset.extensions import feature_flag_manager
+    from superset.jinja_context import get_template_processor
+
+    engine = database.db_engine_spec.engine
+
+    engine_version: str | None = None
+    try:
+        with database.get_sqla_engine() as sqla_engine:
+            with sqla_engine.connect() as connection:
+                version_info = connection.dialect.server_version_info
+                if version_info:
+                    engine_version = ".".join(str(part) for part in version_info)
+    except Exception:  # noqa: BLE001 - dato "si está disponible", no crítico
+        engine_version = None
+
+    supports_jinja = feature_flag_manager.is_feature_enabled(
+        "ENABLE_TEMPLATE_PROCESSING"
+    )
+    jinja_context: list[str] | None = None
+    if supports_jinja:
+        try:
+            # Solo los NOMBRES de las variables/macros — nunca se invocan.
+            # Varias (current_user_rls_rules, current_user_email,
+            # current_user_roles, current_username, filter_values) devuelven
+            # datos del usuario o de sus reglas de RLS si se ejecutan; listar
+            # la key es seguro, resolverla no lo es. No cambiar esto a menos
+            # que se audite cada macro nueva que Superset agregue.
+            jinja_context = sorted(
+                get_template_processor(database=database).get_context().keys()
+            )
+        except Exception:  # noqa: BLE001
+            jinja_context = None
+
+    return {
+        "engine": engine,
+        "engine_version": engine_version,
+        "supports_jinja": supports_jinja,
+        "jinja_context": jinja_context,
+        "sql_dialect_notes": _SQL_DIALECT_NOTES.get(engine),
+    }
+
+
+def _map_key(raw: dict[str, Any]) -> SqlSchemaKey:
+    """Convierte una entrada cruda de `get_table_metadata`['indexes'] (pk +
+    fks + índices reales, cada una con su 'type' ya seteado por
+    `superset.databases.utils`) a nuestro modelo público."""
+    referred_columns = raw.get("referred_columns")
+    return SqlSchemaKey(
+        type=raw.get("type", "index"),
+        name=raw.get("name"),
+        column_names=list(raw.get("column_names") or []),
+        referred_table=raw.get("referred_table"),
+        referred_columns=list(referred_columns) if referred_columns else None,
+        unique=raw.get("unique"),
+    )
+
+
+def _clickhouse_table_definition(
+    database: Any, catalog: str | None, schema: str, table: str
+) -> str | None:
+    """`SHOW CREATE TABLE` es la única forma directa de ver el ORDER BY/
+    PARTITION BY/ENGINE real de una tabla ClickHouse — la reflexión genérica
+    de SQLAlchemy (get_pk_constraint/get_indexes, usada por `_map_key`) no
+    tiene un equivalente de "primary key" aplicable a MergeTree: en
+    ClickHouse el "índice" es el ORDER BY de la tabla, no algo separado.
+
+    Best-effort: cualquier falla (permisos, tabla distribuida con sintaxis
+    propia, motor viejo) devuelve None en vez de romper el resto de la
+    respuesta — 'columns'/'keys' siguen siendo el dato principal de esta tool.
+    """
+    from superset.utils import core as utils
+
+    qualified = f"`{schema}`.`{table}`" if schema else f"`{table}`"
+    try:
+        with database.get_raw_connection(
+            catalog=catalog, schema=schema, source=utils.QuerySource.SQL_LAB
+        ) as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"SHOW CREATE TABLE {qualified}")
+            rows = cursor.fetchall()
+            return str(rows[0][0]) if rows and rows[0] else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 @tool(
     name="irex.get_sql_schema_context",
     description=(
         "Devuelve el esquema REAL (tablas y columnas con su tipo) de una base "
-        "de datos — usar ANTES de escribir o corregir SQL a mano cuando no se "
-        "tiene certeza del nombre exacto de una tabla o columna, en vez de "
-        "adivinar o asumir que un nombre mencionado por el usuario existe tal "
-        "cual. Solo lectura; respeta RBAC (SQLLab) y el acceso del usuario a "
+        "de datos, además de metadata del motor (dialecto, versión, soporte "
+        "y macros de Jinja, notas del dialecto) — usar ANTES de escribir o "
+        "corregir SQL a mano cuando no se tiene certeza del nombre exacto de "
+        "una tabla/columna o de una particularidad del motor (LIMIT vs TOP, "
+        "funciones de fecha, CTEs, etc.), en vez de adivinar o asumir que un "
+        "nombre o sintaxis mencionados por el usuario son válidos tal cual. "
+        "Solo lectura; respeta RBAC (SQLLab) y el acceso del usuario a "
         "la base y a la tabla puntual. No expone credenciales ni la URI de "
         "conexión de la base.\n\n"
         "Sin 'table': lista los nombres de tabla del schema (usar 'search' "
         "para filtrar por substring si hay muchas). "
-        "Con 'table': devuelve sus columnas — nombre, tipo y comentario si "
-        "existe. Flujo típico: listar tablas -> confirmar/buscar el nombre "
-        "correcto -> pedir columnas de esa tabla."
+        "Con 'table': devuelve sus columnas (nombre, tipo, comentario), sus "
+        "claves/índices existentes ('keys': pk/fk/index — para no sugerir un "
+        "índice duplicado o para explicar por qué uno no se usa) y, en "
+        "ClickHouse, el DDL real de ENGINE/ORDER BY/PARTITION BY "
+        "('table_definition', el equivalente de ClickHouse a un índice). "
+        "Flujo típico: listar tablas -> confirmar/buscar el nombre correcto "
+        "-> pedir columnas+claves de esa tabla -> usar irex.explain_query "
+        "para verificar si una optimización o índice sugerido de verdad ayuda."
     ),
     tags=["irex", "negocio", "esquema", "sql", "consulta"],
     class_permission_name="SQLLab",
@@ -147,6 +344,15 @@ def get_sql_schema_context(request: SqlSchemaContextRequest) -> SqlSchemaContext
             )
             for col in raw_columns[:_MAX_COLUMNS]
         ]
+        keys = [_map_key(k) for k in (metadata.get("indexes") or [])]
+
+        engine = database.db_engine_spec.engine
+        table_definition: str | None = None
+        if engine in ("clickhouse", "clickhousedb"):
+            table_definition = _clickhouse_table_definition(
+                database, request.catalog, request.schema_name, request.table
+            )
+
         return SqlSchemaContextResponse(
             success=True,
             database_id=request.database_id,
@@ -156,8 +362,11 @@ def get_sql_schema_context(request: SqlSchemaContextRequest) -> SqlSchemaContext
                 name=metadata.get("name", request.table),
                 columns=columns,
                 comment=metadata.get("comment"),
+                keys=keys,
+                table_definition=table_definition,
             ),
             truncated=truncated,
+            **_engine_metadata(database),
         )
 
     try:
@@ -180,4 +389,5 @@ def get_sql_schema_context(request: SqlSchemaContextRequest) -> SqlSchemaContext
         schema_name=request.schema_name,
         tables=names[: request.limit],
         truncated=truncated,
+        **_engine_metadata(database),
     )
