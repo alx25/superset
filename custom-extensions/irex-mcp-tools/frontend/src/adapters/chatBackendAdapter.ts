@@ -14,6 +14,8 @@
  */
 import type {
   AssistantAction,
+  AssistantClarification,
+  AssistantClarificationQuestion,
   AssistantContext,
   AssistantDiagnostic,
   AssistantResponse,
@@ -34,10 +36,17 @@ export class AssistantBackendError extends Error {
   }
 }
 
-function serializeContext(context: AssistantContext): Record<string, unknown> {
+function serializeContext(context: AssistantContext, conversationKey: string): Record<string, unknown> {
   return {
     contract_version: context.contractVersion,
     source: context.source,
+    // Id que el PANEL genera y persiste entre turnos (no algo leído del
+    // estado real de SQL Lab, por eso no es parte de `AssistantContext`).
+    // El backend arma su clave de conversación con esto + usuario + tab.id;
+    // antes de esto, la clave era solo usuario+tab.id — determinista y sin
+    // forma de "empezar de cero" en la misma pestaña, que era exactamente
+    // el bug de "Nueva sesión" reportado.
+    conversation_key: conversationKey,
     mode: context.mode,
     user_message: context.userMessage,
     last_error: context.lastError
@@ -154,6 +163,43 @@ function parseDiagnostic(raw: unknown, index: number): AssistantDiagnostic {
   };
 }
 
+function parseClarificationQuestion(raw: unknown, index: number): AssistantClarificationQuestion {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new AssistantBackendError(`clarification_questions[${index}] inválida: no es un objeto.`);
+  }
+  const q = raw as Record<string, unknown>;
+  const options = Array.isArray(q.options) ? q.options.filter((o): o is string => typeof o === 'string') : [];
+  if (typeof q.id !== 'string' || typeof q.text !== 'string' || options.length === 0) {
+    throw new AssistantBackendError(
+      `clarification_questions[${index}] inválida: faltan "id"/"text", u "options" vacío.`,
+    );
+  }
+  return {
+    id: q.id,
+    axis: typeof q.axis === 'string' ? q.axis : undefined,
+    text: q.text,
+    options,
+  };
+}
+
+/**
+ * `suggestion_kind: "clarification"` bloquea la propuesta hasta que el
+ * usuario responda `clarification_questions` — siempre desde ahí, nunca
+ * desde `suggestions` (campo plano legado de otro consumidor, se ignora
+ * a propósito). Sin `clarification_questions` no hay nada que renderizar
+ * aunque venga `suggestion_kind`, así que se trata como ausente.
+ */
+function parseClarification(body: Record<string, unknown>): AssistantClarification | undefined {
+  if (body.suggestion_kind !== 'clarification') return undefined;
+  if (!Array.isArray(body.clarification_questions) || body.clarification_questions.length === 0) {
+    return undefined;
+  }
+  return {
+    reason: typeof body.clarification_reason === 'string' ? body.clarification_reason : undefined,
+    questions: body.clarification_questions.map(parseClarificationQuestion),
+  };
+}
+
 /**
  * Convierte la respuesta cruda del backend (snake_case, sin tipar) al
  * contrato interno. No parsea SQL desde `message` — solo confía en el
@@ -183,14 +229,20 @@ export function parseAssistantResponse(raw: unknown): AssistantResponse {
     message: body.message,
     actions: body.actions.map(parseAction),
     diagnostics: body.diagnostics.map(parseDiagnostic),
+    sessionId: typeof body.session_id === 'string' ? body.session_id : undefined,
+    clarification: parseClarification(body),
   };
 }
 
 /** Progreso intermedio emitido por el backend mientras arma la propuesta —
- * ver eventos `status`/`activity` en el SSE de `sql-lab-assistant`. */
+ * ver eventos `status`/`activity`/`session` en el SSE de `sql-lab-assistant`.
+ * `session` llega primero que nada más (antes que cualquier `status`), para
+ * poder mostrar el id de conversación en el encabezado sin esperar a que
+ * termine todo el pedido. */
 export type AssistantProgressEvent =
   | { type: 'status'; state: 'thinking' | 'calling_tool' | 'responding' }
-  | { type: 'activity'; message: string };
+  | { type: 'activity'; message: string }
+  | { type: 'session'; sessionId: string };
 
 export type AssistantProgressListener = (event: AssistantProgressEvent) => void;
 
@@ -258,8 +310,24 @@ async function consumeAssistantStream(
           onProgress?.({ type: 'activity', message: body_.message });
         }
         return undefined;
-      case 'done':
-        return parseAssistantResponse(body_.sql_lab_response);
+      case 'session':
+        if (typeof body_.session_id === 'string') {
+          onProgress?.({ type: 'session', sessionId: body_.session_id });
+        }
+        return undefined;
+      case 'done': {
+        const response = parseAssistantResponse(body_.sql_lab_response);
+        // "session_id"/clarification pueden venir dentro de `sql_lab_response`
+        // (ya cubierto por `parseAssistantResponse`) o directamente como
+        // campos del propio evento `done` — se acepta cualquiera de las dos
+        // ubicaciones sin asumir una sola.
+        const doneSessionId = typeof body_.session_id === 'string' ? body_.session_id : undefined;
+        return {
+          ...response,
+          sessionId: response.sessionId ?? doneSessionId,
+          clarification: response.clarification ?? parseClarification(body_),
+        };
+      }
       case 'error':
         throw new AssistantBackendError(
           typeof body_.message === 'string' ? body_.message : 'El backend del chat reportó un error.',
@@ -310,9 +378,16 @@ async function consumeAssistantStream(
  * responde JSON plano (`Content-Type` sin `text/event-stream`), se procesa
  * como el contrato v1 de siempre; ningún entorno queda roto por desplegar
  * el frontend antes que el backend, o viceversa.
+ *
+ * `conversationKey` lo genera y persiste el panel (no viene del estado real
+ * de la pestaña) — el backend arma con esto + usuario + tab.id la clave de
+ * conversación que decide si rehidrata historial previo o arranca de cero.
+ * Sin esto, la clave era determinista (solo usuario+tab.id) y "Nueva
+ * sesión" en la misma pestaña no tenía forma de romper esa continuidad.
  */
 export async function requestAssistantResponse(
   context: AssistantContext,
+  conversationKey: string,
   endpoint: string = SQL_LAB_ASSISTANT_ENDPOINT,
   signal?: AbortSignal,
   onProgress?: AssistantProgressListener,
@@ -321,7 +396,7 @@ export async function requestAssistantResponse(
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-    body: JSON.stringify(serializeContext(context)),
+    body: JSON.stringify(serializeContext(context, conversationKey)),
     signal,
   });
 

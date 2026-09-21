@@ -114,11 +114,42 @@ export interface AssistantDiagnostic {
   message: string;
 }
 
+/**
+ * Una pregunta de aclaración con opciones cerradas — el backend bloquea la
+ * propuesta hasta que el usuario elige (2026-09-21, mismo patrón que ya
+ * usa el widget principal del chat). Siempre de una sola opción por
+ * pregunta; el panel agrega "Otro: especificar" si el backend no lo incluyó.
+ */
+export interface AssistantClarificationQuestion {
+  id: string;
+  /** Categoría interna de la pregunta (uso del backend) — no se muestra. */
+  axis?: string;
+  text: string;
+  options: string[];
+}
+
+export interface AssistantClarification {
+  reason?: string;
+  questions: AssistantClarificationQuestion[];
+}
+
 export interface AssistantResponse {
   contractVersion: typeof ASSISTANT_CONTRACT_VERSION;
   message: string;
   actions: AssistantAction[];
   diagnostics: AssistantDiagnostic[];
+  /**
+   * Id canónico de la conversación en el backend (`session_id`), para
+   * mostrar en el panel y cruzar con `/api/logs/sessions/<session_id>`.
+   * Opcional: puede faltar si el backend todavía no lo manda.
+   */
+  sessionId?: string;
+  /**
+   * Presente solo cuando `suggestion_kind === "clarification"` y trae al
+   * menos una pregunta. Se arma SIEMPRE desde `clarification_questions` —
+   * nunca desde el campo plano `suggestions` (legado de otro consumidor).
+   */
+  clarification?: AssistantClarification;
 }
 
 export function isAssistantResponse(value: unknown): value is AssistantResponse {

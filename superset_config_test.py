@@ -2732,6 +2732,7 @@ MCP_TOOL_SEARCH_CONFIG = {
         "extensions.irex.irex-mcp-tools.irex.query_dataset_sql",
         "extensions.irex.irex-mcp-tools.irex.get_sql_schema_context",
         "extensions.irex.irex-mcp-tools.irex.explain_query",
+        "extensions.irex.irex-mcp-tools.irex.check_query_nulls",
     ],
 }
 

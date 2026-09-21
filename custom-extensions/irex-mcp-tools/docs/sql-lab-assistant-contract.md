@@ -22,6 +22,7 @@ usa el widget de chat de dashboards hoy:
 ```
 POST /api/chat-widget/api/sql-lab-assistant
 Content-Type: application/json
+Accept: text/event-stream
 
 <request del contrato, ver abajo>
 ```
@@ -37,9 +38,23 @@ en el backend real, agregando automáticamente (el panel no los maneja):
 el mismo mecanismo que ya usan los endpoints existentes del widget. El
 navegador nunca ve `CHAT_WIDGET_API_URL` ni ningún secreto; la identidad
 viaja por la sesión de Flask ya autenticada, no por un JWT que maneje el
-panel. Si el backend del chat todavía no tiene una ruta `/api/sql-lab-assistant`,
-es la única pieza nueva pendiente de implementar ahí — el proxy y la
-identidad ya funcionan sin cambios.
+panel.
+
+### Respuesta: SSE o JSON plano
+
+El panel manda `Accept: text/event-stream` y sabe leer ambos formatos según
+el `Content-Type` de la respuesta:
+
+- `Content-Type: text/event-stream` → se procesa como stream de eventos
+  (ver "Eventos SSE" más abajo). Es el formato preferido — permite emitir
+  progreso intermedio mientras se arma la propuesta.
+- Cualquier otro `Content-Type` → se procesa como el JSON plano de
+  "Response" de siempre (fallback, por si el backend en un entorno puntual
+  todavía no tiene el soporte SSE desplegado).
+
+No hace falta implementar los dos a la vez para no romper nada: si el
+backend solo devuelve JSON plano, el panel sigue funcionando (sin progreso
+intermedio, solo con el resultado final).
 
 ## Formato de campos: `snake_case` en el wire
 
@@ -57,6 +72,7 @@ manejar `snake_case`.
 {
   "contract_version": 1,
   "source": "superset_sqllab",
+  "conversation_key": "b2f1e6b0-....",
   "tab": {
     "id": "tab-id",
     "title": "Consulta",
@@ -76,6 +92,7 @@ manejar `snake_case`.
 |---|---|---|
 | `contract_version` | `1` | Literal, no incrementar sin coordinar |
 | `source` | `"superset_sqllab"` | Fijo — distingue este origen de otros futuros |
+| `conversation_key` | string | Generado y persistido por el panel entre turnos de una misma conversación (UUID o similar); se rotó agregado 2026-09-21 junto con `session_id` — ver "Sesiones y `conversation_key`" más abajo |
 | `tab.id` | string | Id de la pestaña activa en SQL Lab |
 | `tab.title` | string | Título visible de la pestaña |
 | `tab.database_id` | number | Base de datos de la pestaña |
@@ -96,6 +113,7 @@ debe esperar contexto de otras pestañas abiertas.
 {
   "contract_version": 1,
   "message": "Explicación breve",
+  "session_id": "sqllab-9f2c...",
   "actions": [
     {
       "type": "propose_sql",
@@ -119,6 +137,7 @@ debe esperar contexto de otras pestañas abiertas.
 |---|---|---|
 | `contract_version` | `1` | Debe coincidir con el del request |
 | `message` | string | Texto explicativo mostrado en la conversación del panel |
+| `session_id` | string, opcional | Id canónico de la conversación (ver "Sesiones y `conversation_key`") — el panel lo muestra en el encabezado y lo usa para cruzar `/api/logs/sessions/<session_id>`. Ausente = el panel simplemente no muestra nada, no es un error |
 | `actions` | array | Ver tipos abajo; puede ser `[]` (respuesta solo conversacional) |
 | `diagnostics` | array | Anotaciones a mostrar en el editor (`severity`: `error`\|`warning`\|`info`) |
 
@@ -145,6 +164,97 @@ falta omitirlo si es más simple generarlo así del lado del backend.
 vaya a aplicar o poder ejecutar tiene que venir en el campo `sql` de una
 `action` tipada. `message` es solo para texto explicativo, nunca se
 interpreta como fuente de SQL ejecutable.
+
+## Aclaraciones con opciones (agregado 2026-09-21)
+
+Cuando una decisión de negocio bloquea la propuesta (mismo patrón que ya
+usa el widget principal del chat), la respuesta trae:
+
+```json
+{
+  "contract_version": 1,
+  "message": "Necesito confirmar una definición que cambia el resultado.",
+  "suggestion_kind": "clarification",
+  "clarification_reason": "material_business_ambiguity",
+  "clarification_questions": [
+    {
+      "id": "correction_scope",
+      "axis": "definition",
+      "text": "¿Aplico la corrección a toda la consulta activa?",
+      "options": ["A toda la consulta", "Solo a la selección"]
+    }
+  ],
+  "skip_suggestions": false,
+  "suggestions": ["A toda la consulta", "Solo a la selección"],
+  "actions": [],
+  "diagnostics": []
+}
+```
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `suggestion_kind` | `"clarification"` | El panel solo renderiza botones si vale exactamente esto |
+| `clarification_reason` | string, opcional | Categoría interna del backend — el panel no lo muestra |
+| `clarification_questions` | array, 1–3 items | Cada una: `id`, `axis?` (no se muestra), `text`, `options` (2–6 strings). **El panel renderiza los botones desde acá, nunca desde `suggestions`** |
+| `skip_suggestions` / `suggestions` | — | Campo plano legado de otro consumidor — **el panel lo ignora por completo** |
+
+Una sola opción por pregunta. Si `options` no incluye ya un "Otro: especificar",
+el panel lo agrega con un input de texto libre. El botón "Continuar" se
+habilita recién cuando todas las preguntas tienen respuesta.
+
+**Respuesta del usuario:** se manda como el siguiente `user_message`
+normal (mismo `conversation_key`, sin campo de selección aparte ni ids de
+opción):
+- Una sola pregunta → el texto de la opción elegida, tal cual.
+- Varias preguntas → numerado y separado por `; `, ej.:
+  `"1. A toda la consulta; 2. Sí, calcularlo así"`.
+
+## Eventos SSE (cuando `Content-Type: text/event-stream`)
+
+Formato SSE estándar — cada evento es un bloque `event: <tipo>` +
+`data: <JSON>` terminado en línea vacía. El panel es un consumidor SSE
+genérico: ignora sin error cualquier campo (`id:`, `retry:`) o tipo de
+evento que no reconozca, para no romper si se agregan eventos nuevos.
+
+| `event` | `data` | Efecto en el panel |
+|---|---|---|
+| `session` | `{ "session_id": "..." }` | El primero en llegar, antes que cualquier `status`. Muestra el id en el encabezado sin esperar a que termine el pedido |
+| `status` | `{ "state": "thinking" \| "calling_tool" \| "responding" }` | Etiqueta genérica en la burbuja de progreso ("Analizando…", "Consultando…", "Preparando propuesta…") |
+| `activity` | `{ "message": "texto" }` | Se muestra tal cual en la burbuja de progreso — son los pasos reales ("Obteniendo el plan de ejecución.", etc.) |
+| `done` | `{ "sql_lab_response": {...}, "session_id"?: "...", "answer"?: "...", "model"?: "..." }` | Cierra el stream. `sql_lab_response` es el mismo objeto de "Response" de arriba (con `session_id`/campos de aclaración adentro o como hermanos del propio `done` — el panel acepta cualquiera de las dos ubicaciones para ambos). `answer`/`model` se ignoran del lado de SQL Lab (son para el consumidor del widget principal) |
+| `error` | `{ "message": "texto" }` | Cierra el stream y muestra el error — mismo tratamiento que un error HTTP |
+
+**No se exponen `tool_call`/`tool_result` crudos por este canal** — podrían
+traer SQL, argumentos o resultados sensibles. El panel ni los espera ni
+sabría procesarlos.
+
+## Sesiones y `conversation_key` (agregado 2026-09-21)
+
+`sql-lab-assistant` mantiene memoria de conversación del lado del backend
+(`SessionStore`, Redis, rehidratación completa de historial y resultados de
+tools). La clave interna original era determinista —
+`sqllab-<sha256(usuario + tab.id)>` — sin ningún campo que el panel pudiera
+mandar para pedir "empezar de cero" en la misma pestaña: el botón "Nueva
+sesión" del panel solo vaciaba el historial visible, pero el siguiente
+turno rehidrataba igual la conversación anterior.
+
+`conversation_key` resuelve esto: el panel lo genera (UUID) una vez al
+montarse, lo persiste en todos los turnos de esa conversación, y lo rota
+(genera uno nuevo) al tocar "Nueva sesión". El backend lo incorpora a su
+clave opaca junto con usuario + `tab.id` — al rotarlo, el turno siguiente
+no puede recuperar el contexto anterior, que igual queda preservado (no se
+borra) para auditoría y logs vía `session_id`.
+
+**No confundir `conversation_key` con `session_id`:** `conversation_key` lo
+genera el panel y solo sirve para que el backend arme su clave interna
+(el panel nunca lo muestra ni lo usa para nada más); `session_id` lo define
+el backend como identidad canónica de esa conversación y es lo que el
+panel muestra en el encabezado y lo que sirve para
+`/api/logs/sessions/<session_id>`.
+
+No se reutiliza `/api/chat/reset` para esto — ese endpoint es del prompt
+del widget principal y además borra la conversación persistida, que acá
+se quiere conservar para auditoría.
 
 ## Errores — ver también "Requerimientos para el agente del chat" en el plan
 

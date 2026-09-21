@@ -25,6 +25,7 @@ import {
   readActiveContext,
   revealChange,
 } from '../adapters/sqlLabAdapter';
+import { Clarification } from './Clarification';
 import { Conversation, type ConversationMessage } from './Conversation';
 import { Diagnostics } from './Diagnostics';
 import { SqlDiff } from './SqlDiff';
@@ -98,6 +99,42 @@ export interface AppliedSnapshot {
 }
 
 const REVEAL_MESSAGE = 'Cambio aplicado por el asistente.';
+
+/**
+ * `crypto.randomUUID()` requiere "secure context" (https o localhost) — no
+ * existe sirviendo por `http://` plano contra una IP (el caso real del
+ * ambiente de test). El backend ahora VALIDA que `conversation_key` sea un
+ * UUID, así que el fallback tiene que producir un UUID v4 de verdad, no
+ * cualquier string distinto — `crypto.getRandomValues()` sí funciona en
+ * cualquier contexto (solo `randomUUID`/`subtle` tienen la restricción),
+ * así que arma uno a mano (RFC 4122) en vez de degradar el formato.
+ */
+function createConversationKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40; // versión 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // variante RFC 4122
+    const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0'));
+    return [
+      hex.slice(0, 4).join(''),
+      hex.slice(4, 6).join(''),
+      hex.slice(6, 8).join(''),
+      hex.slice(8, 10).join(''),
+      hex.slice(10, 16).join(''),
+    ].join('-');
+  }
+  // Red de seguridad final — no debería llegar acá en ningún navegador real
+  // (getRandomValues existe desde IE11). No es criptográficamente fuerte,
+  // pero conversation_key no es un secreto: solo necesita tener forma de
+  // UUID y no repetirse.
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
 
 /** Etiqueta genérica cuando el backend manda un `status` pero todavía no un
  * `activity` más específico — ver eventos SSE de sql-lab-assistant. */
@@ -329,6 +366,16 @@ export function SqlLabAssistantPanel(): React.ReactElement {
   const [lastChange, setLastChange] = useState<AppliedSnapshot | undefined>();
   const [changeUndone, setChangeUndone] = useState(false);
   const [changeError, setChangeError] = useState<string | undefined>();
+  // `conversationKey` es lo que el panel manda para que el backend arme su
+  // clave de conversación (junto con usuario + tab.id) — rotarlo es lo que
+  // hace que "Nueva sesión" realmente empiece de cero del lado del backend,
+  // en vez de solo vaciar el historial visible acá. `sessionId` es el id
+  // canónico que el backend devuelve para ese mismo turno (útil para
+  // cruzar con /api/logs/sessions/<id>) — no es lo mismo que `conversationKey`:
+  // uno lo generamos nosotros para "pedir" una conversación nueva o vieja,
+  // el otro lo define el backend como identidad real de esa conversación.
+  const [conversationKey, setConversationKey] = useState<string>(createConversationKey);
+  const [sessionId, setSessionId] = useState<string | undefined>();
   const rootRef = useRef<HTMLDivElement>(null);
   const panelHeight = usePanelHeight(rootRef);
   const pendingRequestRef = useRef<AbortController | null>(null);
@@ -410,13 +457,13 @@ export function SqlLabAssistantPanel(): React.ReactElement {
   }, [activeTabVersion]);
 
   const handleSend = useCallback(
-    async (overrideMode?: AssistantMode) => {
-      // `overrideMode` permite disparar el envío en el mismo click que
-      // selecciona el modo (p. ej. el botón "Corregir error"): `setMode`
-      // es asíncrono, así que leer `mode` del estado en ese mismo instante
-      // daría el valor todavía viejo.
+    async (overrideMode?: AssistantMode, overrideText?: string) => {
+      // `overrideMode`/`overrideText` permiten disparar el envío en el mismo
+      // click que decide qué mandar (botón "Corregir error", respuesta a una
+      // aclaración) — `setMode`/`setUserMessage` son asíncronos, así que leer
+      // el estado en ese mismo instante daría el valor todavía viejo.
       const effectiveMode = overrideMode ?? mode;
-      const text = userMessage;
+      const text = overrideText ?? userMessage;
       if (!text.trim() && effectiveMode !== 'explain_error') {
         return;
       }
@@ -441,12 +488,23 @@ export function SqlLabAssistantPanel(): React.ReactElement {
           text,
           effectiveMode === 'explain_error' ? lastError : undefined,
         );
-        const response = await requestAssistantResponse(context, undefined, controller.signal, event => {
-          setProgressLabel(event.type === 'activity' ? event.message : STATUS_LABELS[event.state]);
+        const response = await requestAssistantResponse(context, conversationKey, undefined, controller.signal, event => {
+          if (event.type === 'session') {
+            setSessionId(event.sessionId);
+          } else if (event.type === 'activity') {
+            setProgressLabel(event.message);
+          } else {
+            setProgressLabel(STATUS_LABELS[event.state]);
+          }
         });
         setProposal(response);
         setProposalContext(context);
         setHistory(prev => [...prev, { role: 'assistant', text: response.message }]);
+        if (response.sessionId) {
+          // Cubre el fallback JSON plano (sin el evento SSE "session" previo)
+          // y refuerza el id final por si el que llegó antes por SSE difiere.
+          setSessionId(response.sessionId);
+        }
         if (effectiveMode === 'explain_error') {
           // La propuesta de corrección ya está lista: el aviso de error (con
           // su botón "Corregir error") dejó de tener sentido y, si seguía
@@ -472,13 +530,28 @@ export function SqlLabAssistantPanel(): React.ReactElement {
         setProgressLabel(undefined);
       }
     },
-    [mode, userMessage, lastError],
+    [mode, userMessage, lastError, conversationKey],
   );
 
   const handleFixError = useCallback(() => {
     setMode('explain_error');
     void handleSend('explain_error');
   }, [handleSend]);
+
+  const handleClarificationAnswer = useCallback(
+    (answerText: string) => {
+      // La tarjeta de aclaración ya cumplió su función — se limpia acá
+      // mismo (no al llegar la respuesta nueva) para no dejarla ocupando
+      // espacio, ya deshabilitada, mientras el pedido siguiente está en
+      // vuelo mostrando "Analizando…".
+      setProposal(undefined);
+      setProposalContext(undefined);
+      // Mismo modo de la conversación en curso, texto elegido como el
+      // próximo user_message — mismo conversation_key (nunca se toca acá).
+      void handleSend(undefined, answerText);
+    },
+    [handleSend],
+  );
 
   const handleNewSession = useCallback(() => {
     // Corta cualquier pedido en vuelo: si no se cancela, su respuesta
@@ -497,6 +570,12 @@ export function SqlLabAssistantPanel(): React.ReactElement {
     setLastChange(undefined);
     setChangeUndone(false);
     setChangeError(undefined);
+    // Esto es lo que hace que "Nueva sesión" sea real del lado del backend,
+    // no solo acá: al rotar la key, el próximo turno arma una clave de
+    // conversación distinta y no puede rehidratar el historial anterior
+    // (que igual queda preservado del lado del backend para auditoría/logs).
+    setConversationKey(createConversationKey());
+    setSessionId(undefined);
   }, []);
 
   const dismissAction = useCallback((index: number) => {
@@ -564,6 +643,47 @@ export function SqlLabAssistantPanel(): React.ReactElement {
           <div style={{ marginTop: 5, fontSize: 10.5, color: theme.colorPrimary, fontWeight: 600 }}>
             ● Pestaña activa · confirmación obligatoria
           </div>
+          {sessionId && (
+            <div
+              style={{
+                marginTop: 4,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                fontSize: 10,
+                color: theme.colorTextTertiary,
+              }}
+              title={`Sesión: ${sessionId} — usar con /api/logs/sessions/<id>`}
+            >
+              <span
+                style={{
+                  fontFamily: "'SF Mono', Consolas, Monaco, monospace",
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  maxWidth: 150,
+                }}
+              >
+                {sessionId}
+              </span>
+              <button
+                type="button"
+                onClick={() => navigator.clipboard.writeText(sessionId).catch(() => {})}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  padding: 0,
+                  color: theme.colorTextTertiary,
+                  textDecoration: 'underline',
+                  fontSize: 10,
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                }}
+              >
+                copiar
+              </button>
+            </div>
+          )}
         </div>
         <button
           type="button"
@@ -642,6 +762,10 @@ export function SqlLabAssistantPanel(): React.ReactElement {
         lastErrorMessage={lastError?.message}
       >
         {sendError && <components.Alert type="error" message={sendError} showIcon />}
+
+        {proposal?.clarification && (
+          <Clarification clarification={proposal.clarification} busy={sending} onSubmit={handleClarificationAnswer} />
+        )}
 
         {proposal && proposalContext && proposal.actions.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>

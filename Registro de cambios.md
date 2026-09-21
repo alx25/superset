@@ -1,5 +1,260 @@
 ## Registro de cambios
 
+### 2026-09-21 (37) (nueva tool irex.check_query_nulls — detecta LEFT JOIN que no matchea, sin exponer datos)
+
+Cambio realizado:
+Se agregó una tool nueva para que el LLM pueda verificar si una consulta
+que "funciona" (corre, devuelve filas) en realidad tiene contenido útil —
+motivado por un caso real donde un LEFT JOIN devolvía filas pero la
+columna del lado derecho (`Area_Comercial_Nombre`) estaba NULL en el 100%
+de los casos, algo que ni un EXPLAIN normal ni un EXPLAIN ANALYZE puede
+detectar (un LEFT JOIN sin match sigue devolviendo el mismo conteo de
+filas del lado izquierdo; el problema está en los valores, no en la
+estructura del plan).
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/check_query_nulls.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/entrypoint.py`
+- `custom-extensions/irex-mcp-tools/backend/tests/test_check_query_nulls.py` (nuevo)
+- `/home/imercados/.superset/superset_config.py` (paso 6 obligatorio: `always_visible`)
+- `superset_config_test.py` (ídem, config de test)
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- Decisión de diseño (consultada con el usuario, dado el principio
+  existente de "no reenviar resultados completos al modelo"): la tool
+  **nunca devuelve valores reales de ninguna fila** — corre una muestra
+  acotada (`sample_size`, tope 1000) y devuelve, por columna, un conteo de
+  NULL/no-NULL y el `null_ratio` (0.0–1.0). Los valores se leen en memoria
+  del proceso del MCP para contar `None` y se descartan de inmediato; no
+  hay ningún campo en el modelo de respuesta capaz de transportarlos.
+  Cubierto por un test dedicado que arma una fila con un valor "secreto" y
+  verifica que no aparece en ningún lado del JSON serializado.
+- Mismo criterio de seguridad que `irex.explain_query`: `sql` restringido a
+  una única sentencia SELECT/WITH de solo lectura, validado DESPUÉS de
+  renderizar Jinja (mismo motor que una ejecución real de SQL Lab).
+- El LIMIT/TOP/FETCH se aplica siempre al wrapper `SELECT * FROM (<sql>)
+  AS irex_sample ...` — nunca hace falta tocar la consulta original de
+  adentro. Por motor: `LIMIT n` (PostgreSQL/ClickHouse), `SELECT TOP n *`
+  (MSSQL), `FETCH FIRST n ROWS ONLY` (Oracle, 12c+). MSSQL/Oracle quedan
+  con el mismo aviso "best-effort, sin validar contra una instancia real"
+  que ya usa `explain_query`.
+- Sin filas en la muestra: no rompe (no hay división por cero), pero avisa
+  explícitamente en `warnings` que no hay nada que contar.
+
+Build: `./scripts/build-extension.sh` (TypeScript sin cambios, 177 tests
+backend, webpack, .supx reconstruido) sobre `extensions_test/`. Pendiente
+reiniciar `superset_test.service`/`superset_mcp_test.service` (sudo
+interactivo no disponible en esta sesión); avisar al agente que mantiene
+el prompt para que instruya al LLM a usar esta tool después de un
+LEFT/OUTER JOIN antes de presentar la propuesta como definitiva.
+
+### 2026-09-21 (36) (fix: la tarjeta de aclaración quedaba renderizada después de responder)
+
+Cambio realizado:
+Confirmado en el navegador: las aclaraciones con botones (35) funcionan,
+pero después de elegir una opción y enviar, la tarjeta vieja seguía
+ocupando espacio en pantalla mientras llegaba la respuesta siguiente.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlLabAssistantPanel.tsx`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- `handleClarificationAnswer` asumía que la tarjeta se iba a "pisar" sola
+  cuando llegara la respuesta nueva (`setProposal(response)` en el éxito de
+  `handleSend`) — cierto, pero mientras el pedido está en vuelo mostrando
+  "Analizando…", la tarjeta vieja (ya deshabilitada por `busy`) se quedaba
+  ahí sin motivo. Ahora se limpia (`setProposal`/`setProposalContext` a
+  `undefined`) en el mismo momento en que se envía la respuesta, no cuando
+  llega la siguiente.
+
+Build: `./scripts/build-extension.sh` (TypeScript estricto OK, webpack,
+.supx reconstruido) sobre `extensions_test/`. Pendiente reiniciar
+`superset_test.service`/`superset_mcp_test.service` (sudo interactivo no
+disponible en esta sesión) antes de volver a probar.
+
+### 2026-09-21 (35) (aclaraciones con opciones clickeables — mismo patrón que el widget principal)
+
+Cambio realizado:
+Implementado el contrato exacto que dio el agente del chat para preguntas
+de aclaración con botones (cuando una decisión de negocio bloquea la
+propuesta), a pedido del usuario tras ver que el widget principal ya lo
+resuelve así y el panel de SQL Lab solo mostraba texto libre.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/contracts/assistant.ts`
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/chatBackendAdapter.ts`
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/Clarification.tsx` (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlLabAssistantPanel.tsx`
+- `custom-extensions/irex-mcp-tools/docs/sql-lab-assistant-contract.md`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- Se arma `AssistantResponse.clarification` SOLO cuando `suggestion_kind
+  === "clarification"` y `clarification_questions` trae al menos una
+  pregunta — siempre desde ahí, nunca desde el campo plano `suggestions`
+  (legado de otro consumidor, se ignora a propósito tal como pidió el
+  backend). Funciona igual en JSON plano y en SSE (dentro de
+  `sql_lab_response` o como campo hermano de `done` — se acepta cualquiera
+  de las dos ubicaciones, mismo criterio que ya se usaba para `session_id`).
+- `Clarification.tsx`: una pregunta por vez, una sola opción seleccionable
+  (no checkboxes); si el backend no incluyó "Otro: especificar" entre las
+  opciones, el panel lo agrega con un input de texto libre. El botón
+  "Continuar" se habilita recién cuando todas las preguntas de esa
+  respuesta tienen algo elegido (o el campo de texto libre no está vacío).
+- Respuesta al backend: se manda como el siguiente `user_message` normal,
+  mismo `conversation_key`, sin ids de opción ni payload de selección
+  aparte — una sola pregunta manda el texto de la opción elegida tal cual;
+  varias preguntas van numeradas y separadas por `; ` (`"1. resp; 2. resp"`).
+  `handleSend` ahora acepta un texto de override además del modo (mismo
+  patrón que ya existía para "Corregir error"), así no hace falta pasar
+  por el compositor para esto.
+- Documentado el contrato completo en `sql-lab-assistant-contract.md`
+  (campos, tabla, ejemplo JSON, regla de "una sola ubicación, nunca
+  `suggestions`").
+
+Build: `./scripts/build-extension.sh` (TypeScript estricto OK, 161 tests
+backend sin cambios, webpack, .supx reconstruido) sobre `extensions_test/`.
+Pendiente reiniciar `superset_test.service`/`superset_mcp_test.service`
+(sudo interactivo no disponible en esta sesión) y probar con una consulta
+que dispare una aclaración real del backend.
+
+### 2026-09-21 (34) (fix: conversation_key no era un UUID válido en http:// plano — el backend ahora lo exige)
+
+Cambio realizado:
+Después de que el agente del chat confirmó su implementación (conversation_key
+obligatorio y debe ser UUID; session_id en JSON y como primer evento SSE) y
+el usuario siguió sin ver el session_id incluso con hard refresh, encontré
+un bug real en nuestro fallback de generación de `conversation_key`.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlLabAssistantPanel.tsx`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- `crypto.randomUUID()` requiere "secure context" (https o localhost) — el
+  ambiente de test se sirve por `http://` plano contra una IP (puerto 9090,
+  sin nginx/TLS delante, confirmado en `.env_superset_test` y
+  `/etc/nginx/sites-enabled/`), así que esa función simplemente no existe
+  ahí. El fallback anterior generaba `sqllab-<timestamp>-<random>` — un
+  string único pero que NO tiene forma de UUID. El backend ahora valida
+  justamente eso, así que ese fallback rompía silenciosamente el mecanismo
+  entero de sesión (probablemente rechazado o ignorado del lado del
+  backend) sin que el panel mostrara ningún error visible.
+- Fix: el fallback arma un UUID v4 real a mano (RFC 4122) usando
+  `crypto.getRandomValues()` — que a diferencia de `randomUUID()` SÍ
+  funciona en cualquier contexto, seguro o no (solo `randomUUID`/`subtle`
+  tienen esa restricción). Solo si ni siquiera `getRandomValues` existiera
+  (navegador pre-IE11, no debería pasar nunca en la práctica) cae a un
+  UUID v4 armado con `Math.random()` — no es un secreto, solo necesita
+  tener forma de UUID y no repetirse.
+
+Build: `./scripts/build-extension.sh` (TypeScript estricto OK, webpack,
+.supx reconstruido) sobre `extensions_test/`. Pendiente reiniciar
+`superset_test.service`/`superset_mcp_test.service` (sudo interactivo no
+disponible en esta sesión) y volver a probar — esta vez debería aparecer
+el session_id en el encabezado.
+
+### 2026-09-21 (33) (conversation_key + session_id: "Nueva sesión" ahora rompe la continuidad real en el backend)
+
+Cambio realizado:
+Implementado el mecanismo que propuso el agente del chat tras confirmar la
+causa raíz del bug reportado: `sql-lab-assistant` mantiene memoria de
+conversación server-side con una clave determinista
+(`sqllab-<sha256(usuario+tab.id)>`) que "Nueva sesión" no tenía forma de
+romper — solo vaciaba el historial visible, el backend rehidrataba igual.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/contracts/assistant.ts`
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/chatBackendAdapter.ts`
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlLabAssistantPanel.tsx`
+- `custom-extensions/irex-mcp-tools/docs/sql-lab-assistant-contract.md`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- El panel genera un `conversation_key` (UUID) al montarse, lo manda en
+  cada request (`conversation_key` en el body) y lo persiste entre turnos
+  de la misma conversación. "Nueva sesión" ahora ROTA esta key además de
+  vaciar el historial visible — el backend la incorpora a su clave opaca
+  junto con usuario+tab.id, así que rotarla es lo que realmente corta la
+  continuidad del lado del servidor (la conversación anterior queda
+  preservada para auditoría/logs, no se borra).
+- `AssistantResponse` suma `sessionId` opcional: se lee de `session_id` en
+  el JSON plano, del evento SSE `session` (el primero en llegar, antes que
+  cualquier `status`) para mostrarlo cuanto antes, y también se acepta si
+  viene dentro de `done` (cualquiera de las dos ubicaciones, sin asumir
+  una sola — no quedó 100% definido de qué lado exacto del evento `done`
+  lo van a mandar).
+- El encabezado del panel muestra el `session_id` (truncado con `title` con
+  el valor completo, más un botón "copiar") una vez que llega — pensado
+  para cruzarlo directo con `/api/logs/sessions/<session_id>` cuando algo
+  falla, mismo flujo que ya se usa con las sesiones del widget principal.
+  No se muestra nada antes del primer turno (no hay session_id todavía) ni
+  justo después de "Nueva sesión" (se limpia hasta que llegue uno nuevo).
+- Se documentaron en `docs/sql-lab-assistant-contract.md` tanto esto como
+  el transporte SSE completo (eventos `session`/`status`/`activity`/`done`/
+  `error`), que se había implementado en una vuelta anterior pero nunca se
+  había volcado a este documento — quedaba desactualizado respecto al
+  código real.
+- No se tocó `/api/chat/reset` — es del prompt del widget principal y
+  borra la conversación persistida, lo opuesto de lo que se quiere acá
+  (preservarla para auditoría).
+
+Build: `./scripts/build-extension.sh` (TypeScript estricto OK, 161 tests
+backend sin cambios, webpack, .supx reconstruido) sobre `extensions_test/`.
+Pendiente reiniciar `superset_test.service`/`superset_mcp_test.service`
+(sudo interactivo no disponible en esta sesión) y probar una vez que el
+agente del chat confirme que su lado ya lee `conversation_key` y devuelve
+`session_id`.
+
+### 2026-09-21 (32) (get_sql_schema_context: relation_type y definición real de vistas en PostgreSQL)
+
+Cambio realizado:
+Se extendió `irex.get_sql_schema_context` para PostgreSQL: distinguir tabla
+física de vista/vista materializada, y devolver la definición real de estas
+últimas — sin romper el contrato existente (campos existentes intactos,
+todo lo nuevo es aditivo y opcional).
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/sql_schema_context.py`
+- `custom-extensions/irex-mcp-tools/backend/tests/test_sql_schema_context.py`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- Campo nuevo `table.relation_type`: `"table"` | `"view"` | `"materialized_view"`
+  | `None`, vía `pg_class.relkind` — solo se determina en PostgreSQL (mapea
+  `r`/`p`/`f` a `"table"`, `v` a `"view"`, `m` a `"materialized_view"`).
+  `None` en cualquier otro motor o si no se pudo determinar.
+- `table.table_definition` (el campo ya existía para ClickHouse) ahora
+  también se completa en PostgreSQL cuando `relation_type` es `"view"` o
+  `"materialized_view"`, con el SELECT real vía `pg_get_viewdef` — para
+  tablas físicas de Postgres queda `None` a propósito (`keys` ya es el dato
+  relevante ahí). Una sola consulta parametrizada (`%s`, nunca se
+  interpola schema/table en el SQL) contra `pg_class`/`pg_namespace` cubre
+  ambos campos.
+- Solo lectura, sin DDL, sin tocar `sqlalchemy_uri`/`encrypted_extra` —
+  mismo criterio de seguridad que el resto de la tool.
+- Best-effort real: cualquier falla (conexión, catálogo no accesible,
+  relación no encontrada) devuelve `(None, None)` sin convertir la
+  respuesta completa en error — `columns`/`keys` siguen andando igual.
+- 7 tests nuevos (161 en total): tabla física, vista, vista materializada,
+  relación no encontrada, falla de conexión, falla de `execute`, y que
+  ClickHouse no participa de esto (sigue con su propio `SHOW CREATE TABLE`,
+  `relation_type` en `None` ahí).
+
+Build: `./scripts/build-extension.sh` (TypeScript estricto OK, 161 tests
+backend, webpack, .supx reconstruido) sobre `extensions_test/`. Pendiente
+reiniciar `superset_test.service`/`superset_mcp_test.service` (sudo
+interactivo no disponible en esta sesión) antes de validar contra una base
+PostgreSQL real con al menos una vista y una vista materializada.
+
 ### 2026-09-18 (31) (progreso real vía SSE en la burbuja "Pensando…")
 
 Cambio realizado:

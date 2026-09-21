@@ -9,10 +9,22 @@ alimenta el árbol de tablas/columnas nativo de SQL Lab, y
 REST equivalente (`check_table_access` en `superset/databases/decorators.py`).
 """
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, Field
 from superset_core.mcp.decorators import tool
+
+# pg_class.relkind -> nuestro enum público. 'p' (tabla particionada) y 'f'
+# (foreign table) se comportan como tabla física a los fines de esta tool;
+# cualquier relkind no listado (índice, secuencia, etc. — no debería
+# aparecer nunca vía esta tool, pero por las dudas) queda sin mapear.
+_PG_RELKIND_MAP: dict[str, str] = {
+    "r": "table",
+    "p": "table",
+    "f": "table",
+    "v": "view",
+    "m": "materialized_view",
+}
 
 _MAX_TABLES = 50
 _MAX_COLUMNS = 300
@@ -91,6 +103,15 @@ class SqlSchemaTableInfo(BaseModel):
     name: str
     columns: list[SqlSchemaColumn]
     comment: str | None = None
+    relation_type: Literal["table", "view", "materialized_view"] | None = Field(
+        None,
+        description=(
+            "'table', 'view' o 'materialized_view', cuando se pudo determinar. "
+            "Hoy solo se completa en PostgreSQL (vía pg_class.relkind) — None en "
+            "otros motores o si no se pudo determinar. Útil antes de proponer un "
+            "índice: no tiene sentido sugerir uno sobre una vista."
+        ),
+    )
     keys: list[SqlSchemaKey] = Field(
         default_factory=list,
         description=(
@@ -105,12 +126,14 @@ class SqlSchemaTableInfo(BaseModel):
     table_definition: str | None = Field(
         None,
         description=(
-            "DDL crudo de la tabla cuando el motor lo expone de forma más útil "
-            "que 'keys' (hoy solo ClickHouse, vía SHOW CREATE TABLE): ahí está "
-            "el ENGINE/ORDER BY/PARTITION BY reales, que es el equivalente de "
-            "ClickHouse a un índice — no la reflexión genérica de SQLAlchemy, "
-            "que no tiene un concepto de 'primary key' aplicable a MergeTree. "
-            "None para otros motores o si no se pudo obtener."
+            "DDL/definición real cuando el motor lo expone de forma más útil "
+            "que 'keys'. En ClickHouse: el ENGINE/ORDER BY/PARTITION BY (SHOW "
+            "CREATE TABLE) — el equivalente de ClickHouse a un índice. En "
+            "PostgreSQL: el SELECT real detrás de una vista o vista "
+            "materializada (pg_get_viewdef) cuando relation_type es 'view' o "
+            "'materialized_view' — None para tablas físicas de Postgres, ahí "
+            "'keys' ya es el dato relevante. None también si no se pudo "
+            "obtener (best-effort, nunca rompe el resto de la respuesta)."
         ),
     )
 
@@ -272,6 +295,46 @@ def _clickhouse_table_definition(
         return None
 
 
+def _postgres_relation_info(
+    database: Any, catalog: str | None, schema: str, table: str
+) -> tuple[str | None, str | None]:
+    """(relation_type, table_definition) para una tabla/vista/vista
+    materializada de PostgreSQL, vía los catálogos del sistema —
+    `pg_class.relkind` para el tipo, `pg_get_viewdef` para la definición real
+    de vistas/vistas materializadas (nunca de tablas físicas: no tiene
+    sentido y `pg_get_viewdef` no aplica). Todo en una sola consulta,
+    parametrizada (nunca interpolamos schema/table en el SQL acá).
+
+    Best-effort y de solo lectura: nunca ejecuta DDL, nunca expone
+    credenciales (no toca sqlalchemy_uri/encrypted_extra), y cualquier falla
+    (permisos, catálogo no accesible) devuelve (None, None) sin romper el
+    resto de la respuesta — 'columns'/'keys' siguen siendo el dato principal.
+    """
+    from superset.utils import core as utils
+
+    try:
+        with database.get_raw_connection(
+            catalog=catalog, schema=schema, source=utils.QuerySource.SQL_LAB
+        ) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT c.relkind, "
+                "CASE WHEN c.relkind IN ('v', 'm') THEN pg_get_viewdef(c.oid) END "
+                "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE n.nspname = %s AND c.relname = %s",
+                (schema, table),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None, None
+            relkind, viewdef = row[0], row[1]
+            relation_type = _PG_RELKIND_MAP.get(relkind)
+            table_definition = str(viewdef) if viewdef is not None else None
+            return relation_type, table_definition
+    except Exception:  # noqa: BLE001
+        return None, None
+
+
 @tool(
     name="irex.get_sql_schema_context",
     description=(
@@ -289,12 +352,16 @@ def _clickhouse_table_definition(
         "para filtrar por substring si hay muchas). "
         "Con 'table': devuelve sus columnas (nombre, tipo, comentario), sus "
         "claves/índices existentes ('keys': pk/fk/index — para no sugerir un "
-        "índice duplicado o para explicar por qué uno no se usa) y, en "
-        "ClickHouse, el DDL real de ENGINE/ORDER BY/PARTITION BY "
-        "('table_definition', el equivalente de ClickHouse a un índice). "
-        "Flujo típico: listar tablas -> confirmar/buscar el nombre correcto "
-        "-> pedir columnas+claves de esa tabla -> usar irex.explain_query "
-        "para verificar si una optimización o índice sugerido de verdad ayuda."
+        "índice duplicado o para explicar por qué uno no se usa), si es tabla "
+        "física/vista/vista materializada cuando se puede determinar "
+        "('relation_type', hoy solo en PostgreSQL — no tiene sentido sugerir "
+        "un índice sobre una vista) y la definición real cuando aplica "
+        "('table_definition': en ClickHouse el DDL de ENGINE/ORDER BY/"
+        "PARTITION BY; en PostgreSQL el SELECT real detrás de una vista o "
+        "vista materializada). Flujo típico: listar tablas -> confirmar/"
+        "buscar el nombre correcto -> pedir columnas+claves de esa tabla -> "
+        "usar irex.explain_query para verificar si una optimización o índice "
+        "sugerido de verdad ayuda."
     ),
     tags=["irex", "negocio", "esquema", "sql", "consulta"],
     class_permission_name="SQLLab",
@@ -347,9 +414,14 @@ def get_sql_schema_context(request: SqlSchemaContextRequest) -> SqlSchemaContext
         keys = [_map_key(k) for k in (metadata.get("indexes") or [])]
 
         engine = database.db_engine_spec.engine
+        relation_type: str | None = None
         table_definition: str | None = None
         if engine in ("clickhouse", "clickhousedb"):
             table_definition = _clickhouse_table_definition(
+                database, request.catalog, request.schema_name, request.table
+            )
+        elif engine == "postgresql":
+            relation_type, table_definition = _postgres_relation_info(
                 database, request.catalog, request.schema_name, request.table
             )
 
@@ -362,6 +434,7 @@ def get_sql_schema_context(request: SqlSchemaContextRequest) -> SqlSchemaContext
                 name=metadata.get("name", request.table),
                 columns=columns,
                 comment=metadata.get("comment"),
+                relation_type=relation_type,
                 keys=keys,
                 table_definition=table_definition,
             ),

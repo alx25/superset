@@ -14,6 +14,7 @@ Correr con:
 import sys
 import types
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -78,14 +79,19 @@ class _FakeRawCursor:
         self._result = result
         self._raise_on_execute = raise_on_execute
         self.executed_statements: list[str] = []
+        self.executed_params: list[Any] = []
 
-    def execute(self, statement):
+    def execute(self, statement, params=None):
         self.executed_statements.append(statement)
+        self.executed_params.append(params)
         if self._raise_on_execute:
-            raise RuntimeError("no se pudo ejecutar SHOW CREATE TABLE")
+            raise RuntimeError("no se pudo ejecutar la consulta")
 
     def fetchall(self):
         return self._result if self._result is not None else []
+
+    def fetchone(self):
+        return self._result[0] if self._result else None
 
 
 class _FakeRawConnection:
@@ -110,16 +116,16 @@ class FakeDatabase:
         engine="clickhouse",
         engine_version_info=(24, 10),
         raise_on_get_sqla_engine=False,
-        show_create_table_result=None,
+        raw_query_result=None,
         raise_on_get_raw_connection=False,
-        raise_on_show_create_execute=False,
+        raise_on_raw_query_execute=False,
     ):
         self.database_name = database_name
         self._tables = tables if tables is not None else set()
         self.db_engine_spec = types.SimpleNamespace(engine=engine)
         self._engine_version_info = engine_version_info
         self._raise_on_get_sqla_engine = raise_on_get_sqla_engine
-        self.raw_cursor = _FakeRawCursor(show_create_table_result, raise_on_execute=raise_on_show_create_execute)
+        self.raw_cursor = _FakeRawCursor(raw_query_result, raise_on_execute=raise_on_raw_query_execute)
         self._raise_on_get_raw_connection = raise_on_get_raw_connection
 
     def get_all_table_names_in_schema(self, catalog, schema):
@@ -452,7 +458,7 @@ class TestKeysAndTableDefinition:
     def test_clickhouse_table_definition_is_fetched(self):
         db = FakeDatabase(
             engine="clickhouse",
-            show_create_table_result=[("CREATE TABLE default.t (...) ENGINE = MergeTree() ORDER BY (id)",)],
+            raw_query_result=[("CREATE TABLE default.t (...) ENGINE = MergeTree() ORDER BY (id)",)],
         )
         _install_superset_stubs(database=db, table_metadata={"name": "t", "columns": []})
         response = get_sql_schema_context(_base_request(table="t"))
@@ -474,3 +480,63 @@ class TestKeysAndTableDefinition:
         )
         response = get_sql_schema_context(_base_request(table="t"))
         assert response.table.table_definition is None
+
+
+class TestPostgresRelationInfo:
+    def test_physical_table_has_relation_type_but_no_definition(self):
+        db = FakeDatabase(engine="postgresql", raw_query_result=[("r", None)])
+        _install_superset_stubs(database=db, table_metadata={"name": "t", "columns": []})
+        response = get_sql_schema_context(_base_request(table="t"))
+        assert response.table.relation_type == "table"
+        assert response.table.table_definition is None
+        assert db.raw_cursor.executed_params == [("public", "t")]
+
+    def test_view_has_relation_type_and_real_definition(self):
+        db = FakeDatabase(engine="postgresql", raw_query_result=[("v", "SELECT a, b FROM t")])
+        _install_superset_stubs(database=db, table_metadata={"name": "v", "columns": []})
+        response = get_sql_schema_context(_base_request(table="v"))
+        assert response.table.relation_type == "view"
+        assert response.table.table_definition == "SELECT a, b FROM t"
+
+    def test_materialized_view_has_relation_type_and_real_definition(self):
+        db = FakeDatabase(engine="postgresql", raw_query_result=[("m", "SELECT sum(x) FROM t GROUP BY y")])
+        _install_superset_stubs(database=db, table_metadata={"name": "mv", "columns": []})
+        response = get_sql_schema_context(_base_request(table="mv"))
+        assert response.table.relation_type == "materialized_view"
+        assert response.table.table_definition == "SELECT sum(x) FROM t GROUP BY y"
+
+    def test_relation_not_found_in_catalog_is_none_not_error(self):
+        db = FakeDatabase(engine="postgresql", raw_query_result=[])
+        _install_superset_stubs(database=db, table_metadata={"name": "t", "columns": []})
+        response = get_sql_schema_context(_base_request(table="t"))
+        assert response.success is True
+        assert response.table.relation_type is None
+        assert response.table.table_definition is None
+
+    def test_failure_is_best_effort_does_not_break_response(self):
+        db = FakeDatabase(engine="postgresql", raise_on_get_raw_connection=True)
+        _install_superset_stubs(database=db, table_metadata={"name": "t", "columns": []})
+        response = get_sql_schema_context(_base_request(table="t"))
+        assert response.success is True
+        assert response.table.relation_type is None
+        assert response.table.table_definition is None
+
+    def test_execute_failure_is_also_best_effort(self):
+        db = FakeDatabase(engine="postgresql", raise_on_raw_query_execute=True)
+        _install_superset_stubs(database=db, table_metadata={"name": "t", "columns": []})
+        response = get_sql_schema_context(_base_request(table="t"))
+        assert response.success is True
+        assert response.table.relation_type is None
+        assert response.table.table_definition is None
+
+    def test_clickhouse_does_not_get_relation_type(self):
+        """relation_type es un campo hoy exclusivo de PostgreSQL — ClickHouse
+        no participa de _postgres_relation_info en absoluto."""
+        db = FakeDatabase(
+            engine="clickhouse",
+            raw_query_result=[("CREATE TABLE default.t (...) ENGINE = MergeTree() ORDER BY (id)",)],
+        )
+        _install_superset_stubs(database=db, table_metadata={"name": "t", "columns": []})
+        response = get_sql_schema_context(_base_request(table="t"))
+        assert response.table.relation_type is None
+        assert response.table.table_definition is not None
