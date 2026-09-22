@@ -6,20 +6,27 @@ type PanelTheme = ReturnType<typeof themeNs.useTheme>;
 type Block =
   | { kind: 'paragraph'; lines: string[] }
   | { kind: 'code'; content: string }
-  | { kind: 'list'; ordered: boolean; items: string[] };
+  | { kind: 'list'; ordered: boolean; items: string[] }
+  | { kind: 'heading'; level: number; text: string }
+  | { kind: 'hr' }
+  | { kind: 'blockquote'; lines: string[] };
 
 const FENCE_RE = /^```(\w*)\s*$/;
 const BULLET_RE = /^[-*]\s+/;
 const NUMBERED_RE = /^\d+[.)]\s+/;
+const HEADING_RE = /^(#{1,6})\s+(.+)$/;
+const HR_RE = /^(?:-{3,}|\*{3,}|_{3,})$/;
+const BLOCKQUOTE_RE = /^>\s?/;
 
 /**
- * Subconjunto de Markdown para las respuestas del asistente: párrafos,
- * listas, bloques de código con ```, negrita/itálica e inline code. No es
- * un parser Markdown completo (no hay tablas, links, headers) — cubre lo
- * que realmente aparece en las respuestas del chat sin sumar una librería
- * nueva al bundle por un puñado de casos. Nunca usa `dangerouslySetInnerHTML`:
- * arma nodos React directamente, así el texto del backend (semi-confiable)
- * no puede inyectar HTML.
+ * Subconjunto de Markdown para las respuestas del asistente: encabezados
+ * (#..######), párrafos, listas, blockquotes, línea horizontal, bloques de
+ * código con ```, negrita/itálica e inline code. No es un parser Markdown
+ * completo (no hay tablas ni links) — cubre lo que realmente aparece en las
+ * respuestas del chat sin sumar una librería nueva al bundle por un puñado
+ * de casos. Nunca usa `dangerouslySetInnerHTML`: arma nodos React
+ * directamente, así el texto del backend (semi-confiable) no puede
+ * inyectar HTML.
  */
 function parseBlocks(text: string): Block[] {
   const rawLines = text.replace(/\r\n/g, '\n').split('\n');
@@ -46,6 +53,29 @@ function parseBlocks(text: string): Block[] {
       continue;
     }
 
+    const headingMatch = line.match(HEADING_RE);
+    if (headingMatch) {
+      blocks.push({ kind: 'heading', level: headingMatch[1].length, text: headingMatch[2].trim() });
+      i += 1;
+      continue;
+    }
+
+    if (HR_RE.test(line.trim())) {
+      blocks.push({ kind: 'hr' });
+      i += 1;
+      continue;
+    }
+
+    if (BLOCKQUOTE_RE.test(line)) {
+      const quoteLines: string[] = [];
+      while (i < rawLines.length && BLOCKQUOTE_RE.test(rawLines[i])) {
+        quoteLines.push(rawLines[i].replace(BLOCKQUOTE_RE, ''));
+        i += 1;
+      }
+      blocks.push({ kind: 'blockquote', lines: quoteLines });
+      continue;
+    }
+
     const isBullet = BULLET_RE.test(line);
     const isNumbered = !isBullet && NUMBERED_RE.test(line);
     if (isBullet || isNumbered) {
@@ -65,7 +95,10 @@ function parseBlocks(text: string): Block[] {
       rawLines[i].trim() !== '' &&
       !FENCE_RE.test(rawLines[i]) &&
       !BULLET_RE.test(rawLines[i]) &&
-      !NUMBERED_RE.test(rawLines[i])
+      !NUMBERED_RE.test(rawLines[i]) &&
+      !HEADING_RE.test(rawLines[i]) &&
+      !HR_RE.test(rawLines[i].trim()) &&
+      !BLOCKQUOTE_RE.test(rawLines[i])
     ) {
       paraLines.push(rawLines[i]);
       i += 1;
@@ -139,6 +172,18 @@ function renderInline(text: string, theme: PanelTheme, keyPrefix: string): React
   });
 }
 
+const HEADING_TAGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as const;
+const HEADING_SIZES: Record<number, { fontSize: number; fontWeight: number }> = {
+  1: { fontSize: 15, fontWeight: 700 },
+  2: { fontSize: 14, fontWeight: 700 },
+  3: { fontSize: 13.5, fontWeight: 600 },
+};
+
+function headingStyle(level: number): React.CSSProperties {
+  const { fontSize, fontWeight } = HEADING_SIZES[level] ?? { fontSize: 13, fontWeight: 600 };
+  return { margin: 0, fontSize, fontWeight, lineHeight: 1.4 };
+}
+
 export interface ChatMarkdownProps {
   text: string;
 }
@@ -169,6 +214,37 @@ export function ChatMarkdown({ text }: ChatMarkdownProps): React.ReactElement {
             >
               {block.content}
             </pre>
+          );
+        }
+        if (block.kind === 'heading') {
+          const Tag = HEADING_TAGS[Math.min(Math.max(block.level, 1), 6) - 1];
+          return (
+            <Tag key={blockIndex} style={headingStyle(block.level)}>
+              {renderInline(block.text, theme, `${blockIndex}-h`)}
+            </Tag>
+          );
+        }
+        if (block.kind === 'hr') {
+          return <hr key={blockIndex} style={{ border: 'none', borderTop: `1px solid ${theme.colorBorderSecondary}`, margin: 0 }} />;
+        }
+        if (block.kind === 'blockquote') {
+          return (
+            <div
+              key={blockIndex}
+              style={{
+                borderLeft: `3px solid ${theme.colorBorderSecondary}`,
+                paddingLeft: 10,
+                color: theme.colorTextSecondary,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
+              }}
+            >
+              {block.lines.map((line, lineIndex) => (
+                // eslint-disable-next-line react/no-array-index-key
+                <div key={lineIndex}>{renderInline(line, theme, `${blockIndex}-bq-${lineIndex}`)}</div>
+              ))}
+            </div>
           );
         }
         if (block.kind === 'list') {

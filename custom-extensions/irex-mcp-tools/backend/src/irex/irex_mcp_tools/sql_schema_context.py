@@ -29,6 +29,12 @@ _PG_RELKIND_MAP: dict[str, str] = {
 _MAX_TABLES = 50
 _MAX_COLUMNS = 300
 
+# Tope por defecto de 'table_names' (modo batch) — configurable vía
+# MCP_SQL_SCHEMA_BATCH_MAX en superset_config.py. Es un límite por LLAMADA,
+# no por conversación ni por consulta: una consulta con más tablas se cubre
+# con varias llamadas batch, no subiendo este número sin límite.
+_DEFAULT_MAX_BATCH_TABLES = 12
+
 # Notas curadas por motor (clave = `db_engine_spec.engine`, el nombre
 # normalizado de Superset — ver superset/db_engine_specs/*.py). A propósito
 # solo cubre los motores realmente conectados en esta instalación (ClickHouse):
@@ -72,12 +78,29 @@ class SqlSchemaContextRequest(BaseModel):
             "Si se especifica, devuelve las columnas de ESTA tabla (nombre, tipo, "
             "comentario). Si se omite, lista los nombres de tabla disponibles en "
             "el schema — usar primero sin 'table' para descubrir qué existe, "
-            "luego pedir la tabla concreta."
+            "luego pedir la tabla concreta. MUTUAMENTE EXCLUYENTE con 'table_names' "
+            "— usar uno u otro, nunca ambos."
+        ),
+    )
+    table_names: list[str] | None = Field(
+        None,
+        description=(
+            "Modo batch: esquema de VARIAS tablas en una sola llamada (columnas, "
+            "claves/índices, DDL cuando aplique) — usar para una consulta con "
+            "varios JOIN/tablas en vez de llamar la tool una vez por tabla. Los "
+            "CTE de la consulta NO son tablas físicas y no deben incluirse acá, "
+            "solo las fuentes reales de FROM/JOIN. MUTUAMENTE EXCLUYENTE con "
+            "'table' — usar uno u otro, nunca ambos. Lista no vacía, se "
+            f"deduplica preservando el orden de aparición. Tope por llamada "
+            f"configurable (default {_DEFAULT_MAX_BATCH_TABLES}) — es un límite "
+            "por request, no por conversación ni por consulta: para una consulta "
+            "con más tablas que el tope, enviar varias llamadas batch en vez de "
+            "una sola con todo."
         ),
     )
     search: str | None = Field(
         None,
-        description="Filtra los nombres de tabla por substring (case-insensitive). Solo aplica cuando 'table' no se especifica.",
+        description="Filtra los nombres de tabla por substring (case-insensitive). Solo aplica cuando ni 'table' ni 'table_names' se especifican.",
     )
     limit: int = Field(
         50, ge=1, le=_MAX_TABLES, description=f"Máximo de tablas a listar (tope {_MAX_TABLES})."
@@ -138,6 +161,37 @@ class SqlSchemaTableInfo(BaseModel):
     )
 
 
+class SqlSchemaTableContext(BaseModel):
+    """Un elemento de 'table_contexts' (modo batch) — mismo contenido por
+    tabla que 'table' en modo individual, más success/error/error_type para
+    que una tabla inexistente o sin permiso no tumbe el resto del batch."""
+
+    name: str
+    success: bool = True
+    columns: list[SqlSchemaColumn] = Field(default_factory=list)
+    comment: str | None = None
+    relation_type: Literal["table", "view", "materialized_view"] | None = Field(
+        None,
+        description="Ver 'relation_type' en modo individual — hoy solo se completa en PostgreSQL.",
+    )
+    keys: list[SqlSchemaKey] = Field(
+        default_factory=list,
+        description="Ver 'keys' en modo individual.",
+    )
+    table_definition: str | None = Field(
+        None,
+        description="Ver 'table_definition' en modo individual.",
+    )
+    truncated: bool = Field(
+        False, description="True si las columnas de ESTA tabla se recortaron por el límite."
+    )
+    warnings: list[str] = Field(default_factory=list)
+    error: str | None = Field(
+        None, description="Solo presente si success=false para esta tabla — el resto del batch no se ve afectado."
+    )
+    error_type: str | None = None
+
+
 class SqlSchemaContextResponse(BaseModel):
     success: bool
     database_id: int
@@ -148,6 +202,15 @@ class SqlSchemaContextResponse(BaseModel):
     )
     table: SqlSchemaTableInfo | None = Field(
         None, description="Columnas de la tabla pedida, cuando se especificó 'table'."
+    )
+    table_contexts: list[SqlSchemaTableContext] | None = Field(
+        None,
+        description=(
+            "Presente solo cuando se pidió 'table_names' (modo batch) — un "
+            "elemento por tabla pedida, en el mismo orden (ya deduplicado). "
+            "Ninguno de los elementos incluye filas ni valores de negocio, "
+            "solo metadata de esquema."
+        ),
     )
     truncated: bool = Field(False, description="True si el listado de tablas o columnas se recortó por el límite.")
     engine: str | None = Field(
@@ -335,6 +398,222 @@ def _postgres_relation_info(
         return None, None
 
 
+def _max_batch_size() -> int:
+    """Tope de 'table_names' por llamada — configurable vía
+    MCP_SQL_SCHEMA_BATCH_MAX (superset_config.py), default
+    _DEFAULT_MAX_BATCH_TABLES. Fuera de un contexto de aplicación Flask
+    (tests unitarios sin app_context) cae al default en vez de romper."""
+    try:
+        from flask import current_app
+
+        return int(
+            current_app.config.get("MCP_SQL_SCHEMA_BATCH_MAX", _DEFAULT_MAX_BATCH_TABLES)
+        )
+    except Exception:  # noqa: BLE001
+        return _DEFAULT_MAX_BATCH_TABLES
+
+
+def _clickhouse_table_definitions_batch(
+    database: Any, catalog: str | None, schema: str, tables: list[str]
+) -> dict[str, str | None]:
+    """Batching real para ClickHouse: una sola consulta a system.tables
+    (columna create_table_query, mismo contenido que `SHOW CREATE TABLE`) para
+    TODAS las tablas del batch en vez de una ejecución por tabla — ver
+    `_clickhouse_table_definition` para el equivalente de una sola tabla
+    (modo individual), que sigue usándose tal cual ahí.
+
+    Los nombres de tabla se pasan como literales de texto en un IN (...): acá
+    son VALORES, no identificadores como en `_clickhouse_table_definition`,
+    así que sí corresponde escapar comillas simples (no hay soporte de
+    bind params confirmado en el cursor crudo de este driver para listas).
+
+    Best-effort: cualquier falla global (permisos, tabla distribuida con
+    catálogo propio, motor viejo sin esta system table) devuelve {} — cada
+    tabla del batch simplemente queda sin table_definition, igual que el
+    modo individual ante una falla puntual. 'columns'/'keys' (obtenidas por
+    separado, siempre por tabla) siguen siendo el dato principal.
+
+    El llamador (`_build_batch_response`) solo pasa acá tablas ya validadas
+    por `can_access_table` — una tabla sin permiso nunca debe disparar
+    siquiera esta consulta best-effort, aunque su resultado se descartaría.
+    """
+    from superset.utils import core as utils
+
+    if not tables:
+        return {}
+
+    def _escape(value: str) -> str:
+        return value.replace("'", "''")
+
+    names_in = ", ".join(f"'{_escape(t)}'" for t in tables)
+    try:
+        with database.get_raw_connection(
+            catalog=catalog, schema=schema, source=utils.QuerySource.SQL_LAB
+        ) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT name, create_table_query FROM system.tables "
+                f"WHERE database = '{_escape(schema)}' AND name IN ({names_in})"
+            )
+            rows = cursor.fetchall()
+            return {str(row[0]): (str(row[1]) if row[1] else None) for row in rows}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _postgres_relation_info_batch(
+    database: Any, catalog: str | None, schema: str, tables: list[str]
+) -> dict[str, tuple[str | None, str | None]]:
+    """Batching real para PostgreSQL: misma consulta que
+    `_postgres_relation_info` (modo individual, que sigue usándose tal cual
+    ahí) pero para TODAS las tablas del batch a la vez —
+    `relname = ANY(%s)` parametrizado, una sola consulta en vez de N.
+
+    Best-effort: cualquier falla global devuelve {} — cada tabla del batch
+    simplemente queda sin relation_type/table_definition.
+
+    El llamador (`_build_batch_response`) solo pasa acá tablas ya validadas
+    por `can_access_table` — una tabla sin permiso nunca debe disparar
+    siquiera esta consulta best-effort, aunque su resultado se descartaría.
+    """
+    from superset.utils import core as utils
+
+    if not tables:
+        return {}
+    try:
+        with database.get_raw_connection(
+            catalog=catalog, schema=schema, source=utils.QuerySource.SQL_LAB
+        ) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT c.relname, c.relkind, "
+                "CASE WHEN c.relkind IN ('v', 'm') THEN pg_get_viewdef(c.oid) END "
+                "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE n.nspname = %s AND c.relname = ANY(%s)",
+                (schema, tables),
+            )
+            rows = cursor.fetchall()
+            result: dict[str, tuple[str | None, str | None]] = {}
+            for relname, relkind, viewdef in rows:
+                relation_type = _PG_RELKIND_MAP.get(relkind)
+                table_definition = str(viewdef) if viewdef is not None else None
+                result[str(relname)] = (relation_type, table_definition)
+            return result
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _build_batch_response(
+    database: Any, request: "SqlSchemaContextRequest", table_names: list[str]
+) -> SqlSchemaContextResponse:
+    """Arma 'table_contexts' — un elemento por tabla de 'table_names', en el
+    mismo orden, reutilizando exactamente las mismas validaciones de permiso
+    (`can_access_table`) y la misma fuente de columnas/claves
+    (`get_table_metadata`) que el camino individual. Una tabla inexistente o
+    sin permiso se marca success=false y NO aborta el resto del batch —
+    'get_table_metadata' no tiene equivalente batched en Superset, así que
+    ese dato se aisla por tabla; el DDL/relation_type sí se pide una única
+    vez para todo el batch cuando el motor lo permite (ClickHouse/PostgreSQL),
+    pero SOLO para las tablas que ya pasaron 'can_access_table' — una tabla
+    sin permiso no debe disparar ninguna consulta adicional contra la base,
+    ni siquiera una cuyo resultado se termine descartando (mismo criterio que
+    el camino individual, donde 'can_access_table' corta antes de cualquier
+    otra consulta)."""
+    from superset import security_manager
+    from superset.databases.utils import get_table_metadata
+    from superset.sql.parse import Table
+
+    engine = database.db_engine_spec.engine
+
+    table_refs = {name: Table(name, request.schema_name, request.catalog) for name in table_names}
+    denied = {
+        name for name, ref in table_refs.items() if not security_manager.can_access_table(database, ref)
+    }
+    allowed = [name for name in table_names if name not in denied]
+
+    ddl_by_table: dict[str, str | None] = {}
+    relation_by_table: dict[str, tuple[str | None, str | None]] = {}
+    if allowed:
+        if engine in ("clickhouse", "clickhousedb"):
+            ddl_by_table = _clickhouse_table_definitions_batch(
+                database, request.catalog, request.schema_name, allowed
+            )
+        elif engine == "postgresql":
+            relation_by_table = _postgres_relation_info_batch(
+                database, request.catalog, request.schema_name, allowed
+            )
+
+    contexts: list[SqlSchemaTableContext] = []
+    for name in table_names:
+        if name in denied:
+            contexts.append(
+                SqlSchemaTableContext(
+                    name=name,
+                    success=False,
+                    error=f"Access denied to table {name}",
+                    error_type="TABLE_SECURITY_ACCESS_ERROR",
+                )
+            )
+            continue
+
+        try:
+            metadata: dict[str, Any] = get_table_metadata(database, table_refs[name])
+        except Exception as e:  # noqa: BLE001 - se aisla, no rompe el resto del batch
+            contexts.append(
+                SqlSchemaTableContext(
+                    name=name,
+                    success=False,
+                    error=str(e),
+                    error_type="SCHEMA_LOOKUP_ERROR",
+                )
+            )
+            continue
+
+        raw_columns = metadata.get("columns") or []
+        truncated = len(raw_columns) > _MAX_COLUMNS
+        columns = [
+            SqlSchemaColumn(
+                name=col["name"], type=col.get("type") or "unknown", comment=col.get("comment")
+            )
+            for col in raw_columns[:_MAX_COLUMNS]
+        ]
+        keys = [_map_key(k) for k in (metadata.get("indexes") or [])]
+
+        relation_type: str | None = None
+        table_definition: str | None = None
+        if name in ddl_by_table:
+            table_definition = ddl_by_table[name]
+        elif name in relation_by_table:
+            relation_type, table_definition = relation_by_table[name]
+
+        warnings: list[str] = []
+        if truncated:
+            warnings.append(f"Se truncó a {_MAX_COLUMNS} columnas (la tabla tiene más).")
+
+        contexts.append(
+            SqlSchemaTableContext(
+                name=metadata.get("name", name),
+                success=True,
+                columns=columns,
+                comment=metadata.get("comment"),
+                relation_type=relation_type,
+                keys=keys,
+                table_definition=table_definition,
+                truncated=truncated,
+                warnings=warnings,
+            )
+        )
+
+    return SqlSchemaContextResponse(
+        success=True,
+        database_id=request.database_id,
+        catalog=request.catalog,
+        schema_name=request.schema_name,
+        table_contexts=contexts,
+        **_engine_metadata(database),
+    )
+
+
 @tool(
     name="irex.get_sql_schema_context",
     description=(
@@ -361,7 +640,15 @@ def _postgres_relation_info(
         "vista materializada). Flujo típico: listar tablas -> confirmar/"
         "buscar el nombre correcto -> pedir columnas+claves de esa tabla -> "
         "usar irex.explain_query para verificar si una optimización o índice "
-        "sugerido de verdad ayuda."
+        "sugerido de verdad ayuda.\n\n"
+        "Con 'table_names' (lista, en vez de 'table'): mismo contenido por "
+        "tabla, para varias tablas en una sola llamada — usar para una "
+        "consulta con varios JOIN en vez de llamar la tool una vez por tabla. "
+        "Los CTE de la consulta NO son tablas físicas: solo van las fuentes "
+        "reales de FROM/JOIN. La respuesta trae 'table_contexts' (uno por "
+        "tabla pedida, mismo orden, deduplicado) en vez de 'table' — cada "
+        "elemento puede fallar solo, sin tumbar el resto ('success'/'error' "
+        "por tabla). 'table' y 'table_names' son mutuamente excluyentes."
     ),
     tags=["irex", "negocio", "esquema", "sql", "consulta"],
     class_permission_name="SQLLab",
@@ -372,6 +659,34 @@ def get_sql_schema_context(request: SqlSchemaContextRequest) -> SqlSchemaContext
     from superset.databases.utils import get_table_metadata
     from superset.models.core import Database
     from superset.sql.parse import Table
+
+    # Validación de forma del request — no necesita la base de datos, así que
+    # se resuelve antes de cualquier consulta (falla rápido con input inválido).
+    if request.table and request.table_names:
+        return _error(
+            request,
+            "'table' y 'table_names' son mutuamente excluyentes — usar uno u otro, nunca ambos.",
+            "INVALID_REQUEST_ERROR",
+        )
+
+    deduped_table_names: list[str] | None = None
+    if request.table_names is not None:
+        if len(request.table_names) == 0:
+            return _error(
+                request,
+                "'table_names' no puede ser una lista vacía.",
+                "INVALID_REQUEST_ERROR",
+            )
+        deduped_table_names = list(dict.fromkeys(request.table_names))
+        max_batch = _max_batch_size()
+        if len(deduped_table_names) > max_batch:
+            return _error(
+                request,
+                f"'table_names' admite un máximo de {max_batch} tablas por llamada "
+                f"(se pidieron {len(deduped_table_names)} tablas distintas) — dividir "
+                "en varias llamadas batch para una consulta con más tablas.",
+                "INVALID_REQUEST_ERROR",
+            )
 
     database = db.session.query(Database).filter_by(id=request.database_id).first()
     if not database:
@@ -387,6 +702,9 @@ def get_sql_schema_context(request: SqlSchemaContextRequest) -> SqlSchemaContext
             f"Access denied to database {database.database_name}",
             "DATABASE_SECURITY_ACCESS_ERROR",
         )
+
+    if deduped_table_names is not None:
+        return _build_batch_response(database, request, deduped_table_names)
 
     if request.table:
         table_ref = Table(request.table, request.schema_name, request.catalog)

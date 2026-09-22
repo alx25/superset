@@ -150,16 +150,27 @@ def _install_superset_stubs(
     supports_jinja=True,
     jinja_context_keys=None,
     raise_on_get_template_processor=False,
+    table_metadata_by_name=None,
+    can_access_table_names=None,
 ):
     """Reemplaza los módulos de Superset que la tool importa dentro de la
-    función. Se reinstala completo en cada test para no filtrar estado."""
+    función. Se reinstala completo en cada test para no filtrar estado.
+
+    table_metadata_by_name / can_access_table_names: variantes por-tabla de
+    table_metadata / can_access_table, para tests de modo batch (table_names)
+    donde cada tabla del batch necesita su propio resultado. Si no se pasan,
+    el comportamiento es idéntico al de antes (un único table_metadata/
+    can_access_table para toda la llamada)."""
     superset_module = types.ModuleType("superset")
     session_mock = MagicMock()
     session_mock.query.return_value.filter_by.return_value.first.return_value = database
     superset_module.db = MagicMock(session=session_mock)
     sm = MagicMock()
     sm.can_access_database.return_value = can_access_database
-    sm.can_access_table.return_value = can_access_table
+    if can_access_table_names is not None:
+        sm.can_access_table.side_effect = lambda db, table_ref: table_ref[0] in can_access_table_names
+    else:
+        sm.can_access_table.return_value = can_access_table
     superset_module.security_manager = sm
     sys.modules["superset"] = superset_module
 
@@ -174,6 +185,11 @@ def _install_superset_stubs(
     databases_utils = types.ModuleType("superset.databases.utils")
 
     def _get_table_metadata(database, table):
+        if table_metadata_by_name is not None:
+            name = table[0]
+            if name not in table_metadata_by_name:
+                raise RuntimeError(f"Table {name} not found")
+            return table_metadata_by_name[name]
         return table_metadata
 
     databases_utils.get_table_metadata = _get_table_metadata
@@ -540,3 +556,302 @@ class TestPostgresRelationInfo:
         response = get_sql_schema_context(_base_request(table="t"))
         assert response.table.relation_type is None
         assert response.table.table_definition is not None
+
+
+class TestBackwardCompatibility:
+    """El contrato original (sin table_names) debe seguir funcionando tal
+    cual — ver también TestListTables/TestTableColumns, que ya lo cubren
+    exhaustivamente. Acá solo se deja explícito el contrato mínimo del
+    prompt: database_id/schema/catalog/table, y su variante de inventario."""
+
+    def test_individual_table_contract_unchanged(self):
+        _install_superset_stubs(
+            database=FakeDatabase(),
+            table_metadata={
+                "name": "LDBI_HechosVentas",
+                "columns": [{"name": "id", "type": "Int32", "comment": None}],
+            },
+        )
+        response = get_sql_schema_context(
+            SqlSchemaContextRequest(database_id=1, schema="dbo", catalog=None, table="LDBI_HechosVentas")
+        )
+        assert response.success is True
+        assert response.table.name == "LDBI_HechosVentas"
+        assert response.table_contexts is None
+
+    def test_inventory_contract_unchanged(self):
+        _install_superset_stubs(
+            database=FakeDatabase(tables={("LDBI_HechosVentas", "dbo", None)}),
+        )
+        response = get_sql_schema_context(
+            SqlSchemaContextRequest(database_id=1, schema="dbo", catalog=None)
+        )
+        assert response.success is True
+        assert response.tables == ["LDBI_HechosVentas"]
+        assert response.table is None
+        assert response.table_contexts is None
+
+
+class TestBatchRequestValidation:
+    def test_table_and_table_names_are_mutually_exclusive(self):
+        _install_superset_stubs(database=FakeDatabase())
+        response = get_sql_schema_context(
+            _base_request(table="ventas", table_names=["ventas", "clientes"])
+        )
+        assert response.success is False
+        assert response.error_type == "INVALID_REQUEST_ERROR"
+
+    def test_empty_table_names_is_rejected(self):
+        _install_superset_stubs(database=FakeDatabase())
+        response = get_sql_schema_context(_base_request(table_names=[]))
+        assert response.success is False
+        assert response.error_type == "INVALID_REQUEST_ERROR"
+
+    def test_duplicates_are_deduped_preserving_order(self):
+        db = FakeDatabase(engine="clickhouse")
+        _install_superset_stubs(
+            database=db,
+            table_metadata_by_name={
+                "a": {"name": "a", "columns": [{"name": "id", "type": "Int32", "comment": None}]},
+                "b": {"name": "b", "columns": [{"name": "id", "type": "Int32", "comment": None}]},
+            },
+        )
+        response = get_sql_schema_context(_base_request(table_names=["a", "b", "a", "b", "a"]))
+        assert response.success is True
+        assert [c.name for c in response.table_contexts] == ["a", "b"]
+
+    def test_batch_over_configured_max_is_rejected(self):
+        from flask import Flask
+
+        app = Flask(__name__)
+        app.config["MCP_SQL_SCHEMA_BATCH_MAX"] = 2
+        _install_superset_stubs(database=FakeDatabase())
+        with app.app_context():
+            response = get_sql_schema_context(_base_request(table_names=["a", "b", "c"]))
+        assert response.success is False
+        assert response.error_type == "INVALID_REQUEST_ERROR"
+        assert "2" in response.error
+
+    def test_batch_within_default_max_is_accepted(self):
+        names = [f"t{i}" for i in range(12)]
+        db = FakeDatabase(engine="clickhouse")
+        _install_superset_stubs(
+            database=db,
+            table_metadata_by_name={n: {"name": n, "columns": []} for n in names},
+        )
+        response = get_sql_schema_context(_base_request(table_names=names))
+        assert response.success is True
+        assert len(response.table_contexts) == 12
+
+    def test_batch_max_is_evaluated_after_dedup(self):
+        """15 nombres con muchos duplicados que deduplican a 3 no deben
+        chocar contra un tope configurado en 3 — el límite aplica sobre la
+        lista YA deduplicada, no sobre lo que mandó el cliente."""
+        from flask import Flask
+
+        app = Flask(__name__)
+        app.config["MCP_SQL_SCHEMA_BATCH_MAX"] = 3
+        db = FakeDatabase(engine="clickhouse")
+        _install_superset_stubs(
+            database=db,
+            table_metadata_by_name={n: {"name": n, "columns": []} for n in ("a", "b", "c")},
+        )
+        with app.app_context():
+            response = get_sql_schema_context(
+                _base_request(table_names=["a", "b", "c", "a", "b", "c", "a"])
+            )
+        assert response.success is True
+        assert len(response.table_contexts) == 3
+
+
+class TestBatchTableContexts:
+    def test_returns_columns_and_types_in_requested_order(self):
+        db = FakeDatabase(engine="clickhouse")
+        _install_superset_stubs(
+            database=db,
+            table_metadata_by_name={
+                "ventas": {"name": "ventas", "columns": [{"name": "id", "type": "Int32", "comment": None}]},
+                "clientes": {"name": "clientes", "columns": [{"name": "nombre", "type": "String", "comment": None}]},
+                "productos": {"name": "productos", "columns": [{"name": "sku", "type": "String", "comment": None}]},
+            },
+        )
+        response = get_sql_schema_context(
+            _base_request(table_names=["ventas", "clientes", "productos"])
+        )
+        assert response.success is True
+        assert [t.name for t in response.table_contexts] == ["ventas", "clientes", "productos"]
+        assert response.table_contexts[0].columns[0].type == "Int32"
+        assert response.table_contexts[1].columns[0].type == "String"
+        assert all(t.success for t in response.table_contexts)
+        # Modo batch: engine/engine_version/supports_jinja a nivel de
+        # respuesta, no repetidos por tabla.
+        assert response.engine == "clickhouse"
+
+    def test_nonexistent_table_does_not_affect_other_batch_results(self):
+        db = FakeDatabase(engine="clickhouse")
+        _install_superset_stubs(
+            database=db,
+            table_metadata_by_name={
+                "ventas": {"name": "ventas", "columns": [{"name": "id", "type": "Int32", "comment": None}]},
+                "productos": {"name": "productos", "columns": [{"name": "sku", "type": "String", "comment": None}]},
+            },
+        )
+        response = get_sql_schema_context(
+            _base_request(table_names=["ventas", "tabla_inexistente", "productos"])
+        )
+        assert response.success is True
+        by_name = {t.name: t for t in response.table_contexts}
+        assert by_name["ventas"].success is True
+        assert by_name["productos"].success is True
+        assert by_name["tabla_inexistente"].success is False
+        assert by_name["tabla_inexistente"].error_type == "SCHEMA_LOOKUP_ERROR"
+
+    def test_permission_denied_is_isolated_per_table(self):
+        """Mismo chequeo (can_access_table) que el camino individual, pero
+        aplicado tabla por tabla: una denegada no tumba el resto del batch."""
+        db = FakeDatabase(engine="clickhouse")
+        _install_superset_stubs(
+            database=db,
+            table_metadata_by_name={
+                "ventas": {"name": "ventas", "columns": []},
+                "secreta": {"name": "secreta", "columns": []},
+            },
+            can_access_table_names={"ventas"},
+        )
+        response = get_sql_schema_context(_base_request(table_names=["ventas", "secreta"]))
+        assert response.success is True
+        by_name = {t.name: t for t in response.table_contexts}
+        assert by_name["ventas"].success is True
+        assert by_name["secreta"].success is False
+        assert by_name["secreta"].error_type == "TABLE_SECURITY_ACCESS_ERROR"
+
+    def test_denied_table_never_triggers_ddl_lookup(self):
+        """Una tabla sin permiso no debe disparar ni siquiera la consulta
+        best-effort de DDL/relation_type — mismo criterio que el camino
+        individual, donde can_access_table corta antes de cualquier otra
+        consulta contra la base."""
+        db = FakeDatabase(
+            engine="clickhouse",
+            raw_query_result=[("ventas", "CREATE TABLE ... ventas ... ORDER BY (id)")],
+        )
+        _install_superset_stubs(
+            database=db,
+            table_metadata_by_name={"ventas": {"name": "ventas", "columns": []}},
+            can_access_table_names={"ventas"},
+        )
+        response = get_sql_schema_context(_base_request(table_names=["ventas", "secreta"]))
+        assert response.success is True
+        # Solo 'ventas' entra al IN (...) del batch de DDL — verificable
+        # porque la única fila que devuelve el fake cursor es la de 'ventas'
+        # y la query ejecutada no debe mencionar 'secreta'.
+        assert len(db.raw_cursor.executed_statements) == 1
+        assert "secreta" not in db.raw_cursor.executed_statements[0]
+
+    def test_batch_response_never_includes_business_values(self):
+        db = FakeDatabase(engine="clickhouse")
+        _install_superset_stubs(
+            database=db,
+            table_metadata_by_name={
+                "t": {"name": "t", "columns": [{"name": "c", "type": "Int32", "comment": None}]},
+            },
+        )
+        response = get_sql_schema_context(_base_request(table_names=["t"]))
+        dumped = response.model_dump()
+        assert "sqlalchemy_uri" not in dumped
+        assert "password" not in str(dumped).lower()
+        assert "rows" not in dumped
+        assert "sample" not in str(dumped).lower()
+
+    def test_concurrent_batch_calls_do_not_cross_results(self):
+        """Sanity de statelessness: get_sql_schema_context no debe guardar
+        ningún acumulador a nivel de módulo. Los stubs se instalan UNA sola
+        vez (sys.modules no es seguro para reinstalar en paralelo desde
+        varios threads) y varias llamadas reales corren concurrentes sobre
+        esa misma base compartida — cada una con su propio table_names, sin
+        mezclarse entre sí."""
+        import concurrent.futures
+
+        db = FakeDatabase(engine="clickhouse")
+        _install_superset_stubs(
+            database=db,
+            table_metadata_by_name={
+                f"tabla_{i}": {
+                    "name": f"tabla_{i}",
+                    "columns": [{"name": f"col_{i}", "type": "Int32", "comment": None}],
+                }
+                for i in range(9)
+            },
+        )
+
+        def _run(offset):
+            names = [f"tabla_{offset}", f"tabla_{offset + 1}", f"tabla_{offset + 2}"]
+            return offset, names, get_sql_schema_context(_base_request(table_names=names))
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            results = [f.result() for f in [executor.submit(_run, offset) for offset in (0, 3, 6)]]
+
+        for offset, names, response in results:
+            assert response.success is True
+            assert [t.name for t in response.table_contexts] == names
+            for i, table_ctx in enumerate(response.table_contexts):
+                assert table_ctx.columns[0].name == f"col_{offset + i}"
+
+
+class TestBatchEngineSpecificMetadata:
+    def test_clickhouse_batch_fetches_table_definitions_in_one_query(self):
+        db = FakeDatabase(
+            engine="clickhouse",
+            raw_query_result=[
+                ("ventas", "CREATE TABLE default.ventas (...) ENGINE = MergeTree() ORDER BY (id)"),
+                ("clientes", "CREATE TABLE default.clientes (...) ENGINE = MergeTree() ORDER BY (id)"),
+            ],
+        )
+        _install_superset_stubs(
+            database=db,
+            table_metadata_by_name={
+                "ventas": {"name": "ventas", "columns": []},
+                "clientes": {"name": "clientes", "columns": []},
+            },
+        )
+        response = get_sql_schema_context(_base_request(table_names=["ventas", "clientes"]))
+        assert response.success is True
+        by_name = {t.name: t for t in response.table_contexts}
+        assert "ORDER BY (id)" in by_name["ventas"].table_definition
+        assert "ORDER BY (id)" in by_name["clientes"].table_definition
+        assert len(db.raw_cursor.executed_statements) == 1
+        assert "IN (" in db.raw_cursor.executed_statements[0]
+
+    def test_postgres_batch_fetches_relation_info_in_one_query(self):
+        db = FakeDatabase(
+            engine="postgresql",
+            raw_query_result=[
+                ("ventas", "r", None),
+                ("v_resumen", "v", "SELECT a FROM ventas"),
+            ],
+        )
+        _install_superset_stubs(
+            database=db,
+            table_metadata_by_name={
+                "ventas": {"name": "ventas", "columns": []},
+                "v_resumen": {"name": "v_resumen", "columns": []},
+            },
+        )
+        response = get_sql_schema_context(_base_request(table_names=["ventas", "v_resumen"]))
+        assert response.success is True
+        by_name = {t.name: t for t in response.table_contexts}
+        assert by_name["ventas"].relation_type == "table"
+        assert by_name["ventas"].table_definition is None
+        assert by_name["v_resumen"].relation_type == "view"
+        assert by_name["v_resumen"].table_definition == "SELECT a FROM ventas"
+        assert len(db.raw_cursor.executed_statements) == 1
+
+    def test_batch_ddl_failure_is_best_effort_isolated(self):
+        db = FakeDatabase(engine="clickhouse", raise_on_get_raw_connection=True)
+        _install_superset_stubs(
+            database=db,
+            table_metadata_by_name={"t": {"name": "t", "columns": []}},
+        )
+        response = get_sql_schema_context(_base_request(table_names=["t"]))
+        assert response.success is True
+        assert response.table_contexts[0].success is True
+        assert response.table_contexts[0].table_definition is None

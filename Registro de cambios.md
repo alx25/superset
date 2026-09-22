@@ -1,5 +1,40 @@
 ## Registro de cambios
 
+### 2026-09-22 (38) (ChatMarkdown: soporte de encabezados, línea horizontal y blockquote)
+
+Cambio realizado:
+El renderer de Markdown de las respuestas del asistente no soportaba
+encabezados (`#`/`##`/etc.) — caían al bucket genérico de párrafo y se
+mostraban literales ("## Título" como texto plano). Se completó el
+subconjunto soportado.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/ChatMarkdown.tsx`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- Encabezados ATX (`#` a `######`) — se detectan como bloque propio antes
+  de caer al párrafo genérico, y el corte del párrafo genérico también se
+  actualizó para no tragarse una línea de heading que viene después.
+  Tamaños relativos al font-size base del panel (13px), no los tamaños
+  gigantes por defecto del navegador para `<h1>`-`<h6>` — h1=15px,
+  h2=14px, h3=13.5px, h4-h6=13px, todos bold/semibold.
+- De paso, mismo criterio de "cubrir lo que realmente aparece sin sumar
+  una librería": línea horizontal (`---`/`***`/`___`, 3+ caracteres) y
+  blockquote (`> texto`, con inline formatting adentro). Sigue sin tablas
+  ni links — no hay evidencia de que el backend los use.
+- Sigue sin `dangerouslySetInnerHTML` — todo se arma como nodos React
+  directos, mismo criterio de seguridad que el resto del renderer.
+
+Build: `./scripts/build-extension.sh` (TypeScript estricto OK, 177 tests
+backend sin cambios, webpack, .supx reconstruido) sobre `extensions_test/`.
+No hay suite de tests de frontend en este proyecto (`npm test` es un
+placeholder) — verificado por lectura de código y compilación estricta,
+no por test automatizado. Pendiente reiniciar
+`superset_test.service`/`superset_mcp_test.service` (sudo interactivo no
+disponible en esta sesión).
+
 ### 2026-09-21 (37) (nueva tool irex.check_query_nulls — detecta LEFT JOIN que no matchea, sin exponer datos)
 
 Cambio realizado:
