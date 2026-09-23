@@ -1,11 +1,12 @@
 import React from 'react';
 import { theme as themeNs } from '@apache-superset/core';
+import { looksLikeSql, SQL_FENCE_LANGUAGES, SqlCode, tokenizeSql } from './sqlHighlight';
 
 type PanelTheme = ReturnType<typeof themeNs.useTheme>;
 
 type Block =
   | { kind: 'paragraph'; lines: string[] }
-  | { kind: 'code'; content: string }
+  | { kind: 'code'; content: string; lang: string }
   | { kind: 'list'; ordered: boolean; items: string[] }
   | { kind: 'heading'; level: number; text: string }
   | { kind: 'hr' }
@@ -49,7 +50,7 @@ function parseBlocks(text: string): Block[] {
         i += 1;
       }
       i += 1; // salta la marca de cierre, si la hay
-      blocks.push({ kind: 'code', content: codeLines.join('\n') });
+      blocks.push({ kind: 'code', content: codeLines.join('\n'), lang: fenceMatch[1].toLowerCase() });
       continue;
     }
 
@@ -136,18 +137,38 @@ function tokenizeInline(text: string): InlineToken[] {
   return tokens;
 }
 
-function InlineCode({ theme, children }: { theme: PanelTheme; children: React.ReactNode }): React.ReactElement {
+/**
+ * Chip de código inline, liviano: poco relleno y tipografía apenas menor
+ * para que una frase con varios identificadores no se vuelva una fila de
+ * bloques. Las palabras clave SQL escritas en MAYÚSCULAS (`CROSS JOIN
+ * LATERAL`) se resaltan con el color primario (AA en los dos temas); en
+ * minúsculas no, porque inline suelen ser nombres de columnas (`key`, `set`).
+ */
+function InlineCode({ theme, code }: { theme: PanelTheme; code: string }): React.ReactElement {
   return (
     <code
       style={{
-        fontFamily: "'SF Mono', Consolas, Monaco, monospace",
-        fontSize: '0.92em',
+        fontFamily: "'SF Mono', 'JetBrains Mono', Consolas, Monaco, monospace",
+        fontSize: '0.9em',
+        color: theme.colorText,
         background: theme.colorFillTertiary,
-        padding: '1px 5px',
+        padding: '0 3px',
         borderRadius: 3,
+        boxDecorationBreak: 'clone',
+        WebkitBoxDecorationBreak: 'clone',
       }}
     >
-      {children}
+      {tokenizeSql(code).map((token, index) =>
+        token.type === 'keyword' && token.text === token.text.toUpperCase() ? (
+          // eslint-disable-next-line react/no-array-index-key
+          <span key={index} style={{ color: theme.colorPrimary, fontWeight: 600 }}>
+            {token.text}
+          </span>
+        ) : (
+          // eslint-disable-next-line react/no-array-index-key
+          <React.Fragment key={index}>{token.text}</React.Fragment>
+        ),
+      )}
     </code>
   );
 }
@@ -158,9 +179,7 @@ function renderInline(text: string, theme: PanelTheme, keyPrefix: string): React
     switch (token.kind) {
       case 'code':
         return (
-          <InlineCode key={key} theme={theme}>
-            {token.content}
-          </InlineCode>
+          <InlineCode key={key} theme={theme} code={token.content} />
         );
       case 'bold':
         return <strong key={key}>{token.content}</strong>;
@@ -173,14 +192,17 @@ function renderInline(text: string, theme: PanelTheme, keyPrefix: string): React
 }
 
 const HEADING_TAGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as const;
-const HEADING_SIZES: Record<number, { fontSize: number; fontWeight: number }> = {
-  1: { fontSize: 15, fontWeight: 700 },
-  2: { fontSize: 14, fontWeight: 700 },
-  3: { fontSize: 13.5, fontWeight: 600 },
+// Relativos al tamaño del contenedor (el panel usa una escala compacta, ver
+// `ui.ts`): un encabezado apenas más grande y en negrita alcanza para
+// jerarquizar sin robar alto al código.
+const HEADING_SIZES: Record<number, { fontSize: string; fontWeight: number }> = {
+  1: { fontSize: '1.15em', fontWeight: 700 },
+  2: { fontSize: '1.08em', fontWeight: 700 },
+  3: { fontSize: '1.03em', fontWeight: 600 },
 };
 
 function headingStyle(level: number): React.CSSProperties {
-  const { fontSize, fontWeight } = HEADING_SIZES[level] ?? { fontSize: 13, fontWeight: 600 };
+  const { fontSize, fontWeight } = HEADING_SIZES[level] ?? { fontSize: '1em', fontWeight: 600 };
   return { margin: 0, fontSize, fontWeight, lineHeight: 1.4 };
 }
 
@@ -193,7 +215,7 @@ export function ChatMarkdown({ text }: ChatMarkdownProps): React.ReactElement {
   const blocks = React.useMemo(() => parseBlocks(text), [text]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       {blocks.map((block, blockIndex) => {
         if (block.kind === 'code') {
           return (
@@ -208,11 +230,17 @@ export function ChatMarkdown({ text }: ChatMarkdownProps): React.ReactElement {
                 fontFamily: "'SF Mono', Consolas, Monaco, monospace",
                 fontSize: 11.5,
                 lineHeight: 1.5,
-                overflowX: 'auto',
-                whiteSpace: 'pre',
+                // Ajuste de línea (como el diff): en un panel de ~380px el
+                // scroll horizontal pasa desapercibido y el final quedaba oculto.
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
               }}
             >
-              {block.content}
+              {SQL_FENCE_LANGUAGES.has(block.lang) || (!block.lang && looksLikeSql(block.content)) ? (
+                <SqlCode code={block.content} />
+              ) : (
+                block.content
+              )}
             </pre>
           );
         }

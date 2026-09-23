@@ -1,5 +1,366 @@
 ## Registro de cambios
 
+### 2026-09-23 (53) (fix: los botones "Copiar" del asistente de SQL Lab no funcionaban)
+
+Cambio realizado:
+Reporte del usuario: no copiaban ni el botón del id de sesión ni el del SQL
+propuesto.
+
+Causa: `navigator.clipboard` solo existe en "contexto seguro" (HTTPS o
+localhost). Test se sirve por `http://<ip>:9090` y producción también
+responde por HTTP (puerto 80, además del 443), así que ahí es `undefined` y
+`navigator.clipboard.writeText(...)` lanzaba un TypeError síncrono que
+ningún `.catch()` atrapaba: el botón no hacía nada y no mostraba error. Es
+el mismo origen que el problema de `crypto.randomUUID()` de la entrada 34.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/clipboard.ts` (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/PanelHeader.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlLabAssistantPanel.tsx` (`ActionCard`)
+- tests: nuevo `clipboard.test.tsx`; `ActionCard.test.tsx`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)
+
+Que cambia o corrige:
+- `copyText(text)`: API moderna si hay contexto seguro; si no existe o
+  falla, el método clásico (textarea temporal fuera de pantalla, `focus` +
+  `select` + `document.execCommand('copy')`, que funciona por HTTP porque
+  corre dentro del clic del usuario). Devuelve si pudo copiar. Después
+  restaura el foco y quita el textarea.
+- Los dos botones muestran el resultado real: "Copiado" (✓) o "No se pudo
+  copiar" (✕). El del id de sesión antes no daba ninguna señal.
+
+Verificación: tsc estricto; 104 tests frontend (7 nuevos: sin contexto
+seguro usa el método clásico y copia el texto exacto; con contexto seguro
+usa la API moderna; si esta falla, cae al clásico; si nada funciona avisa;
+los dos botones reales). En el arnés, jsdom ignoraba en silencio redefinir
+`isSecureContext`: se resolvió con getters definidos una sola vez.
+
+### 2026-09-23 (52) (asistente de SQL Lab: resaltado SQL, chips livianos, título sin duplicar, tono por tipo de respuesta)
+
+Cambio realizado:
+Cuatro mejoras de UX propuestas a partir de una captura del usuario (una
+explicación de `CROSS JOIN LATERAL`) y aprobadas por él: puntos 1, 2, 5 y 6
+de la propuesta.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/sqlHighlight.tsx` (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/ChatMarkdown.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlDiff.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/Conversation.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/messageSections.ts`
+- tests: nuevo `sqlHighlight.test.ts`; `messageSections.test.ts`,
+  `SqlLabAssistantPanel.test.tsx`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)
+
+Que cambia o corrige:
+- **Resaltado SQL sin dependencias** (tokenizador propio). Reconoce
+  palabras clave, tipos después de `::`, funciones (nombre seguido de `(`),
+  cadenas (incluido `$$…$$`), números, comentarios (`--`, `/* */`, `{# #}`),
+  plantillas Jinja (`{{ }}`, `{% %}`) y operadores. Nunca altera el texto
+  (test: concatenar los tokens devuelve el original). Se aplica en:
+  - bloques ```` ```sql ```` (o sin lenguaje pero con aspecto de SQL; el
+    parser ahora guarda el lenguaje del bloque);
+  - el diff: los identificadores heredan el verde/rojo de la línea, así se
+    conserva qué se agregó y qué se quitó.
+  Paleta verificada con contraste AA sobre el fondo del código (test).
+- **Chips de código inline más livianos:** menos relleno, tipografía al
+  0.9em, sin cortes feos al partirse de línea. Las palabras clave SQL en
+  MAYÚSCULAS (`CROSS JOIN LATERAL`) se resaltan con el color primario del
+  tema (AA en los dos temas); en minúsculas no, porque inline suelen ser
+  nombres de columnas.
+- **Bloques de código con ajuste de línea:** a 380px el scroll horizontal
+  pasaba desapercibido y el final de la línea quedaba oculto.
+- **Sin título duplicado:** si el detalle empieza con un encabezado que
+  repite el rótulo del desplegable ("Detalle", "Más detalle",
+  "Explicación", "¿Por qué?"…, normalizados), se omite.
+- **Tono según el tipo de respuesta:** error → rojo; errores/advertencias →
+  rojo/ámbar con el conteo; propuesta sin avisos → verde "Propuesta lista
+  para revisar"; solo notas → azul; explicación sin propuesta ni avisos →
+  neutro "Respuesta" (antes, verde "Análisis completado", que sugería una
+  revisión que no había ocurrido).
+
+Verificación: tsc estricto; 97 tests frontend (15 nuevos), 264 backend;
+capturas con Chrome headless (tokens reales, claro y oscuro) del caso de la
+captura del usuario y del diff; `build-extension.sh` completo.
+
+### 2026-09-23 (51) (asistente de SQL Lab: detalle expandido por defecto)
+
+Cambio realizado:
+A pedido del usuario, el bloque "¿Por qué se propone este cambio?" / "Ver
+detalle" del resultado arranca expandido.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/Conversation.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/SqlLabAssistantPanel.test.tsx`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- `<details open>` en `ResultDetails`. El usuario lo puede plegar: React no
+  vuelve a imponer `open` mientras la prop no cambie. Con una `key` por
+  respuesta, cada resultado nuevo vuelve a aparecer expandido.
+- "Conversación anterior" (turnos viejos) sigue plegada.
+
+Verificación: tsc estricto, 82 tests frontend (el test del detalle ahora
+exige `open`), `build-extension.sh` completo.
+
+### 2026-09-23 (50) (el widget de chat no se muestra en SQL Lab)
+
+Cambio realizado:
+A pedido del usuario: SQL Lab tiene su propio asistente (panel derecho), así
+que el widget de chat de dashboards ("El Don") no debe verse ahí, ni como
+botón flotante ni acoplado al lateral.
+
+Archivos afectados:
+- `custom-src/login/mcp_widget.py` (symlink compartido por test y
+  producción; respaldo previo en `extensions/backups/mcp_widget.py.*.pre-ocultar-sqllab`)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- El widget se sigue inyectando en todas las páginas, pero se oculta por CSS
+  mientras la ruta sea `/sqllab…`. Así funciona en las dos direcciones de la
+  SPA: al entrar a SQL Lab desde un dashboard desaparece, y al volver
+  reaparece tal como estaba (acoplado o flotante, mismo ancho y
+  conversación), sin recargar. Si en cambio no se inyectara en `/sqllab/`,
+  al navegar después a un dashboard no habría widget hasta recargar.
+- CSS: `html.mcp-chat-hidden` oculta con `display:none !important` el host
+  del widget (`#superset-agent-widget`), la animación de acople
+  (`.superset-agent-dock-hint`), el dock (`#mcp-chat-dock`) y su divisor
+  (`.mcp-chat-dock-resizer`). Con el dock oculto, el wrapper flex le deja
+  todo el ancho a la página.
+- JS (al principio del script inline, antes de cargar el widget, así en
+  SQL Lab nunca llega a verse): `syncChatVisibility()` aplica la clase según
+  `location.pathname` al cargar y en cada navegación (`pushState`,
+  `replaceState` envueltos y `popstate`). No se modificó `widget.js`, que es
+  del backend del chat.
+
+Verificación: se pidió `/sqllab/` a la app real de test (en proceso), se
+confirmó que el CSS y el JS se inyectan y que la regex sale bien escapada en
+el HTML (`/^\/sqllab(\/|$)/`), y se ejecutó el fragmento generado con Node
+contra 7 navegaciones: 7/7. Toma efecto al reiniciar cada servicio web
+(`superset_test.service` / `superset.service`).
+
+### 2026-09-23 (49) (rediseño UX del panel del asistente de SQL Lab)
+
+Cambio realizado:
+Rediseño visual pedido por el usuario a partir de un mockup (React +
+Tailwind + lucide), adaptado a la extensión: tokens de tema de Superset
+(claro/oscuro), estilos inline sin CSS global y sin dependencias nuevas.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/Conversation.tsx` (reescrito)
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlLabAssistantPanel.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlDiff.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/ChatMarkdown.tsx` (encabezados en `em`)
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/Clarification.tsx` (contraste del botón)
+- nuevos: `PanelHeader.tsx`, `icons.tsx` (SVG propios), `messageSections.ts`, `ui.ts`
+- eliminado: `Diagnostics.tsx` (su contenido pasó al resumen y al detalle)
+- tests: `SqlLabAssistantPanel.test.tsx`, `ActionCard.test.tsx` (etiquetas
+  nuevas), nuevos `messageSections.test.ts` y `contrast.test.ts`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)
+
+Que cambia o corrige:
+- **Espacio vertical:** header en una línea (título, sesión truncada con
+  copiar, "Limpiar"). El área de resultados ocupa todo el alto disponible y
+  es lo único que scrollea. El composer queda fijo abajo: control
+  segmentado, textarea de 2 filas que crece hasta 6, y barra con el atajo y
+  "Generar".
+- **Control segmentado** (`radiogroup`/`radio` con `aria-checked`)
+  reemplaza a las 3 tarjetas grandes: Optimizar / Selección / Generar SQL.
+  El modo inicial pasa a "Optimizar" (antes "Crear SQL", que exigía texto).
+  En los modos de revisión, "Generar" funciona sin escribir nada (usa el
+  pedido por defecto) y el control ya no pisa lo que escribió el usuario.
+  "Corregir error" se muestra como un chip que se puede cerrar.
+- **Resultado del último turno:** resumen (primera sección del Markdown),
+  con tono y conteo de avisos; después las propuestas; al final un
+  `<details>` "¿Por qué se propone este cambio?" con el resto del mensaje y
+  los avisos. Los turnos anteriores quedan plegados en "Conversación
+  anterior". El error de un pedido aparece una sola vez (antes, alerta y
+  burbuja).
+- **Diff estilo git:** cabecera con insignias −N/+M y botón para ampliar la
+  altura; filas rojo/verde con borde y signo, sin tachado. Tarjeta con
+  "Copiar" en la cabecera y la barra Descartar → Ejecutar → Aplicar al
+  editor (principal).
+- **Contraste WCAG, medido con los tokens reales** (algoritmo de Ant Design
+  sobre THEME_DEFAULT/THEME_DARK de producción). Se encontraron fallas, del
+  diseño anterior y del nuevo: texto ámbar/rojo/verde sobre fondos tintados
+  1.8–3.0:1 en claro; blanco sobre `colorPrimary` 2.6:1 en oscuro; blanco
+  sobre `colorError` 3.3/4.2:1. Regla aplicada: el texto usa siempre
+  `colorText`/`colorTextSecondary` (el color semántico queda para íconos,
+  bordes y fondos); los botones rellenos eligen el color de texto en
+  runtime (`readableOn`); el botón de peligro pasa a contorno si ningún
+  texto llega a 4.5:1. Nada de `colorTextTertiary` (3.4:1). Piso de 11px de
+  texto (el mockup usaba 9–10px).
+- **Verificación visual:** renderizado con `react-dom/server` usando los
+  tokens reales y capturas con Chrome headless a 380px, en claro y oscuro,
+  en 4 estados. Detectó y corrigió 3 problemas que los tests no veían: la
+  tarjeta aplastada al abrir el detalle (filas del grid → `max-content`),
+  la etiqueta del segmento truncada y los botones en dos filas ("Ejecutar",
+  con `aria-label` completo). La primera vista previa con jsdom no servía:
+  jsdom descarta `border: none` al serializar estilos.
+
+Verificación: tsc estricto; 82 tests frontend (19 nuevos), 264 backend;
+`build-extension.sh` completo; bundle de 63 KB. Pendiente: reiniciar los
+servicios de test y revisar en el navegador; producción con
+`deploy_extension.sh`.
+
+### 2026-09-23 (48) (fix: el asistente de SQL Lab de producción consultaba el MCP de TEST)
+
+Cambio realizado:
+Prueba real del usuario en producción (sesión
+`sqllab-d530b97f75fc408ff189b3443594c4802cc6fc0c3c3ce07a398f2dcf00ad22bc`):
+"No pude verificar el esquema ni el plan: la base con ID 11 no está
+disponible". Causa, según el log de la sesión: el backend del chat usó
+`mcp_url: http://192.168.76.11:5009/mcp` (el MCP de **test**) con
+`mcp_url_source: "sql_lab_mcp_url"` y `requested_mcp_url: null`. En la
+metadata de test no existe la base 11 (en producción es "Postgresql Curri"),
+así que `get_sql_schema_context` devolvió `DATABASE_NOT_FOUND_ERROR`. Test y
+producción comparten el mismo backend del chat. El widget de dashboards
+manda `mcp_url` en el body de cada pedido (`MCP_WIDGET_URL`: 5008 en
+producción, 5009 en test); el panel de SQL Lab no lo mandaba, y el backend
+caía a su URL por defecto para SQL Lab, que apunta a test. En test no se
+notaba porque ese valor por defecto coincide.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/_assistant_proxy.py` (`with_environment_mcp_url`)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/assistant_api.py`
+- `custom-extensions/irex-mcp-tools/backend/tests/test_assistant_proxy.py` (5 tests nuevos)
+- `custom-extensions/irex-mcp-tools/scripts/deploy_extension.sh` (antes
+  `deploy_fase10.sh`, generalizado)
+- `custom-extensions/irex-mcp-tools/docs/sql-lab-assistant-contract.md`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- La REST API de la extensión fija `mcp_url` en el body con el
+  `MCP_WIDGET_URL` del config del entorno (sin `/` final, igual que el
+  widget) y pisa cualquier valor que mande el navegador: el MCP de destino
+  lo decide el servidor, no el cliente. Si el body no es un objeto JSON, se
+  reenvía intacto.
+- Antes de implementarlo se verificó que el backend respeta ese campo en
+  `sql-lab-assistant`: un pedido mínimo directo con `mcp_url` apuntando al
+  MCP de test registró `requested_mcp_url` con ese valor y
+  `mcp_url_source: "request"` (sesión
+  `sqllab-972bccf7a2fd38f671785e6a6b9dca92e977ad2da0f9c346b2b868961ae94c35`).
+- `deploy_extension.sh`: cada ejecución respalda el `.supx` de producción
+  vigente y toma su propia foto de permisos en
+  `extensions/backups/*.<fecha-hora>`. La versión anterior tenía fijos los
+  respaldos "pre-fase10", así que una reversión habría vuelto a la versión
+  del 09-09.
+
+Verificación: 264 tests backend (5 nuevos), 63 frontend; integración contra
+la app de test 22/22 (body del cliente intacto salvo `mcp_url`, y
+`mcp_url` = `MCP_WIDGET_URL` del entorno); `.supx` de test reconstruido.
+
+Pendiente: desplegar con `deploy_extension.sh` (sudo), y avisar al agente
+del chat: su URL por defecto para SQL Lab apunta a test. Conviene que exija
+`mcp_url`, o que su valor por defecto no sea un entorno de pruebas.
+
+### 2026-09-23 (47) (PYTHONPATH de las unidades, import circular de sync_config_to_db, compatibilidad con versiones)
+
+Cambio realizado:
+Tres pendientes pedidos por el usuario. El caso "RLS con dos usuarios" de
+la Fase 9 queda descartado por decisión del usuario.
+
+Archivos afectados:
+- `systemd-new/superset.service`, `celery.service`, `celery-beat.service`
+  (fuente de las unidades instaladas) y `systemd-new/superset_test.service`
+  (nuevo en esa carpeta; antes solo existía en `systemd-backup/`)
+- `systemd-new/aplicar-pythonpath-y-sync.sh` (nuevo)
+- `/home/imercados/.superset/superset_config.py` y `superset_config_test.py`
+  (`FLASK_APP_MUTATOR`)
+- `custom-src/login/mcp_widget.py` (solo un comentario de advertencia en el JWT)
+- `custom-extensions/irex-mcp-tools/scripts/check_host_compat.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/scripts/check_clean_install.sh` y
+  `_clean_install_checks.py` (nuevos)
+- `custom-extensions/irex-mcp-tools/COMPATIBILITY.md`
+- `extensions/backups/`: unidades y configs anteriores (`*20260923-pre-pythonpath`,
+  `*20260923-pre-fix-sync`)
+- `PLAN_ASISTENTE_SQL_LAB.md`, `Registro de cambios.md`
+
+Que cambia o corrige:
+- **PYTHONPATH (entrada 45):** se quita `$SUPERSET_DIR/superset` de las 4
+  unidades que lo tenían: los dos web y **también** `celery` y
+  `celery-beat`, que tenían el mismo problema. Antes de cambiarlo se
+  verificó que nada depende de esa ruta:
+  - los 24 módulos de primer nivel que importan los dos configs y los 13
+    `.py` de `custom-src` resuelven sin ella;
+  - 16 páginas/APIs de Superset dan los mismos códigos con los dos
+    PYTHONPATH;
+  - Celery registra las mismas 14 tareas (reports y thumbnails incluidas).
+  La única diferencia observada es que con la ruta limpia la extensión carga
+  bien. Las unidades son de root: se entregan en `systemd-new/`, con el
+  script de compuertas `aplicar-pythonpath-y-sync.sh` (test → validación →
+  "PRODUCCION" → prod → validación). El MCP de producción no se reinicia.
+- **"Failed to sync configuration to database":** es un import circular
+  **del core de Superset 6.1.0**. Las 15 aristas del ciclo existen en el tag
+  oficial y el error aparece también en un Superset 6.1.0 limpio sin ningún
+  config propio. `sync_config_to_db()` corre antes de `init_views()` e
+  importa `superset.commands.base` en frío. Efecto: en cada arranque no se
+  sembraban los temas de sistema ni se registraban los listeners de
+  TAGGING_SYSTEM. Se probaron 8 puntos de entrada y solo
+  `superset.views`/`superset.views.base` completan el ciclo. Corrección:
+  `import superset.views` al principio de `FLASK_APP_MUTATOR` en los dos
+  configs (corre justo antes del sync, sin tocar el core). Verificado con el
+  config de test y los dos PYTHONPATH: "Configuration sync to database
+  completed successfully".
+  - **Impacto al activarse en producción** (primer arranque con el fix): el
+    seed crea `THEME_DEFAULT` y `THEME_DARK` como temas de sistema (hoy no
+    hay ninguno). El tema visible NO cambia: el bootstrap lee temas con
+    `is_system_default`/`is_system_dark` y el seed no los marca (leído en
+    `views/base.py` y `daos/theme.py`). No se levantó la app con el config de
+    producción desde esta sesión justamente para no escribir en la base de
+    producción.
+- **Compatibilidad (Fase 9):** ver `COMPATIBILITY.md`. En resumen:
+  - 6.1.0: 27/27 símbolos internos, 25/25 del frontend, instalación limpia
+    10/10.
+  - `@apache-superset/core` 0.1.0 final: `.d.ts` idénticos a rc3, `tsc` OK
+    contra las dos.
+  - `apache-superset-core` 0.1.0: decoradores idénticos.
+  - `master` (2026-09-23): compatible, 0 bloqueantes. Notas:
+    `parse_chart_config` desaparece, pero solo lo usa `create_chart`
+    (deshabilitada, import dentro de la función); el host resuelve JWT de
+    forma nativa (`auth_bridge` redundante e inofensivo); los errores de tool
+    pasan a `isError` conservando el texto `Permission denied:`; aparece la
+    API `chat`.
+  - Riesgo documentado en `mcp_widget.py`: el resolver de master prioriza
+    `username`/`email` sobre `sub`, así que el JWT no debe incorporar esos
+    claims.
+- **Limpieza:** se eliminó el `git worktree` temporal del tag 6.1.0 que se
+  había registrado en el repo de `superset_v6_1_0`.
+
+Pendiente: ejecutar `systemd-new/aplicar-pythonpath-y-sync.sh` (sudo). Hasta
+entonces, los dos arreglos (PYTHONPATH y sync) no están activos en ningún
+servicio.
+
+Primera ejecución (11:39): test quedó aplicado, pero el script abortó por un
+**falso positivo de su propia validación**. Contaba "MCP tool decorator not
+initialized" desde antes del reinicio, y esas 16 líneas eran de los workers
+VIEJOS (PIDs 27563xx, 11:39:15), que vuelcan su stdout con buffer al
+apagarse, 2 s antes del arranque nuevo (11:39:17, PIDs 27768xx). Evidencia
+positiva en los workers nuevos: 16/16 cargas completas de la extensión
+(`JwtUserBridgeMiddleware registrado`), 272 registros de tools (16 × 17),
+16/16 "Configuration sync to database completed", 0 fallas de sync; MCP de
+test: sync OK, extensión completa, 17 tools; API registrada; humo 9/9.
+`check_logs` ahora cuenta desde el `ActiveEnterTimestamp` de la unidad y
+exige esa evidencia positiva (probado contra el estado real de test).
+Producción no se tocó; el script se puede reejecutar desde el principio.
+
+Segunda ejecución (11:41–11:43): completa. Test 16/16 y MCP de test OK,
+humo 9/9. El usuario confirmó con PRODUCCION. Producción: `superset`,
+`celery` y `celery-beat` instaladas con `PYTHONPATH="$SUPERSET_DIR"`; web
+16/16 con extensión completa y sync OK, 0 fallas; API registrada; temas de
+sistema creados: `THEME_DARK` y `THEME_DEFAULT`, ambos con
+`is_system_default`/`is_system_dark` en False (el tema visible no cambia,
+como se previó). Después el usuario reinició a mano los 4 servicios con
+`daemon-reload` (sin los `cp` de reversión, así que no revirtió nada). Estado
+verificado tras ese reinicio (11:44): web prod y test 16/16 (una primera
+lectura dio 10/16 por consultar sin esperar el arranque; por worker, los 16
+tienen 17 tools + auth_bridge + sync), `celery` y `celery-beat` con sync OK,
+extensión completa y 0 ERROR/Traceback, API :8088 → 400 (registrada), humo
+del MCP de producción 9/9. El MCP de producción no se reinició (sigue desde
+las 11:13, unidad sin cambios).
+
 ### 2026-09-23 (46) (Fase 10: despliegue a producción del asistente de SQL Lab)
 
 Cambio realizado:

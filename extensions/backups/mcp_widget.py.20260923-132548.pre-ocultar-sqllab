@@ -459,40 +459,12 @@ def inject_chat_widget(response: Response) -> Response:
         ".mcp-chat-dock-resizer.mcp-resizing::after{background:"
         "repeating-linear-gradient(to bottom,rgba(128,128,128,.9) 0,"
         "rgba(128,128,128,.9) 2px,transparent 2px,transparent 5px);}\n"
-        # SQL Lab tiene su propio asistente (panel derecho de la extensión
-        # irex-mcp-tools): el widget de chat no se muestra ahí, ni flotante ni
-        # acoplado. La clase la pone/saca el observador de ruta del <script>
-        # de abajo; el estado del widget (acoplado, ancho, conversación) no
-        # se toca, así que al volver a un dashboard reaparece igual que estaba.
-        # Con el dock oculto, el wrapper flex le deja todo el ancho a #app.
-        "  html.mcp-chat-hidden #superset-agent-widget,"
-        "html.mcp-chat-hidden .superset-agent-dock-hint,"
-        "html.mcp-chat-hidden #mcp-chat-dock,"
-        "html.mcp-chat-hidden .mcp-chat-dock-resizer{display:none !important;}\n"
         "</style>\n"
     )
 
     inline = (
         f"{dock_style}\n<script{nonce_attr}>\n"
         "(function(){\n"
-        "  // Ocultar el widget en SQL Lab (tiene su propio asistente). Superset\n"
-        "  // es una SPA: se revisa la ruta al cargar y en cada navegación\n"
-        "  // (pushState/replaceState/popstate), no solo en la carga inicial.\n"
-        "  // Corre antes de cargar el widget, así en SQL Lab nunca llega a verse.\n"
-        "  function syncChatVisibility(){\n"
-        "    var hide=/^\\/sqllab(\\/|$)/.test(location.pathname);\n"
-        "    document.documentElement.classList.toggle('mcp-chat-hidden', hide);\n"
-        "  }\n"
-        "  ['pushState','replaceState'].forEach(function(name){\n"
-        "    var original=history[name];\n"
-        "    history[name]=function(){\n"
-        "      var result=original.apply(this, arguments);\n"
-        "      syncChatVisibility();\n"
-        "      return result;\n"
-        "    };\n"
-        "  });\n"
-        "  window.addEventListener('popstate', syncChatVisibility);\n"
-        "  syncChatVisibility();\n"
         "  // Marca global para que chat.js (chat legacy) no se inicialice —\n"
         "  // este inline corre durante el parseo del body, garantizado ANTES\n"
         "  // del DOMContentLoaded que chat.js espera, así que no hay carrera.\n"

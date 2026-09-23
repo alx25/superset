@@ -56,7 +56,7 @@ from superset.jinja_context import BaseTemplateProcessor
 from superset.key_value.types import JsonKeyValueCodec
 from superset.stats_logger import DummyStatsLogger
 from superset.superset_typing import CacheConfig
-from superset.tasks.types import ExecutorType
+from superset.tasks.types import ExecutorType, FixedExecutor
 from superset.themes.types import Theme
 from superset.utils import core as utils
 from superset.utils.encrypt import SQLAlchemyUtilsAdapter
@@ -97,6 +97,7 @@ if "SUPERSET_HOME" in os.environ:
     DATA_DIR = os.environ["SUPERSET_HOME"]
 else:
     DATA_DIR = os.path.expanduser("~/.superset")
+
 
 # ---------------------------------------------------------
 # Superset specific config
@@ -320,12 +321,14 @@ HASH_ALGORITHM_FALLBACKS: list[Literal["md5", "sha256"]] = ["md5"]
 # or use `SUPERSET_SECRET_KEY` environment variable.
 # Use a strong complex alphanumeric string and use a tool to help you generate
 # a sufficiently random sequence, ex: openssl rand -base64 42"
-SECRET_KEY = os.environ.get("SUPERSET_SECRET_KEY") or "bguNdeaEO8Q6n06vnK94NwlN0w87mGI/c8VO7KXD9hzj7csSSy+hKuwf"
+SECRET_KEY = os.environ.get("SUPERSET_SECRET_KEY") or CHANGE_ME_SECRET_KEY
 
 # The SQLAlchemy connection string.
-SQLALCHEMY_DATABASE_URI = (
-    f"""sqlite:///{os.path.join(DATA_DIR, "superset.db")}?check_same_thread=false"""
-)
+# SQLALCHEMY_DATABASE_URI = (
+#     f"""sqlite:///{os.path.join(DATA_DIR, "superset.db")}?check_same_thread=false"""
+# )
+
+SQLALCHEMY_DATABASE_URI = os.environ.get("SUPERSET_DB_URI") or 'postgresql://superset:superset@localhost:5432/superset'
 
 # SQLALCHEMY_DATABASE_URI = 'mysql://myapp@localhost/myapp'
 # SQLALCHEMY_DATABASE_URI = 'postgresql://root:password@localhost/myapp'
@@ -404,6 +407,10 @@ WTF_CSRF_EXEMPT_LIST = [
     # diseño original), no el formulario/JS de Superset — nunca tendría el
     # token CSRF de Superset.
     "superset.security.mcp_widget.chat_widget_api_proxy",
+    # Notificación de "conversación compartida": la llama el backend del
+    # chat servidor a servidor (sin sesión de navegador ni cookie de
+    # Superset) — autenticada por X-Service-Secret, no por CSRF token.
+    "superset.security.mcp_widget.notify_conversation_shared",
 ]
 
 # Whether to run the web server in debug mode or not
@@ -432,7 +439,7 @@ SCHEDULED_QUERIES: dict[str, Any] = {}
 # fine tune the limits to your needs. You can read more about the different
 # parameters here: https://flask-limiter.readthedocs.io/en/stable/configuration.html
 RATELIMIT_ENABLED = os.environ.get("SUPERSET_ENV") == "production"
-RATELIMIT_APPLICATION = "50 per second"
+RATELIMIT_APPLICATION = "150 per second"
 AUTH_RATE_LIMITED = True
 AUTH_RATE_LIMIT = "5 per second"
 # A storage location conforming to the scheme in storage-scheme. See the limits
@@ -440,12 +447,12 @@ AUTH_RATE_LIMIT = "5 per second"
 # RATELIMIT_STORAGE_URI = "redis://host:port"
 # A callable that returns the unique identity of the current request.
 # RATELIMIT_REQUEST_IDENTIFIER = flask.Request.endpoint
-
+RATELIMIT_STORAGE_URI = "redis://localhost:6379/10"
 # ------------------------------
 # GLOBALS FOR APP Builder
 # ------------------------------
 # Uncomment to setup Your App name
-APP_NAME = "Superset 6.1.0_test"
+APP_NAME = "Irex Superset"
 
 # Specify the App icon
 APP_ICON = "/static/assets/images/superset-logo-horiz.png"
@@ -454,17 +461,17 @@ APP_ICON = "/static/assets/images/superset-logo-horiz.png"
 # Default value of None will take you to '/superset/welcome'
 # You can also specify a relative URL e.g. '/superset/welcome' or '/dashboards/list'
 # or you can specify a full URL e.g. 'https://foo.bar'
-LOGO_TARGET_PATH = None
+LOGO_TARGET_PATH = '/dashboard/list/?pageIndex=0&sortColumn=dashboard_title&sortOrder=asc&viewMode=card'
 
 # Specify tooltip that should appear when hovering over the App Icon/Logo
-LOGO_TOOLTIP = ""
+LOGO_TOOLTIP = "Irex de Costa Rica - Sistema de reportes"
 
 # Specify any text that should appear to the right of the logo
 LOGO_RIGHT_TEXT: Callable[[], str] | str = ""
 
 # Enables SWAGGER UI for superset openapi spec
 # ex: http://localhost:8080/swagger/v1
-FAB_API_SWAGGER_UI = True
+FAB_API_SWAGGER_UI = False
 
 # ----------------------------------------------------
 # AUTHENTICATION CONFIG
@@ -507,13 +514,14 @@ PUBLIC_ROLE_LIKE: str | None = None
 # Babel config for translations
 # ---------------------------------------------------
 # Setup default language
-BABEL_DEFAULT_LOCALE = "en"
+BABEL_DEFAULT_LOCALE = "es"
 # Your application default translation path
 BABEL_DEFAULT_FOLDER = "superset/translations"
 # The allowed translation for your app
 LANGUAGES = {
-    "en": {"flag": "us", "name": "English"},
     "es": {"flag": "es", "name": "Spanish"},
+    "en": {"flag": "us", "name": "English"},
+    
 #     "it": {"flag": "it", "name": "Italian"},
 #     "fr": {"flag": "fr", "name": "French"},
 #     "zh": {"flag": "cn", "name": "Chinese"},
@@ -542,7 +550,7 @@ LANGUAGES = {
 #     "decimal": ".",           # - decimal place string (e.g., ".").
 #     "thousands": ",",         # - group separator string (e.g., ",").
 #     "grouping": [3],          # - array of group sizes (e.g., [3]), cycled as needed.
-#     "currency": ["₡", ""]     # - currency prefix/suffix strings (e.g., ["$", ""])
+#     "currency": ["$", ""]     # - currency prefix/suffix strings (e.g., ["$", ""])
 # }
 # https://github.com/d3/d3-format/blob/main/README.md#formatLocale
 class D3Format(TypedDict, total=False):
@@ -552,13 +560,14 @@ class D3Format(TypedDict, total=False):
     currency: list[str]
 
 
-# MODIFICA ESTA LÍNEA ASÍ:
-D3_FORMAT: D3Format = {
+D3_FORMAT = {
     "decimal": ".",
-    "thousands": ",",
+    "thousands": ",",   # NBSP (espacio “duro”) como en es-CR
     "grouping": [3],
-    "currency": ["₡", ""]
+    "currency": ["₡", ""],
 }
+
+
 
 # Override the default mapbox tiles
 # Default values are equivalent to
@@ -612,9 +621,18 @@ class D3TimeFormat(TypedDict, total=False):
     shortMonths: list[str]
 
 
-D3_TIME_FORMAT: D3TimeFormat = {}
+D3_TIME_FORMAT = {
+    "dateTime": "%d/%m/%Y, %H:%M:%S",
+    "date": "%d/%m/%Y",
+    "time": "%H:%M:%S",
+    "periods": ["a. m.", "p. m."],
+    "days": ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"],
+    "shortDays": ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"],
+    "months": ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"],
+    "shortMonths": ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"],
+}
 
-CURRENCIES = ["USD", "EUR", "GBP", "INR", "MXN", "JPY", "CNY"]
+CURRENCIES = ["USD", "EUR", "GBP", "INR", "MXN", "JPY", "CNY", "CRC"]
 
 # ---------------------------------------------------
 # Feature flags
@@ -669,7 +687,7 @@ DEFAULT_FEATURE_FLAGS: dict[str, bool] = {
     "ENABLE_EXTENSIONS": True,
     # Enable Matrixify feature for matrix-style chart layouts
     # @lifecycle: development
-    "MATRIXIFY": True,
+    "MATRIXIFY": False,
     # Try to optimize SQL queries — for now only predicate pushdown is supported
     # @lifecycle: development
     "OPTIMIZE_SQL": True,
@@ -745,7 +763,7 @@ DEFAULT_FEATURE_FLAGS: dict[str, bool] = {
     # Replace Selenium with Playwright for reports and thumbnails.
     # Supports deck.gl visualizations. Requires playwright pip package.
     # @lifecycle: testing
-    "PLAYWRIGHT_REPORTS_AND_THUMBNAILS": False,
+    "PLAYWRIGHT_REPORTS_AND_THUMBNAILS": True,
     # Apply RLS rules to SQL Lab queries. Requires query parsing/manipulation.
     # May break queries or allow RLS bypass. Use with care!
     # @lifecycle: testing
@@ -766,7 +784,7 @@ DEFAULT_FEATURE_FLAGS: dict[str, bool] = {
     "GLOBAL_TASK_FRAMEWORK": False,
     # Use analogous colors in charts
     # @lifecycle: testing
-    "USE_ANALOGOUS_COLORS": False,
+    "USE_ANALOGOUS_COLORS": True,
     # =================================================================
     # STABLE - PATH TO DEPRECATION
     # =================================================================
@@ -808,7 +826,7 @@ DEFAULT_FEATURE_FLAGS: dict[str, bool] = {
     # Supports simultaneous data and dashboard virtualization for backend performance
     # @lifecycle: stable
     # @category: runtime_config
-    "DASHBOARD_VIRTUALIZATION_DEFER_DATA": False,
+    "DASHBOARD_VIRTUALIZATION_DEFER_DATA": True,
     # Data panel closed by default in chart builder
     # @lifecycle: stable
     # @category: runtime_config
@@ -821,7 +839,7 @@ DEFAULT_FEATURE_FLAGS: dict[str, bool] = {
     # Enable drill-by functionality in charts
     # @lifecycle: stable
     # @category: runtime_config
-    "DRILL_BY": True,
+    "DRILL_BY": False,
     # Enable Druid JOINs (requires Druid version with JOIN support)
     # @lifecycle: stable
     # @category: runtime_config
@@ -895,7 +913,7 @@ DEFAULT_FEATURE_FLAGS: dict[str, bool] = {
     "AVOID_COLORS_COLLISION": True,
     # Enable drill-to-detail functionality in charts
     # @lifecycle: deprecated
-    "DRILL_TO_DETAIL": True,
+    "DRILL_TO_DETAIL": False,
     # Allow JavaScript in chart controls. WARNING: XSS security vulnerability!
     # @lifecycle: deprecated
     "ENABLE_JAVASCRIPT_CONTROLS": False,
@@ -1022,24 +1040,27 @@ THEME_DEFAULT: Theme = {
         # Brand
         # Application name for window titles
         "brandAppName": APP_NAME,
-        "brandLogoAlt": "Apache Superset",
+        "brandLogoAlt": LOGO_TOOLTIP,
         "brandLogoUrl": APP_ICON,
         "brandLogoMargin": "18px 0",
-        "brandLogoHref": "/",
+        "brandLogoHref": LOGO_TARGET_PATH,
         "brandLogoHeight": "24px",
         # Spinner
-        "brandSpinnerUrl": None,
+        "brandSpinnerUrl": "/static/custom_spinner/irex-loading.svg",
         "brandSpinnerSvg": None,
-        # Default colors
-        "colorPrimary": "#2893B3",  # NOTE: previous lighter primary color was #20a7c9 # noqa: E501
-        "colorLink": "#2893B3",
-        "colorError": "#e04355",
-        "colorWarning": "#fcc700",
-        "colorSuccess": "#5ac189",
-        "colorInfo": "#66bcfe",
+        # Irex default theme from Superset v6
+        "borderRadius": 8,
+        "colorPrimary": "#1D428A",
+        "colorInfo": "#1D428A",
+        "colorSuccess": "#97C83C",
+        "colorLink": "#1D428A",
+        "colorLinkHover": "#97C83C",
+        "wireframe": "false",
         # Fonts
-        "fontUrls": [],
-        "fontFamily": "Inter, Helvetica, Arial, sans-serif",
+        "fontUrls": [
+            "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap",
+        ],
+        "fontFamily": "'Inter', Helvetica, Arial, sans-serif",
         "fontFamilyCode": "'IBM Plex Mono', 'Courier New', monospace",
         # Extra tokens
         "transitionTiming": 0.3,
@@ -1054,19 +1075,176 @@ THEME_DEFAULT: Theme = {
         "colorEditorSelection": "#fff5cf",
     },
     "algorithm": "default",
+    "components": {
+        "Grid": {
+            "algorithm": "true",
+        },
+        "Input": {
+            "activeBorderColor": "#97C83C",
+            "hoverBorderColor": "#97C83C",
+            "colorPrimary": "#97C83C",
+        },
+        "InputNumber": {
+            "activeBorderColor": "#97C83C",
+            "handleHoverColor": "#97C83C",
+            "hoverBorderColor": "#97C83C",
+        },
+        "Mentions": {
+            "activeBorderColor": "#97C83C",
+            "hoverBorderColor": "#97C83C",
+        },
+        "Radio": {
+            "buttonSolidCheckedBg": "#97C83C",
+            "colorPrimary": "#97C83C",
+        },
+        "Checkbox": {
+            "colorPrimary": "#97C83C",
+            "colorPrimaryHover": "#86b332",
+        },
+        "Switch": {
+            "colorPrimary": "#97C83C",
+        },
+        "Button": {
+            "colorPrimary": "#97C83C",
+            "colorPrimaryHover": "#86b332",
+            "colorPrimaryActive": "#759e2a",
+            "contentFontSize": 14,
+            "fontWeight": 600,
+            "colorLink": "#1D428A",
+            "colorLinkActive": "#0f2d66",
+            "colorLinkHover": "#97C83C",
+        },
+        "Menu": {
+            "itemSelectedColor": "#1D428A",
+            "itemSelectedBg": "rgba(151, 200, 60, 0.1)",
+        },
+        "Tabs": {
+            "itemActiveColor": "#97C83C",
+            "itemSelectedColor": "#1D428A",
+            "itemHoverColor": "#97C83C",
+            "inkBarColor": "#97C83C",
+        },
+    },
 }
 
 # Dark theme configuration - foundation for dark mode
-# Inherits all tokens from THEME_DEFAULT and adds dark algorithm
 # Set to None to disable dark mode
 THEME_DARK: Optional[Theme] = {
-    **THEME_DEFAULT,
     "token": {
-        **THEME_DEFAULT["token"],
-        # Darker selection color for dark mode
+        # Brand
+        "brandAppName": APP_NAME,
+        "brandLogoAlt": LOGO_TOOLTIP,
+        "brandLogoUrl": APP_ICON,
+        "brandLogoMargin": "18px 0",
+        "brandLogoHref": LOGO_TARGET_PATH,
+        "brandLogoHeight": "24px",
+        # Spinner
+        "brandSpinnerUrl": "/static/custom_spinner/irex-loading.svg",
+        "brandSpinnerSvg": None,
+        # Irex dark theme from Superset v6
+        "borderRadius": 8,
+        "colorPrimary": "#97C83C",
+        "colorInfo": "#97C83C",
+        "colorSuccess": "#97C83C",
+        "colorLink": "#97C83C",
+        "colorLinkHover": "#b8e986",
+        "colorTextBase": "#ffffff",
+        "colorBgBase": "#141414",
+        "colorBgLayout": "#141414",
+        "colorBgContainer": "#1f1f1f",
+        "colorBgElevated": "#262626",
+        "colorBgSpotlight": "#303030",
+        "colorBorder": "#424242",
+        "colorSplit": "#303030",
+        "colorText": "rgba(255, 255, 255, 0.88)",
+        "colorTextSecondary": "rgba(255, 255, 255, 0.65)",
+        "colorTextTertiary": "rgba(255, 255, 255, 0.45)",
+        "wireframe": "false",
+        # Fonts
+        "fontUrls": [
+            "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap",
+        ],
+        "fontFamily": "'Inter', Helvetica, Arial, sans-serif",
+        "fontFamilyCode": "'IBM Plex Mono', 'Courier New', monospace",
+        # Extra tokens
+        "transitionTiming": 0.3,
+        "brandIconMaxWidth": 37,
+        "fontSizeXS": "8",
+        "fontSizeXXL": "28",
+        "fontWeightNormal": "400",
+        "fontWeightLight": "300",
+        "fontWeightStrong": "500",
+        "fontWeightBold": "700",
         "colorEditorSelection": "#5c4d1a",
     },
     "algorithm": "dark",
+    "components": {
+        "Grid": {
+            "algorithm": "true",
+        },
+        "Input": {
+            "activeBorderColor": "#97C83C",
+            "hoverBorderColor": "#97C83C",
+            "colorPrimary": "#97C83C",
+            "colorBgContainer": "#1f1f1f",
+        },
+        "InputNumber": {
+            "activeBorderColor": "#97C83C",
+            "handleHoverColor": "#97C83C",
+            "hoverBorderColor": "#97C83C",
+        },
+        "Mentions": {
+            "activeBorderColor": "#97C83C",
+            "hoverBorderColor": "#97C83C",
+        },
+        "Radio": {
+            "buttonSolidCheckedBg": "#97C83C",
+            "colorPrimary": "#97C83C",
+        },
+        "Checkbox": {
+            "colorPrimary": "#97C83C",
+            "colorPrimaryHover": "#86b332",
+        },
+        "Switch": {
+            "colorPrimary": "#97C83C",
+            "colorPrimaryHover": "#86b332",
+        },
+        "Button": {
+            "colorPrimary": "#97C83C",
+            "colorPrimaryHover": "#86b332",
+            "colorPrimaryActive": "#759e2a",
+            "primaryColor": "#141414",
+            "contentFontSize": 14,
+            "fontWeight": 600,
+            "colorLink": "#97C83C",
+            "colorLinkActive": "#759e2a",
+            "colorLinkHover": "#b8e986",
+        },
+        "Menu": {
+            "itemSelectedColor": "#97C83C",
+            "itemSelectedBg": "rgba(29, 66, 138, 0.4)",
+            "itemHoverBg": "rgba(29, 66, 138, 0.2)",
+        },
+        "Tabs": {
+            "itemActiveColor": "#97C83C",
+            "itemSelectedColor": "#97C83C",
+            "itemHoverColor": "#b8e986",
+            "inkBarColor": "#97C83C",
+        },
+        "Table": {
+            "headerBg": "#1D428A",
+            "headerColor": "#ffffff",
+            "rowHoverBg": "#1f1f1f",
+        },
+        "Card": {
+            "colorBgContainer": "#1f1f1f",
+        },
+        "Layout": {
+            "bodyBg": "#141414",
+            "headerBg": "#141414",
+            "siderBg": "#141414",
+        },
+    },
 }
 
 # Theme behavior and user preference settings
@@ -1128,8 +1306,8 @@ CACHE_WARMUP_EXECUTORS = [ExecutorType.OWNER]
 #
 # from superset.tasks.types import ExecutorType, FixedExecutor
 #
-# THUMBNAIL_EXECUTORS = [FixedExecutor("admin")]
-THUMBNAIL_EXECUTORS = [ExecutorType.CURRENT_USER]
+THUMBNAIL_EXECUTORS = [FixedExecutor("admin")]
+# THUMBNAIL_EXECUTORS = [ExecutorType.CURRENT_USER]
 
 # By default, thumbnail digests are calculated based on various parameters in the
 # chart/dashboard metadata, and in the case of user-specific thumbnails, the
@@ -1148,11 +1326,15 @@ THUMBNAIL_CHART_DIGEST_FUNC: Callable[[Slice, ExecutorType, str], str | None] | 
     None
 )
 
-THUMBNAIL_CACHE_CONFIG: CacheConfig = {
-    "CACHE_TYPE": "NullCache",
-    "CACHE_DEFAULT_TIMEOUT": int(timedelta(days=7).total_seconds()),
-    "CACHE_NO_NULL_WARNING": True,
+
+THUMBNAIL_CACHE_CONFIG = {
+    "CACHE_TYPE": "RedisCache",
+    "CACHE_DEFAULT_TIMEOUT": 30*24*60*60,
+    "CACHE_KEY_PREFIX": "thumbnail_",
+    "CACHE_REDIS_URL": "redis://localhost:6379/7",
 }
+
+
 THUMBNAIL_ERROR_CACHE_TTL = int(timedelta(days=1).total_seconds())
 
 # Time before selenium times out after trying to locate an element on the page and wait
@@ -1164,9 +1346,9 @@ SCREENSHOT_LOAD_WAIT = int(timedelta(minutes=1).total_seconds())
 # Selenium destroy retries
 SCREENSHOT_SELENIUM_RETRIES = 5
 # Give selenium an headstart, in seconds
-SCREENSHOT_SELENIUM_HEADSTART = 3
+SCREENSHOT_SELENIUM_HEADSTART = 5
 # Wait for the chart animation, in seconds
-SCREENSHOT_SELENIUM_ANIMATION_WAIT = 5
+SCREENSHOT_SELENIUM_ANIMATION_WAIT = 15
 # Replace unexpected errors in screenshots with real error messages
 SCREENSHOT_REPLACE_UNEXPECTED_ERRORS = False
 # Max time to wait for error message modal to show up, in seconds
@@ -1176,7 +1358,7 @@ SCREENSHOT_WAIT_FOR_ERROR_MODAL_INVISIBLE = 5
 # Event that Playwright waits for when loading a new page
 # Possible values: "load", "commit", "domcontentloaded", "networkidle"
 # Docs: https://playwright.dev/python/docs/api/class-page#page-goto-option-wait-until
-SCREENSHOT_PLAYWRIGHT_WAIT_EVENT = "domcontentloaded"
+SCREENSHOT_PLAYWRIGHT_WAIT_EVENT = "networkidle"
 # Default timeout for Playwright browser context for all operations
 SCREENSHOT_PLAYWRIGHT_DEFAULT_TIMEOUT = int(
     timedelta(seconds=60).total_seconds() * 1000
@@ -1184,9 +1366,9 @@ SCREENSHOT_PLAYWRIGHT_DEFAULT_TIMEOUT = int(
 
 # Tiled screenshot configuration for large dashboards
 SCREENSHOT_TILED_ENABLED = True  # Enable tiled screenshots for large dashboards
-SCREENSHOT_TILED_CHART_THRESHOLD = 20  # Minimum charts to trigger tiled screenshots
+SCREENSHOT_TILED_CHART_THRESHOLD = 15  # Minimum charts to trigger tiled screenshots
 SCREENSHOT_TILED_HEIGHT_THRESHOLD = (
-    5000  # Minimum height (px) to trigger tiled screenshots
+    4000  # Minimum height (px) to trigger tiled screenshots
 )
 SCREENSHOT_TILED_VIEWPORT_HEIGHT = 2000  # Height of each tile in pixels
 
@@ -1205,10 +1387,21 @@ UPLOAD_CHUNK_SIZE = 4096
 CACHE_DEFAULT_TIMEOUT = int(timedelta(days=1).total_seconds())
 
 # Default cache for Superset objects
-CACHE_CONFIG: CacheConfig = {"CACHE_TYPE": "NullCache"}
+
+CACHE_CONFIG = {
+    "CACHE_TYPE": "RedisCache",
+    "CACHE_DEFAULT_TIMEOUT": 86400,
+    "CACHE_KEY_PREFIX": "superset_",
+    "CACHE_REDIS_URL": "redis://localhost:6379/3",
+}
 
 # Cache for datasource metadata and query results
-DATA_CACHE_CONFIG: CacheConfig = {"CACHE_TYPE": "NullCache"}
+DATA_CACHE_CONFIG = {
+    "CACHE_TYPE": "RedisCache",
+    "CACHE_DEFAULT_TIMEOUT": 604800,  # ⚠️ 7 días (antes 1 día) - reduce carga en BD
+    "CACHE_KEY_PREFIX": "superset_data_",
+    "CACHE_REDIS_URL": "redis://localhost:6379/6",
+}
 
 # Cache for dashboard filter state. `CACHE_TYPE` defaults to `SupersetMetastoreCache`
 # that stores the values in the key-value table in the Superset metastore, as it's
@@ -1467,8 +1660,63 @@ CELERY_BEAT_SCHEDULER_EXPIRES = timedelta(weeks=1)
 # https://docs.celeryq.dev/en/stable/getting-started/backends-and-brokers/index.html
 
 
-class CeleryConfig:  # pylint: disable=too-few-public-methods
-    broker_url = "sqla+sqlite:///celerydb.sqlite"
+# class CeleryConfig:  # pylint: disable=too-few-public-methods
+#     broker_url = "sqla+sqlite:///celerydb.sqlite"
+#     imports = (
+#         "superset.sql_lab",
+#         "superset.tasks.scheduler",
+#         "superset.tasks.thumbnails",
+#         "superset.tasks.cache",
+#         "superset.tasks.slack",
+#     )
+#     result_backend = "db+sqlite:///celery_results.sqlite"
+#     worker_prefetch_multiplier = 1
+#     task_acks_late = False
+#     task_annotations = {
+#         "sql_lab.get_sql_results": {
+#             "rate_limit": "100/s",
+#         },
+#     }
+#     beat_schedule = {
+#         "reports.scheduler": {
+#             "task": "reports.scheduler",
+#             "schedule": crontab(minute="*", hour="*"),
+#             "options": {"expires": int(CELERY_BEAT_SCHEDULER_EXPIRES.total_seconds())},
+#         },
+#         "reports.prune_log": {
+#             "task": "reports.prune_log",
+#             "schedule": crontab(minute=0, hour=0),
+#         },
+#         # Uncomment to enable pruning of the query table
+#         # "prune_query": {
+#         #     "task": "prune_query",
+#         #     "schedule": crontab(minute=0, hour=0, day_of_month=1),
+#         #     "kwargs": {"retention_period_days": 180},
+#         # },
+#         # Uncomment to enable pruning of the logs table
+#         # "prune_logs": {
+#         #     "task": "prune_logs",
+#         #     "schedule": crontab(minute="*", hour="*"),
+#         #     "kwargs": {"retention_period_days": 180, "max_rows_per_run": 10000},
+#         # },
+#         # Uncomment to enable pruning of the tasks table
+#         # "prune_tasks": {
+#         #     "task": "prune_tasks",
+#         #     "schedule": crontab(minute=0, hour=0),
+#         #     "kwargs": {"retention_period_days": 90, "max_rows_per_run": 10000},
+#         # },
+#         # Uncomment to enable Slack channel cache warm-up
+#         # "slack.cache_channels": {
+#         #     "task": "slack.cache_channels",
+#         #     "schedule": crontab(minute="0", hour="*"),
+#         # },
+#     }
+
+
+class CeleryConfig:
+    broker_url = "redis://localhost:6379/12"
+    result_backend = "redis://localhost:6379/13"
+
     imports = (
         "superset.sql_lab",
         "superset.tasks.scheduler",
@@ -1476,48 +1724,72 @@ class CeleryConfig:  # pylint: disable=too-few-public-methods
         "superset.tasks.cache",
         "superset.tasks.slack",
     )
-    result_backend = "db+sqlite:///celery_results.sqlite"
-    worker_prefetch_multiplier = 1
-    task_acks_late = False
-    task_annotations = {
+
+    task_default_queue = "celery"
+
+    task_routes = {
+        "cache_dashboard_thumbnail": {
+            "queue": "thumbnails",
+            "routing_key": "thumbnails.dashboard",
+        },
+        "cache_chart_thumbnail": {
+            "queue": "thumbnails",
+            "routing_key": "thumbnails.chart",
+        },
+        "cache-warmup": {
+            "queue": "warmup",
+            "routing_key": "warmup.run",
+        },
         "sql_lab.get_sql_results": {
-            "rate_limit": "100/s",
+            "queue": "sql",
+            "routing_key": "sql.get",
         },
     }
+
+    # task_routes = {
+    #     "cache_dashboard_thumbnail": {
+    #         "queue": "thumbnails",
+    #         "routing_key": "thumbnails.dashboard",
+    #     },
+    #     "cache_chart_thumbnail": {
+    #         "queue": "thumbnails",
+    #         "routing_key": "thumbnails.chart",
+    #     },
+    #     "cache-warmup": {
+    #         "queue": "warmup",
+    #         "routing_key": "warmup.run",
+    #     },
+    #     "sql_lab.get_sql_results": {
+    #         "queue": "sql",
+    #         "routing_key": "sql.get",
+    #     },
+    # }
+
+    worker_prefetch_multiplier = 1
+    task_acks_late = True
+    worker_log_level = "INFO"
+
+    task_annotations = {
+        "sql_lab.get_sql_results": {"rate_limit": "100/s"},
+        "cache_dashboard_thumbnail": {"rate_limit": "1/s"},
+        "cache_chart_thumbnail": {"rate_limit": "1/s"},
+    }
+
     beat_schedule = {
-        "reports.scheduler": {
-            "task": "reports.scheduler",
-            "schedule": crontab(minute="*", hour="*"),
-            "options": {"expires": int(CELERY_BEAT_SCHEDULER_EXPIRES.total_seconds())},
+        "cache-warmup-top10-hourly": {
+            "task": "cache-warmup",
+            "schedule": crontab(minute=7, hour="*"),
+            "kwargs": {
+                "strategy_name": "top_n_dashboards",
+                "top_n": 10,
+                "since": "7 days ago",
+            },
+            "options": {"queue": "warmup", "routing_key": "warmup.run"},
         },
-        "reports.prune_log": {
-            "task": "reports.prune_log",
-            "schedule": crontab(minute=0, hour=0),
-        },
-        # Uncomment to enable pruning of the query table
-        # "prune_query": {
-        #     "task": "prune_query",
-        #     "schedule": crontab(minute=0, hour=0, day_of_month=1),
-        #     "kwargs": {"retention_period_days": 180},
-        # },
-        # Uncomment to enable pruning of the logs table
-        # "prune_logs": {
-        #     "task": "prune_logs",
-        #     "schedule": crontab(minute="*", hour="*"),
-        #     "kwargs": {"retention_period_days": 180, "max_rows_per_run": 10000},
-        # },
-        # Uncomment to enable pruning of the tasks table
-        # "prune_tasks": {
-        #     "task": "prune_tasks",
-        #     "schedule": crontab(minute=0, hour=0),
-        #     "kwargs": {"retention_period_days": 90, "max_rows_per_run": 10000},
-        # },
-        # Uncomment to enable Slack channel cache warm-up
-        # "slack.cache_channels": {
-        #     "task": "slack.cache_channels",
-        #     "schedule": crontab(minute="0", hour="*"),
-        # },
     }
+
+    timezone = "America/Costa_Rica"
+    enable_utc = True
 
 
 CELERY_CONFIG: type[CeleryConfig] | None = CeleryConfig
@@ -1617,7 +1889,15 @@ SQLLAB_CTAS_SCHEMA_NAME_FUNC: (
 
 # If enabled, it can be used to store the results of long-running queries
 # in SQL Lab by using the "Run Async" button/feature
-RESULTS_BACKEND: BaseCache | None = None
+# RESULTS_BACKEND: BaseCache | None = None
+from cachelib.redis import RedisCache
+
+RESULTS_BACKEND = RedisCache(
+    host="localhost",
+    port=6379,
+    db=10,
+    key_prefix="superset_results_",
+)
 
 # Use PyArrow and MessagePack for async query results serialization,
 # rather than JSON. This feature requires additional testing from the
@@ -1722,30 +2002,20 @@ EXTENSION_STARTUP_LOCK_TIMEOUT = 30  # Timeout in seconds for extension update l
 # a reference to the Flask app. This can be used to alter the Flask app
 # in whatever way.
 # example: FLASK_APP_MUTATOR = lambda x: x.before_request = f
-def FLASK_APP_MUTATOR(app):  # type: ignore[misc]
-    # Rompe un import circular latente de Superset 6.1.0 (también en el tag
-    # oficial): `sync_config_to_db()` corre justo después de este mutator y
-    # antes de init_views(), e importa superset.commands.base en frío →
-    # commands.utils → daos.tag → … → views.base → db_engine_specs.gsheets →
-    # databases.schemas → commands.database.uploaders.base → commands.base
-    # (a medio inicializar). Resultado: "Failed to sync configuration to
-    # database" en cada arranque y nunca se sembraban los temas de sistema
-    # ni los listeners de TAGGING_SYSTEM. Cargar superset.views primero es el
-    # único punto de entrada que completa el ciclo sin error (verificado
-    # 2026-09-23, Registro de cambios entrada 47).
-    import superset.views  # noqa: F401
+#FLASK_APP_MUTATOR = None
 
+def FLASK_APP_MUTATOR(app):  # type: ignore[misc]
     from superset.security.mcp_widget import inject_chat_widget
     app.after_request(inject_chat_widget)
 
 # smtp server configuration
-SMTP_HOST = "localhost"
+SMTP_HOST = "smtp.office365.com"
 SMTP_STARTTLS = True
 SMTP_SSL = False
-SMTP_USER = "superset"
-SMTP_PORT = 25
-SMTP_PASSWORD = "superset"  # noqa: S105
-SMTP_MAIL_FROM = "superset@superset.com"
+SMTP_USER = os.environ.get("SMTP_USER", "inteligencia.irex@irex.co.cr")
+SMTP_PORT = 587
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")  # noqa: S105
+SMTP_MAIL_FROM = os.environ.get("SMTP_MAIL_FROM", "inteligencia.irex@irex.co.cr")
 # If True creates a default SSL context with ssl.Purpose.CLIENT_AUTH using the
 # default system root CA certificates.
 SMTP_SSL_SERVER_AUTH = False
@@ -1780,11 +2050,20 @@ PERMISSION_INSTRUCTIONS_LINK = ""
 CHAT_WIDGET_URL = "http://186.177.26.27:8008/web/widget.js"
 # URL base de la API del widget (backend del chat)
 CHAT_WIDGET_API_URL = "http://186.177.26.27:8008"
-# URL del MCP de Superset TEST al que el backend del chat hace llamadas
-MCP_WIDGET_URL = "http://192.168.76.11:5009"
+# URL del MCP de Superset PRODUCCIÓN al que el backend del chat hace llamadas
+MCP_WIDGET_URL = "http://192.168.76.11:5008"
 # Si está configurado, el widget de chat SOLO aparece para usuarios que
 # tengan este rol asignado. Vacío/None = visible para todos los autenticados.
 CHAT_WIDGET_REQUIRED_ROLE = "acceso chat"
+
+# IDs de dataset/database en PRODUCCIÓN para la extensión irex-mcp-tools
+# (business_context). En test estos datasets tienen otros IDs — ver
+# superset_config_test.py. Exportado desde test el dataset unificado
+# ventas/pedidos; "Base PNS V3" ya existía nativamente en producción.
+IREX_VENTAS_PEDIDOS_DATASET_ID = 352
+IREX_VENTAS_PEDIDOS_DATABASE_ID = 16
+IREX_PNS_DATASET_ID = 273
+IREX_PNS_DATABASE_ID = 16
 
 from superset.security.mcp_widget import mcp_widget_bp  # noqa: E402
 
@@ -2150,14 +2429,31 @@ SLACK_API_RATE_LIMIT_RETRY_COUNT = 2
 # chrome:
 #   Requires: headless chrome
 #   Limitations: unable to generate screenshots of elements
-WEBDRIVER_TYPE = "firefox"
-
-# Window size - this will impact the rendering of the data
+WEBDRIVER_TYPE = "playwright"  # ✅ Cambiado de chrome a playwright
 WEBDRIVER_WINDOW = {
-    "dashboard": (1600, 2000),
-    "slice": (3000, 1200),
-    "pixel_density": 1,
+    "dashboard": (1920, 1080),  # Tamaño para dashboards
+    "slice": (1600, 900),       # Tamaño para charts individuales
+    "pixel_density": 2,         # Densidad de pixeles (para alta calidad)
 }
+WEBDRIVER_OPTION_ARGS = [
+    "--force-device-scale-factor=2.0",
+    "--high-dpi-support=2.0",
+    "--headless",
+    "--disable-gpu",
+    "--disable-dev-shm-usage",
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-extensions",
+]
+
+# WEBDRIVER_TYPE = "firefox"
+
+# # Window size - this will impact the rendering of the data
+# WEBDRIVER_WINDOW = {
+#     "dashboard": (1600, 2000),
+#     "slice": (3000, 1200),
+#     "pixel_density": 1,
+# }
 
 # An optional override to the default auth hook used to provide auth to the offline
 # webdriver (when using Selenium) or browser context (when using Playwright - see
@@ -2172,14 +2468,12 @@ WEBDRIVER_CONFIGURATION = {
 
 # Additional args to be passed as arguments to the config object
 # Note: If using Chrome, you'll want to add the "--marionette" arg.
-WEBDRIVER_OPTION_ARGS = ["--headless"]
+# WEBDRIVER_OPTION_ARGS = ["--headless"]
 
 # The base URL to query for accessing the user interface
-WEBDRIVER_BASEURL = "http://0.0.0.0:8080/"
-# The base URL for the email report hyperlinks (y para explore_url de
-# generate_chart/generate_explore_link/irex.create_chart) — debe ser la URL
-# accesible externamente, no la interna del webdriver.
-WEBDRIVER_BASEURL_USER_FRIENDLY = "http://192.168.76.11:9090/"
+WEBDRIVER_BASEURL = "http://localhost:8088/"
+# The base URL for the email report hyperlinks.
+WEBDRIVER_BASEURL_USER_FRIENDLY = "http://192.168.76.11/"
 # Time selenium will wait for the page to load and render for the email report.
 EMAIL_PAGE_RENDER_WAIT = int(timedelta(seconds=30).total_seconds())
 
@@ -2265,7 +2559,7 @@ DATABASE_OAUTH2_TIMEOUT = timedelta(seconds=30)
 CONTENT_SECURITY_POLICY_WARNING = True
 
 # Do you want Talisman enabled?
-TALISMAN_ENABLED = utils.cast_to_boolean(os.environ.get("TALISMAN_ENABLED", True))
+TALISMAN_ENABLED = utils.cast_to_boolean(os.environ.get("TALISMAN_ENABLED", False))
 
 # If you want Talisman, how do you want it configured??
 # For more information on setting up Talisman, please refer to
@@ -2350,7 +2644,6 @@ TALISMAN_DEV_CONFIG = {
     "force_https": False,
     "session_cookie_secure": False,
 }
-
 #
 # Flask session cookie options
 #
@@ -2429,7 +2722,7 @@ GLOBAL_ASYNC_QUERIES_JWT_COOKIE_SAMESITE: None | (Literal["None", "Lax", "Strict
     None
 )
 GLOBAL_ASYNC_QUERIES_JWT_COOKIE_DOMAIN = None
-GLOBAL_ASYNC_QUERIES_JWT_SECRET = "test-secret-change-me"  # noqa: S105
+GLOBAL_ASYNC_QUERIES_JWT_SECRET = "eoebAL7TUmVOHAfuatYypDmyZEqlhhkbj6jYKfuoNdI"  # noqa: S105
 GLOBAL_ASYNC_QUERIES_TRANSPORT: Literal["polling", "ws"] = "polling"
 GLOBAL_ASYNC_QUERIES_POLLING_DELAY = int(
     timedelta(milliseconds=500).total_seconds() * 1000
@@ -2443,19 +2736,26 @@ GLOBAL_ASYNC_QUERIES_CACHE_BACKEND = {
     "CACHE_TYPE": "RedisCache",
     "CACHE_REDIS_HOST": "localhost",
     "CACHE_REDIS_PORT": 6379,
-    "CACHE_REDIS_USER": "",
-    "CACHE_REDIS_PASSWORD": "",
-    "CACHE_REDIS_DB": 0,
+    "CACHE_REDIS_DB": 11,
     "CACHE_DEFAULT_TIMEOUT": 300,
-    "CACHE_REDIS_SENTINELS": [("localhost", 26379)],
-    "CACHE_REDIS_SENTINEL_MASTER": "mymaster",
-    "CACHE_REDIS_SENTINEL_PASSWORD": None,
-    "CACHE_REDIS_SSL": False,  # True or False
-    "CACHE_REDIS_SSL_CERTFILE": None,
-    "CACHE_REDIS_SSL_KEYFILE": None,
-    "CACHE_REDIS_SSL_CERT_REQS": "required",
-    "CACHE_REDIS_SSL_CA_CERTS": None,
 }
+# GLOBAL_ASYNC_QUERIES_CACHE_BACKEND = {
+#     "CACHE_TYPE": "RedisCache",
+#     "CACHE_REDIS_HOST": "localhost",
+#     "CACHE_REDIS_PORT": 6379,
+#     "CACHE_REDIS_USER": "",
+#     "CACHE_REDIS_PASSWORD": "",
+#     "CACHE_REDIS_DB": 0,
+#     "CACHE_DEFAULT_TIMEOUT": 300,
+#     "CACHE_REDIS_SENTINELS": [("localhost", 26379)],
+#     "CACHE_REDIS_SENTINEL_MASTER": "mymaster",
+#     "CACHE_REDIS_SENTINEL_PASSWORD": None,
+#     "CACHE_REDIS_SSL": False,  # True or False
+#     "CACHE_REDIS_SSL_CERTFILE": None,
+#     "CACHE_REDIS_SSL_KEYFILE": None,
+#     "CACHE_REDIS_SSL_CERT_REQS": "required",
+#     "CACHE_REDIS_SSL_CA_CERTS": None,
+# }
 
 # Embedded config options
 GUEST_ROLE_NAME = "Public"
@@ -2632,12 +2932,8 @@ except ImportError:
 
 
 LOCAL_EXTENSIONS: list[str] = []
-#EXTENSIONS_PATH: str | None = None
-# Aislado de producción (extensions/) para el spike del asistente SQL Lab —
-# ver PLAN_ASISTENTE_SQL_LAB.md Fase 0. Antes compartía el mismo path que
-# producción, así que cualquier .supx probado en test ya quedaba en el
-# artefacto que superset.service carga en el próximo reinicio.
-EXTENSIONS_PATH = "/home/imercados/superset_proyecto/extensions_test"
+EXTENSIONS_PATH = "/home/imercados/superset_proyecto/extensions"
+
 # Default polling interval for tasks (seconds)
 TASK_ABORT_POLLING_DEFAULT_INTERVAL = 10
 
@@ -2711,8 +3007,6 @@ CHAT_BACKEND_SECRET = "38XGSse8fVSoDpstSicvwYGjjjEesnnJ60DCAuBaPI6Iqu44rX_KBQ"
 MCP_SERVICE_HOST = "0.0.0.0"
 MCP_SERVICE_PORT = 5009
 
-# Pinea la tool de glosario de negocio para que el LLM la vea SIEMPRE
-# en tools/list, sin depender de que decida llamar search_tools primero.
 from superset.mcp_service.mcp_config import MCP_FACTORY_CONFIG as _MCP_FC  # noqa: E402
 from superset.mcp_service.mcp_config import MCP_TOOL_SEARCH_CONFIG as _MCP_TS  # noqa: E402
 
@@ -2750,6 +3044,7 @@ MCP_TOOL_SEARCH_CONFIG = {
 }
 
 MCP_EXPORT_BASE_URL = "http://192.168.76.11"
+
 
 # -------------------------------------------------------------------
 # *                WARNING:  STOP EDITING  HERE                    *

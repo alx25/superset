@@ -14,6 +14,7 @@ Diferencias deliberadas con el proxy genérico viejo
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Mapping
 
 UPSTREAM_PATH = "/api/sql-lab-assistant"
@@ -64,3 +65,25 @@ def filter_response_headers(headers: Iterable[tuple[str, str]]) -> list[tuple[st
     """Quita los headers hop-by-hop o que dejan de ser ciertos al re-streamear
     (`requests` ya decodificó gzip, así que `Content-Length` tampoco vale)."""
     return [(name, value) for name, value in headers if name.lower() not in EXCLUDED_RESPONSE_HEADERS]
+
+
+def with_environment_mcp_url(body: bytes, mcp_url: str | None) -> bytes:
+    """Fija `mcp_url` en el body con el MCP de ESTE entorno (`MCP_WIDGET_URL`),
+    igual que hace el widget de dashboards en cada pedido.
+
+    Test y producción comparten el mismo backend del chat. Sin este campo, el
+    backend usa su URL por defecto para SQL Lab, que apuntaba al MCP de test:
+    un pedido de producción terminaba consultando la metadata de test
+    ("Database with ID 11 not found", 2026-09-23). Siempre pisa lo que mande
+    el navegador: el MCP de destino no lo decide el cliente. Si el body no es
+    un objeto JSON se deja intacto (el backend lo rechazará igual)."""
+    if not mcp_url:
+        return body
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        return body
+    if not isinstance(payload, dict):
+        return body
+    payload["mcp_url"] = mcp_url.rstrip("/")
+    return json.dumps(payload, ensure_ascii=False).encode("utf-8")

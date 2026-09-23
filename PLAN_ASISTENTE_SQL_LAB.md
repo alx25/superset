@@ -1140,9 +1140,8 @@ Backend/MCP (`scripts/e2e_rbac.py` contra el MCP de test real, 20/20):
   de consulta.
 - ✅ `sub` JWT inexistente: rechazado sin caer en admin. También se rechazan
   con 401: sin token, token vencido, firma inválida, audiencia incorrecta.
-- ❌ **Pendiente: dos usuarios con RLS distinto.** Test no tiene filtros RLS.
-  Opciones: crear un filtro RLS de prueba en test, o validarlo en solo
-  lectura en producción con usuarios reales (requiere autorización).
+- ➖ Dos usuarios con RLS distinto: **descartado por decisión del usuario**
+  (2026-09-23).
 - ⚠️ Endpoint REST sin permiso: el proxy `/api/chat-widget/...` da 403 sin
   sesión (e2e) y sin el rol `acceso chat` (por lectura de código). La REST
   API propia de la extensión no existe (Fase 6, portabilidad).
@@ -1152,6 +1151,13 @@ Backend/MCP (`scripts/e2e_rbac.py` contra el MCP de test real, 20/20):
 - ✅ Límites de contexto y de resultados: tests unitarios del backend.
 
 ### Compatibilidad
+
+Estado (2026-09-23, entrada 47): resultados y herramientas en
+`custom-extensions/irex-mcp-tools/COMPATIBILITY.md`. Compatible con 6.1.0,
+con `@apache-superset/core`/`apache-superset-core` 0.1.0 final y con
+`master` (0 bloqueantes). Instalación limpia 10/10
+(`scripts/check_clean_install.sh`). Sin release posterior a 6.1.0, los
+pasos 4–6 (panel en vivo) solo se pudieron cubrir en 6.1.0.
 
 Para cada versión objetivo:
 

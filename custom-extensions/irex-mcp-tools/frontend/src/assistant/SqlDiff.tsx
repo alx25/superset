@@ -1,4 +1,7 @@
 import React, { useMemo, useState } from 'react';
+import { Icon } from './icons';
+import { SqlCode } from './sqlHighlight';
+import { MONO } from './ui';
 
 type DiffLineKind = 'same' | 'added' | 'removed';
 
@@ -52,20 +55,22 @@ function computeLineDiff(before: string, after: string): DiffLine[] {
   return result;
 }
 
-// Estilo tipo terminal/editor de código fijo (independiente del tema
-// claro/oscuro de Superset) — mismo criterio que la mayoría de los chats
-// con bloques de código: el bloque en sí siempre es oscuro para que el
-// resaltado sea legible sin depender del tema circundante.
+// Bloque de código con fondo oscuro fijo, independiente del tema claro/oscuro
+// de Superset: mismo criterio que la mayoría de los chats con código. Colores
+// verificados contra CODE_BG con contraste AA o superior: texto ≈11:1,
+// agregado ≈11:1, eliminado ≈7:1.
 const CODE_BG = '#1e1e2e';
+const CODE_HEADER_BG = '#181825';
 const CODE_TEXT = '#cdd6f4';
+const CODE_MUTED = '#a6adc8';
+const ADDED = '#a6e3a1';
+const REMOVED = '#f38ba8';
 const LINE_STYLE: Record<DiffLineKind, React.CSSProperties> = {
-  same: { color: CODE_TEXT },
-  added: { background: 'rgba(166, 227, 161, 0.15)', color: '#a6e3a1' },
-  removed: {
-    background: 'rgba(243, 139, 168, 0.15)',
-    color: '#f38ba8',
-    textDecoration: 'line-through',
-  },
+  same: { color: CODE_TEXT, borderLeft: '2px solid transparent' },
+  // Sin tachado en lo eliminado: el color, el fondo, el borde y el signo "-"
+  // ya lo distinguen, y el tachado vuelve ilegible justo lo que hay que revisar.
+  added: { background: 'rgba(166, 227, 161, 0.14)', color: ADDED, borderLeft: `2px solid ${ADDED}` },
+  removed: { background: 'rgba(243, 139, 168, 0.14)', color: REMOVED, borderLeft: `2px solid ${REMOVED}` },
 };
 const LINE_PREFIX: Record<DiffLineKind, string> = {
   same: '  ',
@@ -111,30 +116,39 @@ export interface SqlDiffProps {
   after: string;
 }
 
+function Badge({ color, children }: { color: string; children: React.ReactNode }): React.ReactElement {
+  return (
+    <span
+      style={{
+        color,
+        border: `1px solid ${color}55`,
+        background: `${color}1a`,
+        borderRadius: 3,
+        padding: '0 5px',
+        fontSize: 11,
+        lineHeight: '16px',
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
 export function SqlDiff({ before, after }: SqlDiffProps): React.ReactElement {
   const lines = useMemo(() => computeLineDiff(before, after), [before, after]);
   const displayItems = useMemo(() => buildDisplayItems(lines), [lines]);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [tall, setTall] = useState(false);
   React.useEffect(() => setExpanded(new Set()), [before, after]);
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = () => {
-    navigator.clipboard
-      .writeText(after)
-      .then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      })
-      .catch(() => {});
-  };
+  const added = lines.filter(l => l.kind === 'added').length;
+  const removed = lines.filter(l => l.kind === 'removed').length;
+  const isNew = before.trim() === '';
 
   return (
-    <div style={{ borderRadius: 6, overflow: 'hidden', border: '1px solid rgba(0,0,0,0.15)' }}>
-      {/* El tema claro/oscuro de Superset venía ganándole al `background`/
-          `color` inline de más abajo (se veía en blanco sobre blanco en modo
-          claro). `!important` vía un <style> propio es la única forma de
-          garantizar que este bloque de código se vea siempre igual, sin
-          importar qué CSS del host tenga más especificidad. */}
+    <div style={{ overflow: 'hidden' }}>
+      {/* El tema de Superset le ganaba al background/color inline (blanco
+          sobre blanco en modo claro); un <style> acotado con !important es la
+          única forma de garantizar el bloque oscuro sin CSS global. */}
       <style>{`
         .irex-sqldiff-body {
           background-color: ${CODE_BG} !important;
@@ -143,46 +157,50 @@ export function SqlDiff({ before, after }: SqlDiffProps): React.ReactElement {
       `}</style>
       <div
         style={{
-          background: '#181825',
-          color: '#9399b2',
-          fontSize: 10,
-          fontWeight: 600,
-          letterSpacing: 0.3,
-          textTransform: 'uppercase',
-          padding: '4px 10px',
+          background: CODE_HEADER_BG,
+          color: CODE_MUTED,
+          fontSize: 11,
+          fontFamily: MONO,
+          padding: '4px 8px 4px 10px',
           display: 'flex',
-          justifyContent: 'space-between',
           alignItems: 'center',
+          gap: 6,
         }}
       >
-        <span>SQL</span>
+        <span style={{ letterSpacing: 0.4 }}>{isNew ? 'SQL NUEVO' : 'DIFF'}</span>
+        {removed > 0 && <Badge color={REMOVED}>−{removed}</Badge>}
+        {added > 0 && <Badge color={ADDED}>+{added}</Badge>}
+        {added === 0 && removed === 0 && <span>sin cambios</span>}
         <button
           type="button"
-          onClick={handleCopy}
+          onClick={() => setTall(t => !t)}
+          aria-label={tall ? 'Reducir el diff' : 'Ampliar el diff'}
+          title={tall ? 'Reducir' : 'Ampliar'}
           style={{
+            marginLeft: 'auto',
             background: 'none',
             border: 'none',
-            color: '#9399b2',
-            fontSize: 10,
+            color: CODE_MUTED,
             cursor: 'pointer',
-            padding: 0,
+            padding: 2,
           }}
         >
-          {copied ? '✓ copiado' : 'copiar'}
+          <Icon name={tall ? 'collapse' : 'expand'} size={12} />
         </button>
       </div>
       <div
         className="irex-sqldiff-body"
         style={{
-          fontFamily: "'SF Mono', Consolas, Monaco, monospace",
+          fontFamily: MONO,
           fontSize: 11.5,
-          lineHeight: 1.5,
+          lineHeight: 1.55,
           whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
           background: CODE_BG,
           color: CODE_TEXT,
-          padding: 8,
+          padding: '6px 0',
           margin: 0,
-          maxHeight: 240,
+          maxHeight: tall ? 520 : 220,
           overflowY: 'auto',
         }}
       >
@@ -190,9 +208,9 @@ export function SqlDiff({ before, after }: SqlDiffProps): React.ReactElement {
           if (item.kind === 'line') {
             return (
               // eslint-disable-next-line react/no-array-index-key
-              <div key={index} style={LINE_STYLE[item.line.kind]}>
+              <div key={index} style={{ ...LINE_STYLE[item.line.kind], padding: '0 10px 0 8px' }}>
                 {LINE_PREFIX[item.line.kind]}
-                {item.line.text}
+                <SqlCode code={item.line.text} />
               </div>
             );
           }
@@ -214,14 +232,13 @@ export function SqlDiff({ before, after }: SqlDiffProps): React.ReactElement {
                   display: 'block',
                   width: '100%',
                   textAlign: 'left',
-                  background: 'rgba(255,255,255,0.04)',
+                  background: 'rgba(255,255,255,0.05)',
                   border: 'none',
-                  color: '#9399b2',
+                  color: CODE_MUTED,
                   fontFamily: 'inherit',
                   fontSize: 11,
-                  padding: '2px 4px',
+                  padding: '1px 10px',
                   margin: '2px 0',
-                  borderRadius: 3,
                   cursor: 'pointer',
                 }}
               >
@@ -230,9 +247,9 @@ export function SqlDiff({ before, after }: SqlDiffProps): React.ReactElement {
               {isOpen &&
                 item.lines.map((line, lineIndex) => (
                   // eslint-disable-next-line react/no-array-index-key
-                  <div key={lineIndex} style={LINE_STYLE[line.kind]}>
+                  <div key={lineIndex} style={{ ...LINE_STYLE[line.kind], padding: '0 10px 0 8px' }}>
                     {LINE_PREFIX[line.kind]}
-                    {line.text}
+                    <SqlCode code={line.text} />
                   </div>
                 ))}
             </React.Fragment>

@@ -19,7 +19,7 @@ ExecStartPre=/bin/bash -c 'test -f "$SUPERSET_CONFIG_PATH"'
 ExecStart=/bin/bash -c '\
 cd "$SUPERSET_DIR" && \
 export PATH="$SUPERSET_DIR/.venv/bin:/usr/local/bin:/usr/bin:/bin" && \
-export PYTHONPATH="$SUPERSET_DIR" && \
+export PYTHONPATH="$SUPERSET_DIR:$SUPERSET_DIR/superset" && \
 export SUPERSET_CONFIG_PATH="$SUPERSET_CONFIG_PATH" && \
 exec "$SUPERSET_DIR/.venv/bin/python" -m gunicorn \
   --bind "0.0.0.0:${SUPERSET_PORT}" \

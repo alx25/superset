@@ -111,7 +111,7 @@ describe('diff y aplicación', () => {
 
   test('Aplicar cambio sobre el documento guarda snapshot para deshacer y descarta la tarjeta', async () => {
     const props = renderCard({ type: 'replace_document', sql: 'SELECT anio_id FROM t' });
-    fireEvent.click(screen.getByRole('button', { name: 'Aplicar cambio' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar al editor' }));
     await waitFor(() => expect(props.onDismiss).toHaveBeenCalled());
     expect(tab.editor.setValue).toHaveBeenCalledWith('SELECT anio_id FROM t');
     expect(props.onApplied).toHaveBeenCalledWith({
@@ -127,5 +127,25 @@ describe('diff y aplicación', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Abrir en nueva pestaña' }));
     await waitFor(() => expect(fakeHost.createTab).toHaveBeenCalledWith({ sql: 'SELECT 9', title: 'Otra' }));
     expect(props.onApplied).not.toHaveBeenCalled();
+  });
+});
+
+describe('copiar el SQL propuesto', () => {
+  test('funciona sin contexto seguro (HTTP) y confirma "Copiado"', async () => {
+    Object.defineProperty(window, 'isSecureContext', { value: false, configurable: true });
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+    let copied: string | undefined;
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      writable: true,
+      value: jest.fn(() => {
+        copied = (document.activeElement as HTMLTextAreaElement).value;
+        return true;
+      }),
+    });
+    renderCard({ type: 'replace_document', sql: 'SELECT anio_id FROM t' });
+    fireEvent.click(screen.getByRole('button', { name: 'Copiar SQL propuesto' }));
+    await screen.findByText('Copiado');
+    expect(copied).toBe('SELECT anio_id FROM t');
   });
 });

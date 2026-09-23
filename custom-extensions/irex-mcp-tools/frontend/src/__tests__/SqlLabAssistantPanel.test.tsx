@@ -44,7 +44,7 @@ async function askAndExecute(): Promise<void> {
   requestMock.mockResolvedValue(proposal);
   render(<SqlLabAssistantPanel />);
   fireEvent.change(screen.getByRole('textbox'), { target: { value: 'corregí la columna' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Pedir propuesta' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Generar' }));
   await screen.findByText('Propuesta · Corregir columna');
   fireEvent.click(screen.getByRole('button', { name: 'Ejecutar con confirmación' }));
   await screen.findByText('Ejecutando consulta…');
@@ -110,7 +110,7 @@ describe('errores del backend del chat', () => {
     );
     render(<SqlLabAssistantPanel />);
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'ventas por mes' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Pedir propuesta' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Generar' }));
 
     await waitFor(() => expect(screen.getAllByText(/Permission denied/).length).toBeGreaterThan(0));
     expect(requestMock).toHaveBeenCalledTimes(1);
@@ -121,8 +121,91 @@ describe('errores del backend del chat', () => {
     fakeHost.reset(undefined);
     render(<SqlLabAssistantPanel />);
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'hola' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Pedir propuesta' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Generar' }));
     await waitFor(() => expect(screen.getAllByText(/No hay una pestaña activa/).length).toBeGreaterThan(0));
     expect(requestMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('rediseño: composer, modos y resultado', () => {
+  test('control segmentado accesible con los 3 modos; "Revisar y optimizar" por defecto no exige texto', async () => {
+    requestMock.mockResolvedValue(proposal);
+    render(<SqlLabAssistantPanel />);
+    const group = screen.getByRole('radiogroup', { name: 'Acción del asistente' });
+    const options = Array.from(group.querySelectorAll('[role="radio"]')).map(el => el.textContent);
+    expect(options).toEqual(['Optimizar', 'Selección', 'Generar SQL']);
+
+    fireEvent.click(screen.getByRole('radio', { name: /Optimizar/ }));
+    expect(screen.getByRole('radio', { name: /Optimizar/ })).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Generar' }));
+    await screen.findByText('Propuesta · Corregir columna');
+
+    const [context] = requestMock.mock.calls[0];
+    expect(context.mode).toBe('review_document');
+    expect(context.userMessage).toContain('Revisá esta consulta');
+  });
+
+  test('"Generar SQL" necesita una descripción', () => {
+    render(<SqlLabAssistantPanel />);
+    fireEvent.click(screen.getByRole('radio', { name: /Generar SQL/ }));
+    expect(screen.getByRole('button', { name: 'Generar' })).toBeDisabled();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Instrucciones para el asistente' }), {
+      target: { value: 'ventas por mes' },
+    });
+    expect(screen.getByRole('button', { name: 'Generar' })).toBeEnabled();
+  });
+
+  test('resumen visible; detalle y avisos en un <details> abierto por defecto', async () => {
+    requestMock.mockResolvedValue({
+      ...proposal,
+      message: '## Resultado clave\n\nLa columna real es anio_id.\n\n## Detalle\n\nanio no existe en la tabla.',
+      diagnostics: [{ line: 0, column: 7, severity: 'warning', message: 'anio no existe' }],
+    });
+    render(<SqlLabAssistantPanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Generar' }));
+    await screen.findByText('Análisis con 1 advertencia');
+
+    expect(screen.getByText('La columna real es anio_id.')).toBeVisible();
+    const summary = screen.getByText('¿Por qué se propone este cambio?');
+    const details = summary.closest('details');
+    expect(details).not.toBeNull();
+    expect(details).toHaveAttribute('open');
+    expect(details).toHaveTextContent('anio no existe en la tabla.');
+    expect(details).toHaveTextContent('L1:8');
+  });
+
+  test('un error del backend se muestra una sola vez, como resumen en rojo', async () => {
+    requestMock.mockRejectedValue(new AssistantBackendError('Permission denied: can_execute_sql_query on SQLLab'));
+    render(<SqlLabAssistantPanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Generar' }));
+    await screen.findByText('No se pudo completar');
+    expect(screen.getAllByText(/Permission denied/)).toHaveLength(1);
+  });
+});
+
+describe('tono y título según el tipo de respuesta', () => {
+  test('explicación sin propuesta ni avisos: "Respuesta" neutra y sin "Detalle" duplicado', async () => {
+    requestMock.mockResolvedValue({
+      contractVersion: 1,
+      message: '## Resultado clave\n\n- `CROSS JOIN LATERAL` expande el JSON.\n\n## Detalle\n\nLATERAL permite referenciar la fila actual.',
+      actions: [],
+      diagnostics: [],
+    });
+    render(<SqlLabAssistantPanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Generar' }));
+    await screen.findByText('Respuesta');
+    expect(screen.queryByText('Análisis completado')).not.toBeInTheDocument();
+    expect(screen.getByText('Ver detalle')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Detalle' })).not.toBeInTheDocument();
+    expect(screen.getByText('LATERAL permite referenciar la fila actual.')).toBeInTheDocument();
+    // Palabra clave en MAYÚSCULAS dentro del chip, resaltada.
+    expect(screen.getByText('CROSS').tagName).toBe('SPAN');
+  });
+
+  test('propuesta sin avisos: "Propuesta lista para revisar"', async () => {
+    requestMock.mockResolvedValue({ ...proposal, diagnostics: [] });
+    render(<SqlLabAssistantPanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Generar' }));
+    expect(await screen.findByText('Propuesta lista para revisar')).toBeInTheDocument();
   });
 });

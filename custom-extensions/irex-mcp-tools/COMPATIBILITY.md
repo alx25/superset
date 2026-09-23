@@ -67,3 +67,59 @@ completo en la Fase 0 de `PLAN_ASISTENTE_SQL_LAB.md`.
    (`assistant/SqlLabAssistantPanel.tsx`) no deberían necesitar cambios.
 4. Actualizar esta tabla con la nueva versión de Superset y de
    `@apache-superset/core`, y volver a correr la batería de pruebas.
+
+## Verificación de compatibilidad (2026-09-23)
+
+### Herramientas
+
+| Script | Qué hace | Toca algo existente |
+|---|---|---|
+| `scripts/check_host_compat.py <fuente_superset>` | Análisis estático contra el código de cualquier versión: los símbolos internos `superset.*` que usa el backend (descubiertos leyendo `backend/src`), si cada import está a nivel de módulo (rompe la carga de todas las tools) o dentro de una función (rompe esa tool), los parámetros de `@tool`/`@api`, los 25 símbolos de `@apache-superset/core` que usa el panel, `sqllab.rightSidebar`, el gancho de `auth_bridge` y el texto `Permission denied:` | No |
+| `scripts/check_clean_install.sh <superset> <.supx>` | Levanta un Superset limpio descartable (SQLite nueva, sin `custom-src`, solo `ENABLE_EXTENSIONS` + `EXTENSIONS_PATH`) y verifica carga del backend, 17 tools, API, `remoteEntry` servido, 503 sin backend de chat configurado, 403 para Gamma y que SQL Lab abra | No (directorio temporal que se borra al terminar) |
+| `scripts/check_deploy_config.py` | Config + `.supx` antes de desplegar (ver Fase 10) | No |
+
+Frontend contra una versión puntual de `@apache-superset/core`: tsconfig
+temporal con `"paths": {"@apache-superset/core": ["<paquete>/lib/index.d.ts"]}`
+y `npx tsc -p <ese tsconfig>`.
+
+### Resultados
+
+| Objetivo | Resultado |
+|---|---|
+| Superset 6.1.0 (host actual, core `0.1.0-rc3`) | `check_host_compat`: compatible, 27/27 símbolos internos, 25/25 del frontend. `check_clean_install`: 10/10 |
+| `@apache-superset/core` 0.1.0 final (npm) | `.d.ts` idénticos a rc3 en todos los módulos que usa el panel; `tsc` estricto OK contra las dos. El `package-lock.json` ya resuelve 0.1.0 final |
+| `apache-superset-core` 0.1.0 (PyPI) | `mcp/decorators.py`, `rest_api/decorators.py` y `rest_api/api.py` idénticos a rc3 |
+| Superset `master` (`c0c688d`, 2026-09-23; todavía sin release posterior a 6.1.0) | `check_host_compat`: **compatible, 0 bloqueantes**. `tsc` contra las fuentes TS de master: 0 errores en la extensión |
+
+### Qué cambia en `master` y cómo afecta
+
+- `superset.mcp_service.chart.schemas.parse_chart_config` ya no existe. Solo
+  lo usa `create_chart`, dentro de la función y con la tool deshabilitada por
+  diseño (`exclude_tags: guardar`), así que no afecta la carga.
+- El host resuelve el usuario del JWT de forma nativa y falla cerrado ante un
+  usuario inexistente. `auth_bridge` queda redundante pero inofensivo: master
+  importa `get_user_from_request` por nombre en `server.py`/`middleware.py`
+  (el parche no los alcanza), pero ya deja `g.user` resuelto y el reemplazo
+  de `auth_bridge` lo respeta primero.
+  **Riesgo a vigilar:** el resolver de master prioriza
+  `preferred_username` → `username` → `email` → `sub`. El JWT del widget
+  (`custom-src/login/mcp_widget.py`) solo trae `sub` como identidad; si
+  alguien agrega `email` o `username`, el usuario se resolvería mal y el chat
+  fallaría. Queda anotado en ese archivo.
+- Los errores de tool llegan como `ToolError` (`isError: true`, prefijo
+  `Error calling tool …`). `Permission denied: …` se conserva textual, así
+  que la detección del chat por subcadena sigue funcionando.
+- `RestApi` sigue exento de CSRF por defecto y `@api` sigue sincronizando
+  permisos: `csrf_exempt = False` y la vista propia de `assistant_api.py`
+  siguen siendo necesarios.
+- Existe la API `chat` (`registerChat`, modos `floating`/`panel`), que el
+  plan anticipaba. No está en el `@apache-superset/core` 0.1.0 publicado.
+  Cuando se publique, solo cambia el registro en `frontend/src/index.tsx`.
+- Flask-AppBuilder pasa de 5.0.2 a 5.2.3.
+
+### Sin cubrir
+
+"Abrir el panel, leer/aplicar/ejecutar SQL y confirmar resultados" en una
+versión nueva requiere un frontend de Superset compilado de esa versión; no
+hay release posterior a 6.1.0. En 6.1.0 lo cubren los 63 tests de frontend
+y las pruebas manuales en el navegador.

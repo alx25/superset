@@ -25,7 +25,9 @@ permisos declarados, y el handler valida con permisos que YA existen
 Así no hay que otorgar permisos nuevos a ningún rol.
 
 Config leída solo del servidor (nunca del bundle JS): `CHAT_WIDGET_API_URL`,
-`CHAT_BACKEND_SECRET`, `CHAT_WIDGET_REQUIRED_ROLE`.
+`CHAT_BACKEND_SECRET`, `CHAT_WIDGET_REQUIRED_ROLE` y `MCP_WIDGET_URL` (MCP
+de este entorno, que se fija en el body como `mcp_url`; ver
+`_assistant_proxy.with_environment_mcp_url`).
 
 CSRF: `flask_appbuilder.api.BaseApi` trae `csrf_exempt = True` y
 `superset_core.rest_api.RestApi` NO lo sobreescribe (las APIs propias de
@@ -47,7 +49,13 @@ from flask_login import current_user
 from superset_core.rest_api.api import RestApi
 from superset_core.rest_api.decorators import api
 
-from ._assistant_proxy import build_upstream_headers, filter_response_headers, has_required_role, upstream_url
+from ._assistant_proxy import (
+    build_upstream_headers,
+    filter_response_headers,
+    has_required_role,
+    upstream_url,
+    with_environment_mcp_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +103,7 @@ class SqlLabAssistantRestApi(RestApi):
         try:
             upstream = requests.post(
                 url,
-                data=request.get_data(),
+                data=with_environment_mcp_url(request.get_data(), config.get("MCP_WIDGET_URL")),
                 headers=headers,
                 stream=True,
                 timeout=_UPSTREAM_TIMEOUT,

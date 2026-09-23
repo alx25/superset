@@ -40,6 +40,12 @@ headers, que siempre salen de la sesión del servidor y nunca del navegador:
 - `X-Superset-User` — username del usuario autenticado
 - `X-Superset-User-Email`, `X-Superset-User-Display-Name`
 
+La ruta nueva además fija en el body `"mcp_url": "<MCP_WIDGET_URL del
+entorno>"` (el mismo campo que manda el widget de dashboards), pisando
+cualquier valor del navegador. Así cada entorno de Superset enruta a su
+propio MCP: producción `…:5008`, test `…:5009`. El backend debe usarlo
+(`mcp_url_source: "request"`).
+
 Diferencia de la ruta nueva: del navegador solo reenvía `Content-Type` y
 `Accept`. No reenvía `Cookie`, `User-Agent` ni ningún otro header, cosa
 que el proxy viejo sí hacía. Antes de reenviar exige sesión válida, token

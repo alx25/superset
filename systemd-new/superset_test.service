@@ -1,14 +1,15 @@
 [Unit]
-Description=Apache Superset (Gunicorn)
+Description=Apache Superset (Gunicorn) Servidor de pruebas
 After=network.target postgresql.service clickhouse-server.service
 
 [Service]
 Type=simple
 User=imercados
 Group=www-data
+
 WorkingDirectory=/home/imercados/superset_proyecto
 
-EnvironmentFile=/home/imercados/superset_proyecto/.env_superset
+EnvironmentFile=/home/imercados/superset_proyecto/.env_superset_test
 
 # Verifica que exista el Python del entorno virtual
 ExecStartPre=/bin/bash -c 'test -x "$SUPERSET_DIR/.venv/bin/python"'
@@ -31,7 +32,7 @@ exec "$SUPERSET_DIR/.venv/bin/python" -m gunicorn \
   --timeout 300 \
   --graceful-timeout 30 \
   --keep-alive 10 \
-  --name superset_gunicorn \
+  --name superset_test_gunicorn \
   --max-requests 2500 \
   --max-requests-jitter 250 \
   --log-level info \

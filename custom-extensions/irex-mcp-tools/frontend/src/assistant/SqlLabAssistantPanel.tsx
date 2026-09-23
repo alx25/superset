@@ -28,41 +28,13 @@ import {
   revealChange,
 } from '../adapters/sqlLabAdapter';
 import { Clarification } from './Clarification';
-import { Conversation, type ConversationMessage } from './Conversation';
-import { Diagnostics } from './Diagnostics';
+import { Conversation, DEFAULT_PROMPTS, type ConversationMessage } from './Conversation';
 import { assessExecutionRisk, REINFORCED_CONFIRMATION_WORD, type ExecutionRisk } from './executionRisk';
+import { copyText } from './clipboard';
+import { Icon } from './icons';
+import { PanelHeader } from './PanelHeader';
 import { SqlDiff } from './SqlDiff';
-
-type PanelTheme = ReturnType<typeof themeNs.useTheme>;
-
-function buttonBase(theme: PanelTheme): React.CSSProperties {
-  return {
-    border: '1px solid transparent',
-    borderRadius: theme.borderRadiusSM,
-    padding: '4px 10px',
-    fontSize: 12,
-    cursor: 'pointer',
-  };
-}
-function buttonPrimary(theme: PanelTheme): React.CSSProperties {
-  return { ...buttonBase(theme), background: theme.colorPrimary, color: theme.colorWhite ?? '#fff' };
-}
-function buttonWarning(theme: PanelTheme): React.CSSProperties {
-  return {
-    ...buttonBase(theme),
-    background: theme.colorBgContainer,
-    color: theme.colorWarningText ?? theme.colorWarning,
-    borderColor: theme.colorWarningBorder ?? theme.colorWarning,
-  };
-}
-function buttonGhost(theme: PanelTheme): React.CSSProperties {
-  return {
-    ...buttonBase(theme),
-    background: theme.colorBgContainer,
-    color: theme.colorTextSecondary,
-    borderColor: theme.colorBorder,
-  };
-}
+import { buttonDanger, buttonGhost, buttonIcon, buttonPrimary, buttonWarning, card, FONT, MONO } from './ui';
 
 /** Texto contra el que se calcula el diff visual de cada acción, según su tipo y target. */
 function diffBeforeFor(action: AssistantAction, context: AssistantContext): string {
@@ -264,40 +236,91 @@ export function ActionCard({ action, context, onDismiss, onExecuted, onApplied }
 
   const before = diffBeforeFor(action, context);
   const sql = 'sql' in action ? action.sql : '';
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const copySql = () => {
+    void copyText(sql).then(ok => {
+      setCopyState(ok ? 'copied' : 'failed');
+      window.setTimeout(() => setCopyState('idle'), ok ? 1500 : 2500);
+    });
+  };
+  const canExecute =
+    action.type === 'suggest_execution' ||
+    action.type === 'replace_document' ||
+    (action.type === 'propose_sql');
+  const opensTab = action.type === 'create_tab' || (action.type === 'propose_sql' && action.target === 'newTab');
+  const applyThis = () => {
+    if (action.type === 'propose_sql') {
+      void runApply({ type: 'propose_sql_apply', target: action.target, sql: action.sql, title: action.title });
+    } else {
+      void runApply(action);
+    }
+  };
+  const barStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '5px 8px',
+    background: theme.colorFillQuaternary ?? theme.colorBgContainer,
+  };
 
   return (
-    <div
-      style={{
-        border: `1px solid ${theme.colorPrimaryBorder ?? theme.colorBorder}`,
-        borderLeft: `3px solid ${theme.colorPrimary}`,
-        borderRadius: theme.borderRadius,
-        padding: 12,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-        background: theme.colorPrimaryBg ?? theme.colorBgContainer,
-      }}
-    >
-      <strong style={{ fontSize: 13.5, color: theme.colorText }}>Propuesta · {titleFor(action)}</strong>
-      <SqlDiff before={before} after={sql} />
-      {error && <components.Alert type="error" message={error} showIcon />}
+    <div style={card(theme)}>
+      <div style={{ ...barStyle, borderBottom: `1px solid ${theme.colorBorderSecondary}` }}>
+        <span style={{ color: theme.colorSuccess ?? theme.colorPrimary }}>
+          <Icon name="check" size={13} />
+        </span>
+        <strong
+          style={{
+            flex: 1,
+            minWidth: 0,
+            fontSize: FONT.small,
+            fontWeight: 600,
+            color: theme.colorText,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          title={titleFor(action)}
+        >
+          Propuesta · {titleFor(action)}
+        </strong>
+        {sql && (
+          <button type="button" onClick={copySql} style={buttonIcon(theme)} aria-label="Copiar SQL propuesto">
+            <Icon name={copyState === 'copied' ? 'check' : copyState === 'failed' ? 'close' : 'copy'} size={12} />
+            <span aria-live="polite">
+              {copyState === 'copied' ? 'Copiado' : copyState === 'failed' ? 'No se pudo copiar' : 'Copiar'}
+            </span>
+          </button>
+        )}
+      </div>
+      {sql && <SqlDiff before={before} after={sql} />}
+      {error && (
+        <div style={{ padding: '6px 8px 0' }}>
+          <components.Alert type="error" message={error} showIcon />
+        </div>
+      )}
       {reinforcedPending && (
         <div
           style={{
+            margin: '8px 8px 0',
             border: `1px solid ${theme.colorErrorBorder ?? theme.colorError}`,
             background: theme.colorErrorBg ?? theme.colorBgContainer,
             borderRadius: theme.borderRadius,
-            padding: 10,
+            padding: 9,
             display: 'flex',
             flexDirection: 'column',
             gap: 6,
-            fontSize: 12,
+            fontSize: FONT.small,
+            lineHeight: 1.45,
           }}
         >
-          <strong style={{ color: theme.colorErrorText ?? theme.colorError }}>
+          <strong style={{ display: 'flex', alignItems: 'center', gap: 6, color: theme.colorText, fontSize: FONT.base }}>
+            <span style={{ color: theme.colorError }}>
+              <Icon name="warning" size={13} />
+            </span>
             Este SQL puede modificar datos o estructura
           </strong>
-          <ul style={{ margin: 0, paddingLeft: 18 }}>
+          <ul style={{ margin: 0, paddingLeft: 16 }}>
             {reinforcedPending.risk.reasons.map(reason => (
               <li key={reason}>{reason}</li>
             ))}
@@ -305,7 +328,7 @@ export function ActionCard({ action, context, onDismiss, onExecuted, onApplied }
           <span style={{ color: theme.colorTextSecondary }}>
             Se ejecuta contra la base de la pestaña activa y no se puede deshacer desde el asistente. Superset lo
             rechaza si la base no permite DML. Para continuar, escribí{' '}
-            <strong>{REINFORCED_CONFIRMATION_WORD}</strong>:
+            <strong style={{ fontFamily: MONO }}>{REINFORCED_CONFIRMATION_WORD}</strong>:
           </span>
           <input
             type="text"
@@ -313,7 +336,8 @@ export function ActionCard({ action, context, onDismiss, onExecuted, onApplied }
             onChange={e => setTypedConfirmation(e.target.value)}
             aria-label={`Escribí ${REINFORCED_CONFIRMATION_WORD} para confirmar`}
             style={{
-              fontSize: 12,
+              fontSize: FONT.base,
+              fontFamily: MONO,
               padding: '4px 6px',
               borderRadius: theme.borderRadiusSM,
               border: `1px solid ${theme.colorBorder}`,
@@ -321,20 +345,7 @@ export function ActionCard({ action, context, onDismiss, onExecuted, onApplied }
               color: theme.colorText,
             }}
           />
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              disabled={busy || typedConfirmation.trim().toUpperCase() !== REINFORCED_CONFIRMATION_WORD}
-              style={{
-                ...buttonBase(theme),
-                background: theme.colorError,
-                color: theme.colorWhite ?? '#fff',
-                opacity: typedConfirmation.trim().toUpperCase() === REINFORCED_CONFIRMATION_WORD ? 1 : 0.5,
-              }}
-              onClick={() => void executeNow(reinforcedPending.sql)}
-            >
-              Ejecutar de todos modos
-            </button>
+          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
             <button
               type="button"
               disabled={busy}
@@ -346,59 +357,56 @@ export function ActionCard({ action, context, onDismiss, onExecuted, onApplied }
             >
               Cancelar
             </button>
+            <button
+              type="button"
+              disabled={busy || typedConfirmation.trim().toUpperCase() !== REINFORCED_CONFIRMATION_WORD}
+              style={{
+                ...buttonDanger(theme),
+                opacity: typedConfirmation.trim().toUpperCase() === REINFORCED_CONFIRMATION_WORD ? 1 : 0.5,
+              }}
+              onClick={() => void executeNow(reinforcedPending.sql)}
+            >
+              Ejecutar de todos modos
+            </button>
           </div>
         </div>
       )}
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {action.type === 'propose_sql' && (
-          <>
-            <button
-              type="button"
-              disabled={busy}
-              style={buttonPrimary(theme)}
-              onClick={() =>
-                runApply({ type: 'propose_sql_apply', target: action.target, sql: action.sql, title: action.title })
-              }
-            >
-              {action.target === 'newTab' ? 'Abrir en nueva pestaña' : 'Aplicar cambio'}
-            </button>
-            <button type="button" disabled={busy} style={buttonWarning(theme)} onClick={() => runExecute(action.sql)}>
-              Ejecutar con confirmación
-            </button>
-          </>
-        )}
-        {(action.type === 'replace_selection' ||
-          action.type === 'replace_document' ||
-          action.type === 'insert_sql') && (
-          <>
-            <button type="button" disabled={busy} style={buttonPrimary(theme)} onClick={() => runApply(action)}>
-              Aplicar cambio
-            </button>
-            {/* Solo para 'replace_document': reemplaza el documento COMPLETO,
-                así que su SQL es una consulta coherente y segura de probar
-                antes de aplicar — mismo criterio que 'propose_sql'. 'replace_selection'
-                e 'insert_sql' pueden ser un fragmento (ej. una cláusula suelta),
-                no necesariamente ejecutable por sí solo. */}
-            {action.type === 'replace_document' && (
-              <button type="button" disabled={busy} style={buttonWarning(theme)} onClick={() => runExecute(action.sql)}>
-                Ejecutar con confirmación
-              </button>
-            )}
-          </>
-        )}
-        {action.type === 'create_tab' && (
-          <button type="button" disabled={busy} style={buttonPrimary(theme)} onClick={() => runApply(action)}>
-            Abrir en nueva pestaña
-          </button>
-        )}
-        {action.type === 'suggest_execution' && (
-          <button type="button" disabled={busy} style={buttonWarning(theme)} onClick={() => runExecute(action.sql)}>
-            Ejecutar con confirmación
-          </button>
-        )}
+      <div
+        style={{
+          ...barStyle,
+          justifyContent: 'flex-end',
+          flexWrap: 'wrap',
+          borderTop: `1px solid ${theme.colorBorderSecondary}`,
+          marginTop: reinforcedPending || error ? 8 : 0,
+        }}
+      >
         <button type="button" disabled={busy} style={buttonGhost(theme)} onClick={onDismiss}>
-          Descartar propuesta
+          Descartar
         </button>
+        {/* Ejecutar solo para SQL completo: 'propose_sql', 'replace_document' y
+            'suggest_execution'. 'replace_selection'/'insert_sql' pueden ser
+            un fragmento (una cláusula suelta) que no corre por sí solo. */}
+        {canExecute && (
+          <button
+            type="button"
+            disabled={busy}
+            style={buttonWarning(theme)}
+            onClick={() => runExecute(sql)}
+            aria-label="Ejecutar con confirmación"
+            title="Probar la consulta en SQL Lab (pide confirmación)"
+          >
+            <span style={{ color: theme.colorWarning }}>
+              <Icon name="play" size={11} />
+            </span>
+            Ejecutar
+          </button>
+        )}
+        {action.type !== 'suggest_execution' && (
+          <button type="button" disabled={busy} style={buttonPrimary(theme)} onClick={applyThis}>
+            {opensTab ? 'Abrir en nueva pestaña' : 'Aplicar al editor'}
+            <Icon name={opensTab ? 'filePlus' : 'apply'} size={12} />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -442,7 +450,7 @@ function usePanelHeight(ref: React.RefObject<HTMLElement | null>): number | unde
 
 export function SqlLabAssistantPanel(): React.ReactElement {
   const theme = themeNs.useTheme();
-  const [mode, setMode] = useState<AssistantMode>('create');
+  const [mode, setMode] = useState<AssistantMode>('review_document');
   const [userMessage, setUserMessage] = useState('');
   const [history, setHistory] = useState<ConversationMessage[]>([]);
   const [sending, setSending] = useState(false);
@@ -592,8 +600,11 @@ export function SqlLabAssistantPanel(): React.ReactElement {
       // aclaración) — `setMode`/`setUserMessage` son asíncronos, así que leer
       // el estado en ese mismo instante daría el valor todavía viejo.
       const effectiveMode = overrideMode ?? mode;
-      const text = overrideText ?? userMessage;
-      if (!text.trim() && effectiveMode !== 'explain_error') {
+      // Sin texto, los modos de revisión usan su pedido por defecto: elegir
+      // "Revisar y optimizar" y tocar "Generar" alcanza. "Generar SQL" sí
+      // necesita una descripción.
+      const text = overrideText ?? (userMessage.trim() || DEFAULT_PROMPTS[effectiveMode] || '');
+      if (!text.trim()) {
         return;
       }
       setSending(true);
@@ -691,7 +702,7 @@ export function SqlLabAssistantPanel(): React.ReactElement {
     // Corta cualquier pedido en vuelo: si no se cancela, su respuesta
     // llegaría igual y reaparecería en la conversación recién vaciada.
     pendingRequestRef.current?.abort();
-    setMode('create');
+    setMode('review_document');
     setUserMessage('');
     setSending(false);
     setProgressSteps([]);
@@ -732,11 +743,9 @@ export function SqlLabAssistantPanel(): React.ReactElement {
     <div
       ref={rootRef}
       style={{
-        padding: 16,
-        fontSize: 13,
+        fontSize: FONT.base,
         display: 'flex',
         flexDirection: 'column',
-        gap: 12,
         background: theme.colorBgContainer,
         color: theme.colorText,
         height: panelHeight ? `${panelHeight}px` : undefined,
@@ -746,90 +755,7 @@ export function SqlLabAssistantPanel(): React.ReactElement {
         boxSizing: 'border-box',
       }}
     >
-      <div
-        style={{
-          borderBottom: `1px solid ${theme.colorBorderSecondary}`,
-          paddingBottom: 12,
-          display: 'flex',
-          alignItems: 'flex-start',
-          gap: 10,
-        }}
-      >
-        <div
-          style={{
-            width: 32,
-            height: 32,
-            flexShrink: 0,
-            borderRadius: theme.borderRadius,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: theme.colorPrimaryBg,
-            color: theme.colorPrimary,
-            fontWeight: 700,
-          }}
-        >
-          SQL
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 700 }}>Asistente SQL Lab</div>
-          <div style={{ fontSize: 11.5, color: theme.colorTextSecondary, lineHeight: 1.45 }}>
-            Analiza la pestaña activa y propone cambios seguros.
-          </div>
-          <div style={{ marginTop: 5, fontSize: 10.5, color: theme.colorPrimary, fontWeight: 600 }}>
-            ● Pestaña activa · confirmación obligatoria
-          </div>
-          {sessionId && (
-            <div
-              style={{
-                marginTop: 4,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                fontSize: 10,
-                color: theme.colorTextTertiary,
-              }}
-              title={`Sesión: ${sessionId} — usar con /api/logs/sessions/<id>`}
-            >
-              <span
-                style={{
-                  fontFamily: "'SF Mono', Consolas, Monaco, monospace",
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  maxWidth: 150,
-                }}
-              >
-                {sessionId}
-              </span>
-              <button
-                type="button"
-                onClick={() => navigator.clipboard.writeText(sessionId).catch(() => {})}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  padding: 0,
-                  color: theme.colorTextTertiary,
-                  textDecoration: 'underline',
-                  fontSize: 10,
-                  cursor: 'pointer',
-                  flexShrink: 0,
-                }}
-              >
-                copiar
-              </button>
-            </div>
-          )}
-        </div>
-        <button
-          type="button"
-          style={buttonGhost(theme)}
-          onClick={handleNewSession}
-          title="Vacía el historial de esta conversación y sus propuestas. No modifica el SQL ya aplicado en el editor."
-        >
-          ↻ Nueva sesión
-        </button>
-      </div>
+      <PanelHeader sessionId={sessionId} onNewSession={handleNewSession} />
 
       {lastChange && (
         <div
@@ -837,44 +763,45 @@ export function SqlLabAssistantPanel(): React.ReactElement {
             flexShrink: 0,
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 8,
+            gap: 6,
+            margin: '8px 12px 0',
+            padding: '4px 4px 4px 9px',
             background: theme.colorWarningBg ?? theme.colorBgContainer,
             border: `1px solid ${theme.colorWarningBorder ?? theme.colorWarning}`,
-            borderRadius: theme.borderRadius,
-            padding: '7px 10px',
-            fontSize: 11.5,
+            borderRadius: theme.borderRadiusSM,
+            fontSize: FONT.small,
           }}
         >
-          <span>
-            {changeUndone ? 'Cambio deshecho en' : 'Último cambio aplicado en'}{' '}
-            <strong>{lastChange.tabTitle}</strong>.
+          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {changeUndone ? 'Cambio deshecho en' : 'Cambio aplicado en'} <strong>{lastChange.tabTitle}</strong>
           </span>
-          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-            {changeUndone ? (
-              <button type="button" style={buttonWarning(theme)} onClick={handleRedo}>
-                Rehacer
-              </button>
-            ) : (
-              <button type="button" style={buttonWarning(theme)} onClick={handleUndo}>
-                Deshacer
-              </button>
-            )}
-            <button
-              type="button"
-              style={buttonGhost(theme)}
-              onClick={() => {
-                setLastChange(undefined);
-                setChangeUndone(false);
-              }}
-            >
-              ✕
+          {changeUndone ? (
+            <button type="button" style={buttonWarning(theme)} onClick={handleRedo}>
+              Rehacer
             </button>
-          </div>
+          ) : (
+            <button type="button" style={buttonWarning(theme)} onClick={handleUndo}>
+              <Icon name="reset" size={11} />
+              Deshacer
+            </button>
+          )}
+          <button
+            type="button"
+            aria-label="Ocultar aviso de cambio aplicado"
+            style={{ ...buttonIcon(theme), padding: 3 }}
+            onClick={() => {
+              setLastChange(undefined);
+              setChangeUndone(false);
+            }}
+          >
+            <Icon name="close" size={12} />
+          </button>
         </div>
       )}
       {changeError && (
-        <components.Alert type="error" message={changeError} showIcon closable onClose={() => setChangeError(undefined)} />
+        <div style={{ margin: '8px 12px 0' }}>
+          <components.Alert type="error" message={changeError} showIcon closable onClose={() => setChangeError(undefined)} />
+        </div>
       )}
 
       <Conversation
@@ -897,56 +824,44 @@ export function SqlLabAssistantPanel(): React.ReactElement {
         elapsedSeconds={sending ? elapsedSeconds : undefined}
         sendDisabledReason={contextUnavailable}
         lastErrorMessage={lastError?.message}
+        diagnostics={proposal?.diagnostics ?? []}
+        hasProposal={(proposal?.actions.length ?? 0) > 0}
       >
-        {sendError && <components.Alert type="error" message={sendError} showIcon />}
-
+        {/* El error del pedido ya se muestra en el resumen del turno (tono
+            rojo): no se repite acá como alerta aparte. */}
         {proposal?.clarification && (
           <Clarification clarification={proposal.clarification} busy={sending} onSubmit={handleClarificationAnswer} />
         )}
 
-        {proposal && proposalContext && proposal.actions.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-            <span
-              style={{
-                fontSize: 11,
-                fontWeight: 700,
-                color: theme.colorTextSecondary,
-                textTransform: 'uppercase',
-                letterSpacing: 0.45,
-              }}
-            >
-              Propuesta lista para revisar
-            </span>
-            <Diagnostics diagnostics={proposal.diagnostics} />
-            {proposal.actions.map((action, index) => (
-              <ActionCard
-                // eslint-disable-next-line react/no-array-index-key
-                key={index}
-                action={action}
-                context={proposalContext}
-                onDismiss={() => dismissAction(index)}
-                onExecuted={setPendingQuery}
-                onApplied={handleApplied}
-              />
-            ))}
-          </div>
-        )}
-        {proposal && proposal.actions.length === 0 && <Diagnostics diagnostics={proposal.diagnostics} />}
+        {proposal &&
+          proposalContext &&
+          proposal.actions.map((action, index) => (
+            <ActionCard
+              // eslint-disable-next-line react/no-array-index-key
+              key={index}
+              action={action}
+              context={proposalContext}
+              onDismiss={() => dismissAction(index)}
+              onExecuted={setPendingQuery}
+              onApplied={handleApplied}
+            />
+          ))}
 
         {pendingQueryId && (
           <div
+            aria-live="polite"
             style={{
-              background: theme.colorWarningBg ?? theme.colorBgContainer,
-              border: `1px solid ${theme.colorWarningBorder ?? theme.colorWarning}`,
-              borderRadius: theme.borderRadius,
-              padding: '8px 10px',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'space-between',
               gap: 8,
+              padding: '5px 5px 5px 10px',
+              background: theme.colorWarningBg ?? theme.colorBgContainer,
+              border: `1px solid ${theme.colorWarningBorder ?? theme.colorWarning}`,
+              borderRadius: theme.borderRadiusSM,
+              fontSize: FONT.small,
             }}
           >
-            <span>Ejecutando consulta…</span>
+            <span style={{ flex: 1 }}>Ejecutando consulta…</span>
             <button type="button" style={buttonGhost(theme)} onClick={handleCancelQuery}>
               Cancelar
             </button>

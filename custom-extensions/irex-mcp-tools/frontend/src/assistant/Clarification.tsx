@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { theme as themeNs } from '@apache-superset/core';
+import { readableOn } from './ui';
 import type { AssistantClarification, AssistantClarificationQuestion } from '../contracts/assistant';
 
 const OTHER_OPTION = 'Otro: especificar';
@@ -138,7 +139,7 @@ export function Clarification({ clarification, busy, onSubmit }: ClarificationPr
           border: 'none',
           cursor: busy || !allAnswered ? 'default' : 'pointer',
           background: !busy && allAnswered ? theme.colorPrimary : theme.colorFillSecondary,
-          color: !busy && allAnswered ? (theme.colorWhite ?? '#fff') : theme.colorTextTertiary,
+          color: !busy && allAnswered ? readableOn(theme.colorPrimary) : theme.colorTextSecondary,
         }}
       >
         Continuar →
