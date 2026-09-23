@@ -101,8 +101,11 @@ request, `message`/`actions`/`diagnostics` en la respuesta, todo en
 
 ### Tool nueva disponible: `irex.get_sql_schema_context` (Fase 7)
 
-Ya está en producción de tools MCP (visible para el modelo, permiso
-`SQLLab` ya cubierto para los 8 usuarios del chat). Se agregó porque un
+**Corrección 2026-09-23:** solo está desplegada en **test**. En
+producción figura en `always_visible` y el permiso `SQLLab` ya cubre a los
+8 usuarios del chat, pero el `.supx` de `extensions/` es del 2026-09-09 y
+no contiene el módulo, así que el MCP de producción responde `Unknown tool`
+(ver entrada 17 del Registro de cambios). Se agregó porque un
 caso real mostró que el asistente no podía corregir un nombre de columna
 inventado sin conocer el esquema real. Dos modos:
 
@@ -958,6 +961,26 @@ Pendiente de esta fase: conectar `chatBackendAdapter.ts` al panel real
 ver Fase 5) y la portabilidad posterior a REST API de la extensión (no
 urgente mientras el proxy actual funcione).
 
+### Resultado, portabilidad (2026-09-23) — entrada 44 del Registro de cambios
+
+- ✅ REST API propia: `POST /extensions/irex/irex-mcp-tools/assistant/sql-lab`
+  (`backend/.../assistant_api.py`, registrada con `superset_core.rest_api`).
+- ✅ Rutas antiguas como compatibilidad: el proxy `/api/chat-widget/...`
+  sigue existiendo, y el panel lo usa solo si la ruta nueva da 404.
+- ✅ URLs y secretos solo desde el config del servidor; ningún secreto en
+  el bundle (verificado buscando los valores reales en `frontend/dist`).
+- ✅ Defensa en profundidad, punto 2: la API revalida sesión, CSRF,
+  `can_read` sobre `SQLLab` y el rol del chat.
+- ⚠️ Dos trampas del host, documentadas en `assistant_api.py`:
+  1. **Nunca** usar `class_permission_name` de una vista del host en una
+     API de extensión. `add_permissions_view` de FAB borra de todos los
+     roles los permisos de esa vista que la API no declare.
+  2. `RestApi` de `superset_core` queda exenta de CSRF salvo que declare
+     `csrf_exempt = False`.
+- Pendiente: el proxy viejo reenvía la cookie de sesión de Superset al
+  backend del chat. No se tocó porque lo usa el widget de dashboards; ver
+  la entrada 44.
+
 ## Fase 7 — Contexto de esquema opcional
 
 Implementar `irex.get_sql_schema_context` solo si las pruebas de generación
@@ -1040,6 +1063,33 @@ anotado en "Requerimientos para el agente del chat".
 - Permitir cancelar y relacionar eventos por `queryId`.
 - No crear un ciclo autónomo de corrección/ejecución en la primera versión.
 
+### Estado (2026-09-23)
+
+Revisión contra el código real, entradas 14–41 del `Registro de cambios.md`:
+
+- ✅ Diff antes de aplicar, pestaña nueva y deshacer/rehacer.
+- ✅ Ejecución solo con click + confirmación, vía `sqlLab.executeQuery()`.
+- ✅ No se envían resultados al modelo: `last_error` lleva solo mensaje y
+  SQL, y `check_query_nulls` devuelve conteos, nunca valores.
+- ✅ **Detección de DDL/DML con el parser en las tools MCP (41):**
+  `explain_query`/`check_query_nulls` usan `superset.sql.parse` + transacción
+  READ ONLY + rollback en PostgreSQL. Antes era una regex que dejaba pasar
+  DML dentro de un CTE, ejecutable con `EXPLAIN ANALYZE`.
+- ⚠️ Excepción deliberada al "sin ciclo autónomo": `explain_query` con
+  `analyze=true` y `check_query_nulls` ejecutan SELECT sin confirmación
+  (decisión del usuario, entradas 29/37). Quedan acotadas por la validación
+  de arriba.
+- ✅ Límite conservador (42): `limit: 1000` explícito en `executeConfirmed`.
+- ✅ Confirmación reforzada de DDL/DML (42): hay que escribir `EJECUTAR`.
+  La detección en el frontend es un escaneo conservador, no el parser de
+  Superset (que no está disponible en el navegador). La autoridad sigue
+  siendo SQL Lab en el servidor (`has_mutation()` + `allow_dml`).
+- ✅ Cancelación y correlación por `queryId`/`clientId` (42), incluido
+  `onQueryStop`.
+- Pendiente (no bloquea): tests automatizados del clasificador y del flujo
+  de confirmación. Van con la suite Jest/RTL de la Fase 9, que todavía no
+  existe.
+
 ## Fase 9 — Pruebas
 
 ### Frontend
@@ -1068,6 +1118,39 @@ Usar Jest y React Testing Library.
   validación/alerta de despliegue;
 - límites de contexto y de resultados.
 
+### Estado (2026-09-23) — entrada 43 del Registro de cambios
+
+Frontend (`npm test`, corre también dentro de `build-extension.sh`), 56 tests:
+- ✅ Contexto de pestaña activa y selección; sin pestaña activa.
+- ✅ Cambio de pestaña. El cierre de pestaña no tiene evento propio en el
+  panel: se cubre como cambio de pestaña activa.
+- ✅ Diff y aplicación sobre selección/documento; creación de pestaña.
+- ✅ Confirmación obligatoria antes de ejecutar, y confirmación reforzada.
+- ✅ Éxito, error y cancelación correlacionados por `queryId`.
+- ❌ No aplica tal cual: "panel ausente o bloqueado sin `can_read SQLLab`".
+  La API pública no expone permisos (`authentication` solo tiene
+  `getCSRFToken`). El panel solo se monta dentro de SQL Lab, y `/sqllab/`
+  sin sesión redirige al login (verificado).
+- ✅ Contratos malformados rechazados (13 casos).
+
+Backend/MCP (`scripts/e2e_rbac.py` contra el MCP de test real, 20/20):
+- ✅ Usuario con SQL Lab y base permitida: acceso.
+- ✅ SQL Lab sin acceso a la base: `DATABASE_SECURITY_ACCESS_ERROR`.
+- ✅ Dashboards sin SQL Lab (Gamma): `Permission denied` en todas las tools
+  de consulta.
+- ✅ `sub` JWT inexistente: rechazado sin caer en admin. También se rechazan
+  con 401: sin token, token vencido, firma inválida, audiencia incorrecta.
+- ❌ **Pendiente: dos usuarios con RLS distinto.** Test no tiene filtros RLS.
+  Opciones: crear un filtro RLS de prueba en test, o validarlo en solo
+  lectura en producción con usuarios reales (requiere autorización).
+- ⚠️ Endpoint REST sin permiso: el proxy `/api/chat-widget/...` da 403 sin
+  sesión (e2e) y sin el rol `acceso chat` (por lectura de código). La REST
+  API propia de la extensión no existe (Fase 6, portabilidad).
+- ✅ `MCP_RBAC_ENABLED=False` y otras derivas de config:
+  `scripts/check_deploy_config.py`. Usarlo en la Fase 10 **antes** de
+  promover a producción; hoy marca 3 errores en producción.
+- ✅ Límites de contexto y de resultados: tests unitarios del backend.
+
 ### Compatibilidad
 
 Para cada versión objetivo:
@@ -1091,6 +1174,25 @@ Para cada versión objetivo:
 6. Preparar reporte de resultados y pedir autorización antes de producción.
 7. En producción, reiniciar `superset.service` y
    `superset_mcp.service`; Superset no corre en Docker.
+
+### Estado (2026-09-23) — entrada 45 del Registro de cambios
+
+1. ✅ Tests y build desde la fuente canónica (tsc, 63 frontend, 259 backend).
+2. ✅ Contenido del `.supx` verificado. El candidato es idéntico al de
+   `extensions_test/`; se identificó qué cambia contra producción.
+3. ✅ Instalado en `extensions_test/`.
+4. ⏳ Reinicio de test: lo hace `scripts/deploy_fase10.sh`.
+5. ⏳ Validación en vivo con usuario permitido y sin SQL Lab: la hace el
+   mismo script (`e2e_rbac.py` completo). La integración en proceso ya dio
+   21/21.
+6. ✅ Reporte preparado (entrada 45). La autorización del usuario se pide
+   dentro del script antes de tocar producción.
+7. ⏳ Producción: el script instala, reinicia `superset.service` y
+   `superset_mcp.service` y valida. El respaldo está en `extensions/backups/`.
+
+Hallazgo que condiciona el despliegue: los servicios web tienen un
+PYTHONPATH que rompía el entrypoint de la extensión (ver entrada 45). Se
+evitó desde la extensión; la unidad systemd no se tocó.
 
 ## Orden recomendado
 

@@ -1,5 +1,427 @@
 ## Registro de cambios
 
+### 2026-09-23 (46) (Fase 10: despliegue a producción del asistente de SQL Lab)
+
+Cambio realizado:
+El usuario ejecutó `scripts/deploy_fase10.sh` y autorizó la promoción
+escribiendo PRODUCCION. Después reinició producción una vez más a mano, sin
+revertir nada.
+
+Archivos afectados:
+- `extensions/irex-mcp-tools-0.1.0.supx` (sha256 `40033386bef4090c…`,
+  idéntico al validado en `extensions_test/`)
+- `custom-extensions/irex-mcp-tools/irex-mcp-tools-0.1.0.supx` (copia fuente sincronizada)
+- `custom-src/login/mcp_widget.py` (lista blanca de la entrada 45, ya
+  activa en test y producción)
+- `Registro de cambios.md`
+
+Resultado:
+- Test en vivo: e2e completo 23/23, API nueva registrada (400 sin sesión,
+  no 404), config sin observaciones.
+- Producción: config sin observaciones con el .supx nuevo; humo 9/9
+  (tools/list completo con las 3 tools nuevas, `create_chart` oculta, admin
+  OK, sub inexistente rechazado, 4 casos 401, DELETE en CTE rechazado); API
+  nueva registrada en :8088; **permisos 1545 antes / 1545 después, sin
+  cambios en asignaciones rol-permiso**. Tras el reinicio manual extra
+  (11:13:39) se repitió el humo: 9/9, mismo hash.
+- Uso real inmediato (11:15, usuario admin): `rank_partitions` pasó el gate
+  RBAC. Un primer intento lo bloqueó el límite de tamaño de respuesta del
+  MCP (~33.7k tokens > 25k, guardarraíl preexistente); el reintento del
+  modelo terminó bien.
+- Con esto quedan activos en producción: los gates RBAC de la Fase 2, las
+  tools `get_sql_schema_context`/`explain_query`/`check_query_nulls` (se
+  termina el `Unknown tool` de la entrada 17), el panel de SQL Lab y su
+  REST API.
+
+Hallazgo preexistente, no causado por el despliegue: al arrancar, cada
+worker web registra `Failed to sync configuration to database: cannot
+import name 'BaseCommand' from partially initialized module
+'superset.commands.base'`. Por eso no se registran los listeners de
+TAGGING_SYSTEM ni se siembran los temas del sistema en ese arranque. Aparece
+en producción desde al menos el 2026-09-22 11:50 (con el .supx viejo del
+09-09) y en test desde el 2026-09-22 16:56. Se reproduce también con
+`PYTHONPATH` limpio, así que no es el problema de `key_value` de la entrada
+45. Queda para investigar aparte.
+
+Reversión (no usada): comandos en la salida de `deploy_fase10.sh` y
+respaldos en `extensions/backups/*20260923-pre-fase10*`.
+
+### 2026-09-23 (45) (lista blanca en el proxy del widget; causa raíz del entrypoint roto en el web; preparación de la Fase 10)
+
+Cambio realizado:
+(1) El proxy genérico `/api/chat-widget/api/*` pasa a reenviar una lista
+blanca de headers, con el visto bueno del agente del backend del chat.
+(2) Se encontró por qué la REST API de la entrada 44 no se registraba en el
+servicio web real, y se corrigió desde la extensión. (3) Se preparó el
+despliegue a producción con un script con compuertas.
+
+Archivos afectados:
+- `custom-src/login/mcp_widget.py` (symlink desde
+  `superset_v6_1_0/superset/security/`; lo comparten test y PRODUCCIÓN y
+  toma efecto al reiniciar cada servicio web)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/entrypoint.py`
+- `custom-extensions/irex-mcp-tools/scripts/e2e_rbac.py` (modo `--humo`,
+  `--clickhouse-db`, `--postgres-db`, chequeo de tools/list y de `create_chart`)
+- `custom-extensions/irex-mcp-tools/scripts/deploy_fase10.sh` (nuevo)
+- `extensions/backups/` (nuevo): `.supx` de producción previo, las dos
+  versiones de `mcp_widget.py` y una foto de los 1545 permisos rol-permiso
+  de producción. `EXTENSIONS_PATH` busca `*.supx` solo en el nivel superior
+  (`glob`, no recursivo), así que estos archivos no se cargan como extensión.
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)
+- `PLAN_ASISTENTE_SQL_LAB.md`, `Registro de cambios.md`
+
+Que cambia o corrige:
+- **Proxy del widget:** del navegador solo se reenvían `Content-Type`,
+  `Accept`, `Range` e `If-Range`. Antes era una lista negra y viajaban
+  `Cookie` (sesión de Superset), `User-Agent`, etc. El agente del backend
+  confirmó que no los lee (auth por `X-Service-Secret` + `X-Superset-User`)
+  y pidió `Range`/`If-Range` para las descargas parciales (206) de logs y
+  del observatorio. Los 4 headers de identidad/servicio los genera
+  Superset y nunca se copian del navegador. Verificado en proceso contra la
+  app de test, con el backend reemplazado por un doble (9/9): 206 con
+  `Content-Range` de vuelta, Range/If-Range/Accept reenviados, sin
+  Cookie/User-Agent/Authorization, identidad del servidor aunque el
+  navegador la falsifique, Gamma → 403.
+- **Causa raíz (anterior a esta sesión):** los servicios web
+  (`superset.service` y `superset_test.service`) tienen
+  `PYTHONPATH="$SUPERSET_DIR:$SUPERSET_DIR/superset"`. Por esa segunda ruta,
+  `superset/key_value/` tapa al paquete pip `key_value` que necesita
+  fastmcp. Resultado: fastmcp no importa, Superset se salta la inyección
+  del decorador MCP y el entrypoint de la extensión falla en el primer
+  `@tool` con "MCP tool decorator not initialized". El log de
+  `superset_test.service` lo muestra 160 veces desde el 2026-09-18. No se
+  notaba porque el web no usa las tools. Los servicios MCP tienen
+  `PYTHONPATH="$SUPERSET_DIR"` y no están afectados. Reproducido y aislado:
+  falla con ese PYTHONPATH con o sin gevent, y funciona sin la segunda ruta.
+- **Corrección en la extensión:** `entrypoint.py` registra la REST API del
+  asistente PRIMERO, aislada en `try/except`, y después las tools. En el
+  web la API queda registrada; en el MCP las 17 tools siguen
+  registrándose, y si una falla se ve igual que antes. Verificado con los
+  dos PYTHONPATH exactos de las unidades; la integración de la API con el
+  entorno del web da 21/21.
+- **No se tocó:** las unidades systemd (requiere sudo y afecta producción).
+  Corrección de fondo sugerida, a evaluar aparte: quitar `$SUPERSET_DIR/superset`
+  del PYTHONPATH de ambas unidades web, después de confirmar por qué se
+  agregó.
+- **Preparación de la Fase 10 (solo lectura sobre producción):**
+  - Los 7 usuarios activos con rol `acceso chat` tienen `can_read` y
+    `can_execute_sql_query` sobre `SQLLab`. Ningún usuario activo tiene SQL
+    Lab sin `acceso chat` (vería el panel pero recibiría 403).
+  - `check_deploy_config.py` del config de producción contra el candidato:
+    0 errores, 0 avisos.
+  - El candidato es idéntico byte a byte al `.supx` validado en test.
+  - Qué cambia en producción respecto del `.supx` del 2026-09-09: 7 archivos
+    nuevos (las tools `get_sql_schema_context`, `explain_query` y
+    `check_query_nulls`; `_progress`, `_sql_safety`, `_assistant_proxy`,
+    `assistant_api`) y el frontend del panel, que producción nunca tuvo (su
+    manifest apuntaba a un `remoteEntry` que no estaba en el ZIP). Además,
+    **se activan en producción los gates RBAC de la Fase 2** en las 7 tools
+    de datos: nunca se habían desplegado.
+  - El MCP de producción escucha en 5008 (`MCP_PORT` del `.env`); el
+    `MCP_SERVICE_PORT = 5009` del config de producción no se usa.
+  - `deploy_fase10.sh`: reinicia test, valida en vivo (e2e completo, API
+    registrada, config) y verifica que el candidato sea idéntico a lo
+    validado. Después **pide escribir PRODUCCION**, instala en
+    producción (restaura el anterior sin reiniciar si la config no valida),
+    reinicia y valida producción (e2e `--humo`, API registrada, permisos
+    comparados contra la foto previa). Imprime los comandos de reversión.
+
+Pendiente: ejecutar `deploy_fase10.sh` (requiere sudo interactivo, que no
+está disponible en esta sesión).
+
+### 2026-09-23 (44) (Fase 6, portabilidad: REST API propia de la extensión para el asistente de SQL Lab)
+
+Cambio realizado:
+El panel de SQL Lab deja de depender del proxy genérico de
+`custom-src/login/mcp_widget.py`, que vive fuera de la extensión. Ahora el
+`.supx` trae su propia REST API para hablar con el backend del chat.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/assistant_api.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/_assistant_proxy.py` (nuevo, lógica pura)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/entrypoint.py`
+- `custom-extensions/irex-mcp-tools/backend/tests/test_assistant_proxy.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/chatBackendAdapter.ts`
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/chatBackendTransport.test.ts` (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/supersetCoreMock.tsx`
+- `custom-extensions/irex-mcp-tools/docs/sql-lab-assistant-contract.md` (sección Transporte)
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)
+- `PLAN_ASISTENTE_SQL_LAB.md`, `Registro de cambios.md`
+
+Que cambia o corrige:
+- `POST /extensions/irex/irex-mcp-tools/assistant/sql-lab`, registrada con
+  `@api(resource_name="assistant")` de `superset_core.rest_api`. Antes de
+  reenviar exige sesión de Superset, token CSRF, `can_read` sobre `SQLLab`
+  y el rol `CHAT_WIDGET_REQUIRED_ROLE` (si está configurado). Reenvía a
+  `<CHAT_WIDGET_API_URL>/api/sql-lab-assistant` con los mismos headers de
+  identidad que el proxy viejo, siempre tomados de la sesión del servidor.
+  Del navegador solo pasan `Content-Type` y `Accept`: nada de `Cookie`.
+  Streaming SSE conservado; la conexión aguas arriba se cierra siempre.
+- `entrypoint.py` importa la API al final y dentro de `try/except`.
+  Cualquier excepción en el entrypoint aborta el registro de la extensión
+  entera, y un fallo de la API HTTP no debe dejar sin tools al MCP.
+- Frontend: endpoint nuevo + `X-CSRFToken` vía
+  `authentication.getCSRFToken()` de la API pública. Solo ante un 404
+  (ruta no registrada, el pedido no llegó al chat) reintenta una vez por el
+  proxy viejo; 401/403/400/502 no se reintentan.
+- **Trampa 1 del host, evitada (grave):** el decorador `@api` llama
+  `appbuilder._add_permission(view, True)`, y `add_permissions_view` de
+  FAB 5.0.2 borra de TODOS los roles los permisos de esa vista que la API
+  no declare. Con `class_permission_name="SQLLab"`, cada arranque habría
+  eliminado `can_execute_sql_query` (todo el RBAC del MCP), `can_format_sql`,
+  etc. La API usa una vista propia (`IrexSqlLabAssistant`, sin permisos
+  declarados) y valida en el handler con permisos que ya existen, así que
+  no hay que otorgar nada a ningún rol.
+- **Trampa 2 del host, corregida:** `flask_appbuilder.api.BaseApi` trae
+  `csrf_exempt = True` y `superset_core.rest_api.RestApi` no lo
+  sobreescribe (las APIs de Superset sí, con `BaseSupersetApiMixin`). La
+  primera versión aceptaba POST sin token CSRF (verificado). Se fijó
+  `csrf_exempt = False`.
+- **Hallazgo sin corregir (fuera de alcance):** el proxy viejo
+  `chat_widget_api_proxy` reenvía al backend del chat todos los headers
+  del navegador salvo `host`/`content-length`/`authorization`/identidad,
+  incluida la **cookie de sesión de Superset**. No se tocó porque lo usa el
+  widget de dashboards; conviene pasarlo a lista blanca coordinándolo con
+  el agente del chat.
+
+Verificación:
+- 63 tests frontend (7 nuevos de transporte) y 259 backend (7 nuevos).
+- Integración en proceso contra la app real de test (config de test,
+  `extensions_test/`), con el backend del chat reemplazado por un doble:
+  21/21. Ruta registrada solo con POST; sin sesión rechazado; admin sin
+  CSRF → 400 y no llega al chat; admin con CSRF → 200 con SSE reenviado
+  tal cual, identidad del servidor aunque el navegador falsifique
+  `X-Superset-User`/`X-Service-Secret`, sin `Cookie` ni `X-CSRFToken` hacia
+  el chat, body intacto y conexión cerrada; Gamma → 403; SQL Lab sin rol
+  del chat → 403; GET → 405.
+- Permisos de `SQLLab` en la metadata de test **idénticos** antes y después
+  de cargar la extensión (15/15); la vista `IrexSqlLabAssistant` quedó con
+  0 permisos. Las 17 tools irex siguen registrándose en el MCP.
+- Incidente menor durante el diagnóstico: una corrida sin el doble mandó un
+  POST con body `{}` al backend del chat de test real. Lo rechazó con 422
+  por validación, sin llamar al modelo.
+
+Pendiente reiniciar `superset_test.service`/`superset_mcp_test.service`
+(sudo interactivo no disponible en esta sesión) y probar el panel en el
+navegador.
+
+### 2026-09-23 (43) (Fase 9: tests de frontend con Jest, e2e de RBAC contra el MCP de test, chequeo de config de despliegue)
+
+Cambio realizado:
+Se implementó la Fase 9 del plan del asistente SQL Lab: suite de tests de
+frontend (no existía; `npm test` era un placeholder), pruebas end-to-end de
+RBAC/autenticación contra el MCP de test real, y la validación de config
+de despliegue que pedía el plan para `MCP_RBAC_ENABLED=False`.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/package.json` / `package-lock.json`
+  (devDependencies: jest 29, jest-environment-jsdom, babel-jest,
+  @babel/core, @babel/preset-env, @testing-library/react 12 (React 17 del
+  host), @testing-library/jest-dom, @types/jest; script `test`)
+- `custom-extensions/irex-mcp-tools/frontend/jest.config.js` (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/` (nuevo):
+  `supersetCoreMock.tsx`, `executionRisk.test.ts`, `chatBackendAdapter.test.ts`,
+  `sqlLabAdapter.test.ts`, `ActionCard.test.tsx`, `SqlLabAssistantPanel.test.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlLabAssistantPanel.tsx`
+  (solo `export` de `ActionCard`, para testearla aislada)
+- `custom-extensions/irex-mcp-tools/scripts/build-extension.sh` (paso nuevo
+  3/7: tests de frontend; un fallo corta el empaquetado)
+- `custom-extensions/irex-mcp-tools/scripts/e2e_rbac.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/scripts/check_deploy_config.py` (nuevo)
+- `superset_config_test.py` (`rank_partitions` agregada a `always_visible`)
+- Metadata de TEST (`~/.superset/superset.db`): usuario nuevo
+  `irex_e2e_sqllab_sin_base`, solo con rol `sql_lab`, contraseña aleatoria
+  descartada. Existe únicamente para el caso "SQL Lab sin acceso a la base".
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)
+- `PLAN_ASISTENTE_SQL_LAB.md`, `Registro de cambios.md`
+
+Que cambia o corrige:
+- **Frontend, 56 tests.** `@apache-superset/core` en node_modules solo trae
+  tipos (el host lo inyecta por Module Federation), así que se reemplaza con
+  un doble controlable. Ese doble respeta que los eventos de consulta del
+  host quedan atados a la pestaña activa al suscribirse. Cubre los casos
+  del plan: contexto de pestaña activa y selección, sin pestaña activa,
+  aplicación sobre selección/documento, creación de pestaña, diff visible
+  antes de aplicar, confirmación obligatoria (cancelar el confirm no
+  ejecuta; confirmar pasa SQL exacto + límite 1000), confirmación reforzada
+  para DDL/DML, correlación por `queryId`, cancelación con `onQueryStop`,
+  cambio de pestaña (limpia el aviso y re-suscribe sin dejar listeners
+  colgados), `Permission denied` sin reintentos y 13 contratos malformados
+  rechazados. Mutación de control: al desactivar la correlación por
+  `queryId`, fallan exactamente los 2 tests que la cubren.
+- **E2E contra `superset_mcp_test.service` (build 42), 20 PASS / 0 FAIL:**
+  - admin: `get_sql_schema_context` OK.
+  - `irex_e2e_sqllab_sin_base`: pasa RBAC pero recibe
+    `DATABASE_SECURITY_ACCESS_ERROR` en schema/explain/nulls.
+  - Gamma (`test`): `Permission denied` en las 9 tools con gate visibles;
+    `search_dashboards` (sin gate) funciona, como control de que el
+    rechazo no es global.
+  - `sub` inexistente: rechazado ("no existe en Superset"), sin caer en
+    admin. Ningún config define `MCP_DEV_USERNAME`.
+  - Sin token, token vencido, firma inválida y audiencia incorrecta: 401.
+  - `explain_query` con DELETE en un CTE: `INVALID_SQL_ERROR` (la entrada 41
+    funciona end-to-end).
+  - Hallazgo de protocolo: los rechazos (sub inexistente, Permission denied)
+    llegan como contenido de texto con `isError: false`. Es el mismo
+    contrato de texto libre ya documentado para el chat, no un cambio.
+- **Deriva de config encontrada:** `rank_partitions` estaba registrada y en
+  el `always_visible` de producción, pero faltaba en el de test, así que el
+  modelo no la veía en test. Corregido en `superset_config_test.py` (toma
+  efecto al reiniciar `superset_mcp_test.service`).
+- **`check_deploy_config.py`** (solo lectura, nunca imprime secretos):
+  falla si `MCP_AUTH_ENABLED` no es True, si `MCP_RBAC_ENABLED=False`, si
+  `MCP_DEV_USERNAME` está definido, si falta la exclusión de
+  `create_chart` (`exclude_tags: guardar`), si `always_visible` no coincide
+  con las tools registradas, o (con `--supx`) si una tool visible no está
+  en el .supx a desplegar. Resultado hoy: test sin observaciones tras el
+  fix. **Producción: 3 errores**, porque `get_sql_schema_context`,
+  `explain_query` y `check_query_nulls` están en `always_visible` pero no
+  en el `.supx` del 2026-09-09. Es el `Unknown tool` de la entrada 17 y se
+  resuelve con el despliegue de la Fase 10.
+- **Proxy REST del asistente:** sin sesión responde 403 (verificado con
+  curl contra test). Con sesión pero sin el rol `acceso chat` también da
+  403 (`CHAT_WIDGET_REQUIRED_ROLE` en ambos configs), verificado leyendo el
+  código, no e2e. La REST API propia de la extensión (portabilidad de la
+  Fase 6) todavía no existe.
+
+No cubierto: "dos usuarios con RLS distinto". Test no tiene ningún filtro
+RLS configurado; hace falta decidir cómo probarlo (ver el plan).
+
+Build: `./scripts/build-extension.sh` completo en 7 pasos (tsc estricto,
+56 tests frontend, 252 tests backend, webpack, .supx validado sin tests
+adentro) sobre `extensions_test/`.
+
+### 2026-09-23 (42) (Fase 8: límite de filas, confirmación reforzada para DDL/DML y correlación por queryId)
+
+Cambio realizado:
+Se completaron los tres puntos pendientes de la Fase 8 del plan del
+asistente SQL Lab, del lado del frontend ("Ejecutar con confirmación").
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/sqlLabAdapter.ts`
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/executionRisk.ts` (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlLabAssistantPanel.tsx`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `PLAN_ASISTENTE_SQL_LAB.md` (estado de la Fase 8)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- **Límite:** `executeConfirmed` pasa `limit: ASSISTANT_EXECUTION_LIMIT`
+  (1000, igual a `DEFAULT_SQLLAB_LIMIT`). Antes heredaba el límite elegido
+  en la pestaña, que puede llegar a `SQL_MAX_ROW` (100000). La API pública
+  no expone el límite de la pestaña, así que no se puede tomar el mínimo de
+  los dos. El diálogo de confirmación ahora menciona el máximo de filas.
+- **Confirmación reforzada:** `executionRisk.ts` clasifica el SQL antes de
+  ejecutar. Descarta comentarios (`--`, `/* */`, `{# #}`), strings (con `''`
+  escapado), dollar-quoting e identificadores entre comillas, y marca
+  "reforzada" si hay varias sentencias o alguna palabra de escritura/DDL
+  (INSERT, UPDATE, DELETE, MERGE, INTO, CREATE, DROP, ALTER, TRUNCATE,
+  ANALYZE, CALL, etc.; la lista completa está en el archivo). Los bloques
+  Jinja `{% %}`/`{{ }}` se escanean igual, porque pueden generar SQL. En ese
+  caso, en vez de `window.confirm`, la tarjeta muestra un bloque rojo con
+  los motivos y exige escribir `EJECUTAR` para habilitar el botón.
+  **Desviación consciente del plan** ("detectar con el parser de Superset"):
+  el parser es Python y la API pública del frontend no lo expone. Por eso
+  es un escaneo conservador que ante la duda pide reforzada; un falso
+  positivo solo cuesta una confirmación extra. **La autoridad sigue siendo
+  el servidor:** SQL Lab revalida cada ejecución con `SQLScript.has_mutation()`
+  y rechaza DML si la base no tiene `allow_dml` (hoy solo 3 de 17 bases lo
+  tienen: Cubo PSQL, Postgresql Curri y StarRocks).
+- **Correlación por `queryId`:** `executeQuery` devuelve el `id` de la
+  query, que es el mismo `clientId` de los eventos (verificado en
+  `superset-frontend/src/core/sqlLab/index.ts`). El aviso
+  "Ejecutando…/Cancelar" y el "Consulta ejecutada correctamente" ahora solo
+  reaccionan a la consulta lanzada por el asistente. Antes, cualquier
+  ejecución manual en la pestaña los limpiaba o disparaba. Los errores de
+  cualquier consulta de la pestaña siguen habilitando "Corregir error" a
+  propósito (comportamiento de la entrada 21). Se agregó `onQueryStop`
+  (antes, cancelar dejaba el aviso colgado hasta otro evento). Al cambiar
+  de pestaña se limpia el aviso: los eventos son tab-scoped y ya no
+  llegarían; la consulta sigue en su pestaña, con su botón nativo de parar.
+- Eventos tipados con `sqlLab.QueryResultContext`/`QueryErrorResultContext`/
+  `QueryContext` en vez de `unknown` + casts.
+
+Verificación: `npx tsc --noEmit` estricto OK. El clasificador se probó con
+Node contra 16 casos (8 lecturas legítimas, entre ellas columnas
+`update_date`, keywords dentro de strings, comentarios, `$$`, identificadores
+entre comillas y Jinja; y 8 riesgosos, entre ellos DELETE en un CTE,
+SELECT INTO, FOR UPDATE, EXPLAIN ANALYZE, varias sentencias tras un `''`
+escapado y DML dentro de `{% if %}`): 16/16. No hay suite de tests de
+frontend (Fase 9 pendiente), así que estos casos no quedaron como test
+automatizado. `build-extension.sh` completo (252 tests backend, webpack,
+.supx validado) sobre `extensions_test/`. Pendiente reiniciar los servicios
+de test (sudo interactivo no disponible en esta sesión) y probar en el
+navegador.
+
+### 2026-09-23 (41) (seguridad: explain_query/check_query_nulls — parser de Superset + transacción READ ONLY en vez de regex)
+
+Cambio realizado:
+Hueco encontrado al revisar la Fase 8 del plan del asistente SQL Lab. La
+validación de "solo lectura" de `irex.explain_query` e `irex.check_query_nulls`
+era una regex de prefijo (`^(SELECT|WITH)`), que dejaba pasar
+`WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d`. Con
+`analyze=true` en PostgreSQL, `EXPLAIN ANALYZE` EJECUTA ese DELETE, y la
+tool corre sin confirmación del usuario. Verificado contra PostgreSQL real
+(base de metadatos, `DELETE ... WHERE false` dentro de una transacción
+revertida): sin READ ONLY, el DELETE en el CTE se ejecuta. Hoy no se
+persistía por un efecto colateral (la conexión cruda NullPool se cierra sin
+commit y psycopg2 descarta la transacción; ninguna base tiene
+`AUTOCOMMIT` en `engine_params`, revisado en la metadata), pero eso deja de
+valer apenas alguien lo configure.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/_sql_safety.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/explain_query.py`
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/check_query_nulls.py`
+- `custom-extensions/irex-mcp-tools/backend/tests/conftest.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/backend/tests/test_sql_safety.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/backend/tests/test_explain_query.py`
+- `custom-extensions/irex-mcp-tools/backend/tests/test_check_query_nulls.py`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `PLAN_ASISTENTE_SQL_LAB.md` (estado de la Fase 8)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- `_sql_safety.py`, tres capas compartidas por las dos tools:
+  1. `validate_read_only_query(sql, engine)`: `superset.sql.parse.SQLScript`
+     con el dialecto real del motor (el mismo parser que usa SQL Lab para
+     `allow_dml`). Exige una sola sentencia, `has_mutation()` falso (recorre
+     el AST completo, CTEs incluidos), que sea `exp.Query`
+     (SELECT/WITH/UNION/subconsulta), sin `SELECT ... INTO` y sin
+     `FOR UPDATE/SHARE`. Si el parser no puede analizar el SQL, se rechaza,
+     nunca se ejecuta.
+  2. PostgreSQL: `SET TRANSACTION READ ONLY` antes de ejecutar. Frena lo que
+     el parser no ve (DML dentro de funciones, etc.). Es válido después del
+     prequery `set search_path` de Superset (verificado en Postgres real).
+  3. PostgreSQL: `rollback()` explícito en `finally`, sin depender del cierre.
+- Hallazgo verificado en Postgres real: `EXPLAIN ANALYZE SELECT ... INTO t`
+  CREA la tabla incluso dentro de una transacción READ ONLY. Solo la capa 1
+  lo frena, por eso el chequeo de `exp.Into` es explícito.
+- La validación ahora corre DESPUÉS de resolver el motor (necesita el
+  dialecto). Sigue siendo después del render de Jinja.
+- Efecto colateral bueno: casos legítimos que la regex rechazaba
+  (`SELECT ';' AS x`, `(SELECT 1)`, un comentario con `;`) ahora pasan.
+- ClickHouse/MSSQL/Oracle: solo capa 1 (sus EXPLAIN no ejecutan la
+  consulta; la muestra de `check_query_nulls` sí, pero sin transacciones
+  equivalentes en ClickHouse).
+- Límite conocido, documentado en el módulo: nada de esto frena efectos que
+  salen de la transacción (`dblink_exec`, funciones que escriben archivos).
+  Eso depende de los permisos del usuario de conexión de cada base.
+- Tests: `conftest.py` carga el parser REAL antes de que los tests
+  stubbeen `superset`, así la validación se prueba contra el parser de
+  verdad. 38 tests nuevos (252 en total): 28 parametrizados de
+  permitidos/rechazados por dialecto, rechazo sin ejecutar nada (CTE con
+  DELETE, SELECT INTO, Jinja que renderiza a DML), rollback siempre
+  (también cuando el EXPLAIN falla) y ClickHouse sin sentencias de
+  transacción.
+
+Build: `./scripts/build-extension.sh` (TypeScript sin cambios, 252 tests
+backend, webpack, .supx reconstruido y validado) sobre `extensions_test/`.
+Pendiente reiniciar `superset_mcp_test.service` (sudo interactivo no
+disponible en esta sesión) y producción con autorización explícita (el
+`.supx` de producción es del 2026-09-09 y todavía no tiene ninguna de estas
+tools).
+
 ### 2026-09-22 (40) (temporizador de la consulta en curso)
 
 Cambio realizado:

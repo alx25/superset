@@ -1,12 +1,14 @@
 /**
  * Adaptador hacia el backend externo del chat (Fase 6 del plan).
  *
- * El navegador nunca habla directo con el backend del chat — todo pasa por
- * el proxy same-origin que ya expone `custom-src/login/mcp_widget.py`
- * (`/api/chat-widget/api/<subpath>`), que agrega automáticamente los
- * headers de identidad (`X-Superset-User`, etc.) a partir de la sesión de
- * Flask ya autenticada. Este módulo no gestiona JWT ni headers de auth: el
- * `fetch` same-origin con `credentials: 'same-origin'` alcanza.
+ * El navegador nunca habla directo con el backend del chat. Desde la Fase 6
+ * (portabilidad) el pedido va a la REST API propia de la extensión
+ * (`backend/.../assistant_api.py`), que valida usuario y permisos y agrega
+ * los headers de identidad (`X-Superset-User`, etc.) desde la sesión de
+ * Flask. Si esa ruta no está registrada (404), se cae al proxy genérico
+ * viejo de `custom-src/login/mcp_widget.py` como capa de compatibilidad.
+ * Este módulo no gestiona JWT ni secretos: solo cookie de sesión
+ * same-origin + token CSRF de la API pública.
  *
  * Convierte entre el `camelCase` de `contracts/assistant.ts` (uso interno
  * del panel) y el `snake_case` del wire format documentado en
@@ -20,11 +22,17 @@ import type {
   AssistantDiagnostic,
   AssistantResponse,
 } from '../contracts/assistant';
+import { authentication } from '@apache-superset/core';
 import { ASSISTANT_CONTRACT_VERSION } from '../contracts/assistant';
 
-/** Subpath detrás de `/api/chat-widget/api/` para este contrato. Coordinar
- * cualquier cambio de nombre con el agente que mantiene el backend del chat. */
-export const SQL_LAB_ASSISTANT_ENDPOINT = '/api/chat-widget/api/sql-lab-assistant';
+/** REST API de la extensión (`@api(resource_name="assistant")` +
+ * `@expose("/sql-lab")`, bajo `/extensions/<publisher>/<name>`). */
+export const SQL_LAB_ASSISTANT_ENDPOINT = '/extensions/irex/irex-mcp-tools/assistant/sql-lab';
+
+/** Proxy genérico viejo, fuera de la extensión. Solo se usa si la ruta de
+ * arriba responde 404 (no registrada). El backend del chat recibe lo mismo
+ * por cualquiera de las dos: ambas terminan en `/api/sql-lab-assistant`. */
+export const LEGACY_SQL_LAB_ASSISTANT_ENDPOINT = '/api/chat-widget/api/sql-lab-assistant';
 
 export class AssistantBackendError extends Error {
   constructor(
@@ -392,13 +400,22 @@ export async function requestAssistantResponse(
   signal?: AbortSignal,
   onProgress?: AssistantProgressListener,
 ): Promise<AssistantResponse> {
-  const httpResponse = await fetch(endpoint, {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-    body: JSON.stringify(serializeContext(context, conversationKey)),
-    signal,
-  });
+  const body = JSON.stringify(serializeContext(context, conversationKey));
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'text/event-stream' };
+  // La REST API de la extensión queda bajo el CSRF normal de Superset (el
+  // proxy viejo estaba exento por config). Sin token el POST daría 400.
+  const csrfToken = await authentication.getCSRFToken().catch(() => undefined);
+  if (csrfToken) headers['X-CSRFToken'] = csrfToken;
+
+  const post = (url: string) =>
+    fetch(url, { method: 'POST', credentials: 'same-origin', headers, body, signal });
+
+  let httpResponse = await post(endpoint);
+  // 404 = la ruta no está registrada; el pedido no llegó al backend del
+  // chat, así que reintentar por el proxy viejo no duplica nada.
+  if (httpResponse.status === 404 && endpoint === SQL_LAB_ASSISTANT_ENDPOINT) {
+    httpResponse = await post(LEGACY_SQL_LAB_ASSISTANT_ENDPOINT);
+  }
 
   if (!httpResponse.ok) {
     const rawText = await httpResponse.text();

@@ -23,9 +23,9 @@ SQL), esta tool puede ejecutar la consulta real de forma AUTÓNOMA cuando
 `analyze=true` en PostgreSQL (EXPLAIN ANALYZE corre la consulta de verdad
 para medir tiempos/filas reales) — sin que el usuario confirme nada, porque
 el LLM la llama sola como parte de su razonamiento. Esto es aceptable
-únicamente porque `sql` está restringido a SELECT/WITH de una sola
-sentencia (mismo criterio que valida `_validate_sql` en sql_analysis.py):
-nunca puede terminar en una escritura. No se relaja esta validación bajo
+únicamente porque `sql` pasa por las tres capas de `_sql_safety.py`
+(parser de Superset + transacción READ ONLY + rollback explícito en
+PostgreSQL) — nunca puede terminar en una escritura persistida. No se relaja esta validación bajo
 ninguna circunstancia — se valida DESPUÉS de renderizar Jinja (ver abajo),
 nunca antes, para no dejar pasar algo que solo "parece" de lectura antes de
 resolverse.
@@ -51,7 +51,6 @@ compartido del servidor MCP.
 """
 
 import json
-import re
 import uuid
 from typing import Any
 
@@ -61,26 +60,9 @@ from pydantic import AliasChoices, BaseModel, Field
 from superset_core.mcp.decorators import tool
 
 from ._progress import report_phase, run_with_heartbeat
+from ._sql_safety import begin_read_only, rollback_quietly, validate_read_only_query
 
 _SUPPORTED_ENGINES = {"postgresql", "clickhouse", "clickhousedb", "mssql", "oracle"}
-
-_SELECT_ONLY_RE = re.compile(r"^\s*(SELECT|WITH)\b", re.I)
-
-
-def _validate_select_only(sql: str) -> str | None:
-    stripped = sql.strip().rstrip(";").strip()
-    if not stripped:
-        return "sql no puede estar vacío."
-    if ";" in stripped:
-        return "sql no puede contener múltiples sentencias separadas por ';'."
-    if not _SELECT_ONLY_RE.match(stripped):
-        return (
-            "sql debe ser una consulta de solo lectura — debe empezar con SELECT "
-            "o WITH. No se permite EXPLAIN de INSERT/UPDATE/DELETE/DDL: así "
-            "'analyze' nunca puede terminar ejecutando una escritura."
-        )
-    return None
-
 
 class ExplainQueryRequest(BaseModel):
     database_id: int = Field(..., description="ID de la base de datos (ver irex.get_query_context o el desplegable de SQL Lab).")
@@ -156,19 +138,26 @@ def _run_statements(database: Any, request: "ExplainQueryRequest", statements: l
     """
     from superset.utils import core as utils
 
+    engine = database.db_engine_spec.engine
     results: list[list[tuple]] = []
     with database.get_raw_connection(
         catalog=request.catalog,
         schema=request.schema_name,
         source=utils.QuerySource.SQL_LAB,
     ) as conn:
-        cursor = conn.cursor()
-        for statement in statements:
-            cursor.execute(statement)
-            try:
-                results.append(list(cursor.fetchall()))
-            except Exception:  # noqa: BLE001 - p. ej. SET ... no devuelve filas
-                results.append([])
+        try:
+            cursor = conn.cursor()
+            # Capas 2 y 3 de `_sql_safety` (Postgres): transacción READ ONLY y
+            # rollback siempre — EXPLAIN ANALYZE ejecuta la consulta de verdad.
+            begin_read_only(cursor, engine)
+            for statement in statements:
+                cursor.execute(statement)
+                try:
+                    results.append(list(cursor.fetchall()))
+                except Exception:  # noqa: BLE001 - p. ej. SET ... no devuelve filas
+                    results.append([])
+        finally:
+            rollback_quietly(conn, engine)
     return results
 
 
@@ -308,10 +297,6 @@ def _prepare_explain(
     except Exception as e:  # noqa: BLE001 - error real de templating, no de conexión
         return _error(request, str(e), "JINJA_TEMPLATE_ERROR")
 
-    validation_error = _validate_select_only(sql)
-    if validation_error:
-        return _error(request, validation_error, "INVALID_SQL_ERROR")
-
     engine = database.db_engine_spec.engine
     handler = _ENGINE_HANDLERS.get(engine)
     if handler is None:
@@ -321,6 +306,12 @@ def _prepare_explain(
             f"{', '.join(sorted(_SUPPORTED_ENGINES))}).",
             "ENGINE_NOT_SUPPORTED_ERROR",
         )
+
+    # Parser de Superset con el dialecto real del motor (ver `_sql_safety`),
+    # no regex: detecta DML dentro de CTEs, SELECT ... INTO, FOR UPDATE.
+    validation_error = validate_read_only_query(sql, engine)
+    if validation_error:
+        return _error(request, validation_error, "INVALID_SQL_ERROR")
 
     sql = sql.strip().rstrip(";").strip()
     return database, engine, handler, sql

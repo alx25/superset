@@ -14,6 +14,7 @@ import {
 } from '../adapters/chatBackendAdapter';
 import {
   applyAction,
+  ASSISTANT_EXECUTION_LIMIT,
   cancelQuery,
   clearRevealedChange,
   executeConfirmed,
@@ -21,6 +22,7 @@ import {
   NoActiveTabError,
   onActiveTabChanged,
   onQueryFail,
+  onQueryStop,
   onQuerySuccess,
   readActiveContext,
   revealChange,
@@ -28,6 +30,7 @@ import {
 import { Clarification } from './Clarification';
 import { Conversation, type ConversationMessage } from './Conversation';
 import { Diagnostics } from './Diagnostics';
+import { assessExecutionRisk, REINFORCED_CONFIRMATION_WORD, type ExecutionRisk } from './executionRisk';
 import { SqlDiff } from './SqlDiff';
 
 type PanelTheme = ReturnType<typeof themeNs.useTheme>;
@@ -152,7 +155,7 @@ interface ActionCardProps {
   onApplied: (snapshot: AppliedSnapshot) => void;
 }
 
-function ActionCard({ action, context, onDismiss, onExecuted, onApplied }: ActionCardProps): React.ReactElement {
+export function ActionCard({ action, context, onDismiss, onExecuted, onApplied }: ActionCardProps): React.ReactElement {
   const theme = themeNs.useTheme();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -213,12 +216,16 @@ function ActionCard({ action, context, onDismiss, onExecuted, onApplied }: Actio
     [onDismiss, onApplied, context],
   );
 
-  const runExecute = useCallback(
+  // Confirmación reforzada en curso (DDL/DML o varias sentencias, ver
+  // `executionRisk.ts`): se resuelve dentro de la tarjeta, no con
+  // `window.confirm`, para mostrar los motivos y exigir escribir la palabra.
+  const [reinforcedPending, setReinforcedPending] = useState<{ sql: string; risk: ExecutionRisk } | undefined>();
+  const [typedConfirmation, setTypedConfirmation] = useState('');
+
+  const executeNow = useCallback(
     async (sql: string) => {
-      const confirmed = window.confirm(
-        `Vas a ejecutar este SQL contra la base de la pestaña activa:\n\n${sql}\n\n¿Confirmar ejecución?`,
-      );
-      if (!confirmed) return;
+      setReinforcedPending(undefined);
+      setTypedConfirmation('');
       setBusy(true);
       setError(undefined);
       try {
@@ -236,6 +243,23 @@ function ActionCard({ action, context, onDismiss, onExecuted, onApplied }: Actio
       }
     },
     [onExecuted],
+  );
+
+  const runExecute = useCallback(
+    (sql: string) => {
+      const risk = assessExecutionRisk(sql);
+      if (risk.reinforced) {
+        setTypedConfirmation('');
+        setReinforcedPending({ sql, risk });
+        return;
+      }
+      const confirmed = window.confirm(
+        `Vas a ejecutar este SQL contra la base de la pestaña activa ` +
+          `(máximo ${ASSISTANT_EXECUTION_LIMIT} filas):\n\n${sql}\n\n¿Confirmar ejecución?`,
+      );
+      if (confirmed) void executeNow(sql);
+    },
+    [executeNow],
   );
 
   const before = diffBeforeFor(action, context);
@@ -257,6 +281,74 @@ function ActionCard({ action, context, onDismiss, onExecuted, onApplied }: Actio
       <strong style={{ fontSize: 13.5, color: theme.colorText }}>Propuesta · {titleFor(action)}</strong>
       <SqlDiff before={before} after={sql} />
       {error && <components.Alert type="error" message={error} showIcon />}
+      {reinforcedPending && (
+        <div
+          style={{
+            border: `1px solid ${theme.colorErrorBorder ?? theme.colorError}`,
+            background: theme.colorErrorBg ?? theme.colorBgContainer,
+            borderRadius: theme.borderRadius,
+            padding: 10,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            fontSize: 12,
+          }}
+        >
+          <strong style={{ color: theme.colorErrorText ?? theme.colorError }}>
+            Este SQL puede modificar datos o estructura
+          </strong>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            {reinforcedPending.risk.reasons.map(reason => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+          <span style={{ color: theme.colorTextSecondary }}>
+            Se ejecuta contra la base de la pestaña activa y no se puede deshacer desde el asistente. Superset lo
+            rechaza si la base no permite DML. Para continuar, escribí{' '}
+            <strong>{REINFORCED_CONFIRMATION_WORD}</strong>:
+          </span>
+          <input
+            type="text"
+            value={typedConfirmation}
+            onChange={e => setTypedConfirmation(e.target.value)}
+            aria-label={`Escribí ${REINFORCED_CONFIRMATION_WORD} para confirmar`}
+            style={{
+              fontSize: 12,
+              padding: '4px 6px',
+              borderRadius: theme.borderRadiusSM,
+              border: `1px solid ${theme.colorBorder}`,
+              background: theme.colorBgContainer,
+              color: theme.colorText,
+            }}
+          />
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              disabled={busy || typedConfirmation.trim().toUpperCase() !== REINFORCED_CONFIRMATION_WORD}
+              style={{
+                ...buttonBase(theme),
+                background: theme.colorError,
+                color: theme.colorWhite ?? '#fff',
+                opacity: typedConfirmation.trim().toUpperCase() === REINFORCED_CONFIRMATION_WORD ? 1 : 0.5,
+              }}
+              onClick={() => void executeNow(reinforcedPending.sql)}
+            >
+              Ejecutar de todos modos
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              style={buttonGhost(theme)}
+              onClick={() => {
+                setReinforcedPending(undefined);
+                setTypedConfirmation('');
+              }}
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         {action.type === 'propose_sql' && (
           <>
@@ -363,6 +455,13 @@ export function SqlLabAssistantPanel(): React.ReactElement {
   const [proposalContext, setProposalContext] = useState<AssistantContext | undefined>();
   const [lastError, setLastError] = useState<AssistantLastError | undefined>();
   const [pendingQueryId, setPendingQueryId] = useState<string | undefined>();
+  // Copia sincrónica para los listeners de SQL Lab, que no deben
+  // re-suscribirse cada vez que cambia la consulta en curso.
+  const pendingQueryIdRef = useRef<string | undefined>(undefined);
+  const setPendingQuery = useCallback((queryId: string | undefined) => {
+    pendingQueryIdRef.current = queryId;
+    setPendingQueryId(queryId);
+  }, []);
   const [lastQueryEvent, setLastQueryEvent] = useState<QueryEventStatus | undefined>();
   const [contextUnavailable, setContextUnavailable] = useState<string | undefined>();
   const [activeTabVersion, setActiveTabVersion] = useState(0);
@@ -417,6 +516,11 @@ export function SqlLabAssistantPanel(): React.ReactElement {
       // cambio.
       setLastChange(undefined);
       setChangeUndone(false);
+      // Los eventos de la consulta en curso llegan solo a los listeners de
+      // SU pestaña; tras cambiar de pestaña el aviso "Ejecutando…" quedaría
+      // colgado para siempre. La consulta sigue corriendo en su pestaña, que
+      // tiene su propio botón nativo para detenerla.
+      setPendingQuery(undefined);
       // onQuerySuccess/onQueryFail SÍ son tab-scoped: el filtro de a qué
       // pestaña pertenecen queda fijado en el momento en que se registra el
       // listener (ver superset-frontend/src/core/sqlLab/index.ts, `predicate`).
@@ -426,7 +530,7 @@ export function SqlLabAssistantPanel(): React.ReactElement {
       setActiveTabVersion(v => v + 1);
     });
     return () => activeTabDisposable.dispose();
-  }, []);
+  }, [setPendingQuery]);
 
   const handleUndo = useCallback(async () => {
     if (!lastChange) return;
@@ -453,29 +557,33 @@ export function SqlLabAssistantPanel(): React.ReactElement {
   }, [lastChange]);
 
   // Tab-scoped: se re-suscribe cada vez que cambia la pestaña activa.
+  // Correlación por `clientId` (Fase 8): el aviso "Ejecutando…/Cancelar" y
+  // el de éxito solo reaccionan a la consulta que lanzó el asistente — antes
+  // cualquier ejecución manual de la misma pestaña los limpiaba o disparaba.
+  // Los errores de CUALQUIER consulta de la pestaña siguen alimentando
+  // `lastError`/"Corregir error" a propósito (entrada 21 del registro).
   React.useEffect(() => {
-    const successDisposable = onQuerySuccess(() => {
+    const isOwnQuery = (clientId: string) => clientId === pendingQueryIdRef.current;
+    const successDisposable = onQuerySuccess(result => {
+      if (!isOwnQuery(result.clientId)) return;
       setLastQueryEvent({ kind: 'success' });
-      setPendingQueryId(undefined);
+      setPendingQuery(undefined);
     });
-    const failDisposable = onQueryFail((result: unknown) => {
-      const message =
-        typeof result === 'object' && result !== null && 'errorMessage' in result
-          ? String((result as { errorMessage: unknown }).errorMessage)
-          : 'La consulta falló.';
-      const executedSql =
-        typeof result === 'object' && result !== null && 'executedSql' in result
-          ? String((result as { executedSql: unknown }).executedSql ?? '')
-          : '';
+    const failDisposable = onQueryFail(result => {
+      const message = result.errorMessage || 'La consulta falló.';
       setLastQueryEvent({ kind: 'error', message });
-      setLastError({ message, sql: executedSql });
-      setPendingQueryId(undefined);
+      setLastError({ message, sql: result.executedSql ?? '' });
+      if (isOwnQuery(result.clientId)) setPendingQuery(undefined);
+    });
+    const stopDisposable = onQueryStop(query => {
+      if (isOwnQuery(query.clientId)) setPendingQuery(undefined);
     });
     return () => {
       successDisposable.dispose();
       failDisposable.dispose();
+      stopDisposable.dispose();
     };
-  }, [activeTabVersion]);
+  }, [activeTabVersion, setPendingQuery]);
 
   const handleSend = useCallback(
     async (overrideMode?: AssistantMode, overrideText?: string) => {
@@ -817,7 +925,7 @@ export function SqlLabAssistantPanel(): React.ReactElement {
                 action={action}
                 context={proposalContext}
                 onDismiss={() => dismissAction(index)}
-                onExecuted={setPendingQueryId}
+                onExecuted={setPendingQuery}
                 onApplied={handleApplied}
               />
             ))}

@@ -1,0 +1,1545 @@
+Access requests|menu_access|Admin
+Access requests|menu_access|Alpha
+Access requests|menu_access|Coop Admin
+Access requests|menu_access|Gamma
+Access requests|menu_access|Inteligencia
+Access requests|menu_access|Permiso para visualizar
+Access requests|menu_access|Permiso para visualizar copy
+AccessRequestsModelView|can_add|Admin
+AccessRequestsModelView|can_add|Alpha
+AccessRequestsModelView|can_add|Coop Admin
+AccessRequestsModelView|can_add|Gamma
+AccessRequestsModelView|can_delete|Admin
+AccessRequestsModelView|can_delete|Alpha
+AccessRequestsModelView|can_delete|Coop Admin
+AccessRequestsModelView|can_delete|Gamma
+AccessRequestsModelView|can_edit|Admin
+AccessRequestsModelView|can_edit|Alpha
+AccessRequestsModelView|can_edit|Coop Admin
+AccessRequestsModelView|can_edit|Gamma
+AccessRequestsModelView|can_list|Admin
+AccessRequestsModelView|can_list|Alpha
+AccessRequestsModelView|can_list|Coop Admin
+AccessRequestsModelView|can_list|Gamma
+AccessRequestsModelView|can_show|Admin
+AccessRequestsModelView|can_show|Alpha
+AccessRequestsModelView|can_show|Coop Admin
+AccessRequestsModelView|can_show|Gamma
+AccessRequestsModelView|can_show|Permiso para visualizar
+AccessRequestsModelView|muldelete|Admin
+AccessRequestsModelView|muldelete|Alpha
+AccessRequestsModelView|muldelete|Coop Admin
+Action Log|menu_access|Admin
+Action Log|menu_access|Alpha
+Action Log|menu_access|Coop Admin
+Action Log|menu_access|Gamma
+Action Log|menu_access|Inteligencia
+AdvancedDataType|can_read|Admin
+AdvancedDataType|can_read|Alpha
+AdvancedDataType|can_read|Coop Admin
+AdvancedDataType|can_read|Gamma
+AdvancedDataType|can_read|Inteligencia
+AdvancedDataType|can_read|Permiso basico
+AdvancedDataType|can_read|Permiso para visualizar
+AdvancedDataType|can_read|Permiso para visualizar copy
+Alerts & Report|menu_access|Admin
+Alerts & Report|menu_access|Alpha
+Alerts & Report|menu_access|Coop Admin
+Alerts & Report|menu_access|Inteligencia
+all_database_access|all_database_access|Admin
+all_database_access|all_database_access|Alpha
+all_database_access|all_database_access|Coop Admin
+all_datasource_access|all_datasource_access|Admin
+all_datasource_access|all_datasource_access|Alpha
+all_datasource_access|all_datasource_access|Coop Admin
+all_datasource_access|all_datasource_access|Inteligencia
+all_query_access|all_query_access|Admin
+all_query_access|all_query_access|Coop Admin
+Annotation|can_read|Admin
+Annotation|can_read|Alpha
+Annotation|can_read|Coop Admin
+Annotation|can_read|Inteligencia
+Annotation|can_read|Permiso basico
+Annotation|can_read|Permiso para visualizar
+Annotation|can_read|Permiso para visualizar copy
+Annotation|can_write|Admin
+Annotation|can_write|Alpha
+Annotation|can_write|Coop Admin
+Annotation|can_write|Inteligencia
+Annotation|can_write|Permiso basico
+Annotation|can_write|Permiso para visualizar
+Annotation|can_write|Permiso para visualizar copy
+Annotation Layers|menu_access|Admin
+Annotation Layers|menu_access|Alpha
+Annotation Layers|menu_access|Coop Admin
+Annotation Layers|menu_access|Inteligencia
+Api|can_query|Admin
+Api|can_query|Alpha
+Api|can_query|Coop Admin
+Api|can_query|Gamma
+Api|can_query|Inteligencia
+Api|can_query|Permiso basico
+Api|can_query|Permiso para visualizar
+Api|can_query|Permiso para visualizar copy
+Api|can_query_form_data|Admin
+Api|can_query_form_data|Alpha
+Api|can_query_form_data|Coop Admin
+Api|can_query_form_data|Gamma
+Api|can_query_form_data|Inteligencia
+Api|can_query_form_data|Permiso basico
+Api|can_query_form_data|Permiso para visualizar
+Api|can_query_form_data|Permiso para visualizar copy
+Api|can_time_range|Admin
+Api|can_time_range|Alpha
+Api|can_time_range|Coop Admin
+Api|can_time_range|Gamma
+Api|can_time_range|Inteligencia
+Api|can_time_range|Permiso basico
+Api|can_time_range|Permiso para visualizar
+Api|can_time_range|Permiso para visualizar copy
+AsyncEventsRestApi|can_list|Admin
+AsyncEventsRestApi|can_list|Alpha
+AsyncEventsRestApi|can_list|Coop Admin
+AsyncEventsRestApi|can_list|Gamma
+AsyncEventsRestApi|can_list|Inteligencia
+AsyncEventsRestApi|can_list|Permiso basico
+AsyncEventsRestApi|can_list|Permiso para visualizar
+AsyncEventsRestApi|can_list|Permiso para visualizar copy
+AvailableDomains|can_read|Admin
+AvailableDomains|can_read|Alpha
+AvailableDomains|can_read|Coop Admin
+AvailableDomains|can_read|Gamma
+CacheRestApi|can_invalidate|Admin
+CacheRestApi|can_invalidate|Alpha
+CacheRestApi|can_invalidate|Coop Admin
+CacheRestApi|can_invalidate|Gamma
+CacheRestApi|can_invalidate|Inteligencia
+CacheRestApi|can_invalidate|Permiso basico
+CacheRestApi|can_invalidate|Permiso para visualizar
+CacheRestApi|can_invalidate|Permiso para visualizar copy
+Chart|can_export|Admin
+Chart|can_export|Alpha
+Chart|can_export|Coop Admin
+Chart|can_export|Gamma
+Chart|can_export|Inteligencia
+Chart|can_export|Permiso basico
+Chart|can_export|Permiso para visualizar
+Chart|can_read|Admin
+Chart|can_read|Alpha
+Chart|can_read|Coop Admin
+Chart|can_read|Gamma
+Chart|can_read|Inteligencia
+Chart|can_read|Permiso basico
+Chart|can_read|Permiso para visualizar
+Chart|can_read|Permiso para visualizar copy
+Chart|can_tag|Admin
+Chart|can_tag|Alpha
+Chart|can_tag|Gamma
+Chart|can_warm_up_cache|Admin
+Chart|can_warm_up_cache|Coop Admin
+Chart|can_write|Admin
+Chart|can_write|Alpha
+Chart|can_write|Coop Admin
+Chart|can_write|Gamma
+Chart|can_write|Permiso para visualizar
+Chart|can_write|Permiso para visualizar copy
+Charts|menu_access|Admin
+Charts|menu_access|Alpha
+Charts|menu_access|Coop Admin
+Charts|menu_access|Gamma
+Charts|menu_access|Inteligencia
+[ClickHouse Connet 192(docker)].[API auditoria](id:317)|datasource_access|Reporte Auditoria API
+[ClickHouse Connet 192(docker)].[API auditoria - Presencia por producto](id:319)|datasource_access|Reporte Auditoria API
+[ClickHouse Connet 192(docker)].[Base calculo rutas Oracle](id:126)|datasource_access|Ver Rutas y despachos Gerencial
+[ClickHouse Connet 192(docker)].[base_consolidad_sin_cliente](id:316)|datasource_access|ventas_exportaciones_kg
+[ClickHouse Connet 192(docker)].[Base_EF_PSQL](id:13)|datasource_access|Coop Admin
+[ClickHouse Connet 192(docker)].[Base_EF_PSQL](id:13)|datasource_access|Ver Analisis Enfirme
+[ClickHouse Connet 192(docker)].[Base PNS V3](id:273)|datasource_access|Gerencias
+[ClickHouse Connet 192(docker)].[Base PNS V3](id:273)|datasource_access|Ver PNS Gerencia
+[ClickHouse Connet 192(docker)].[Base PNS V3](id:273)|datasource_access|Ver PNS Responsables
+[ClickHouse Connet 192(docker)].[Cobertura indirectos y Metas](id:70)|datasource_access|Gerencias
+[ClickHouse Connet 192(docker)].[Cobertura indirectos y Metas](id:70)|datasource_access|Ver Matriz Cobert Distribuidores
+[ClickHouse Connet 192(docker)].[Corte Ventas Clickhouse](id:3)|datasource_access|Gerencias
+[ClickHouse Connet 192(docker)].[Corte Ventas Clickhouse](id:3)|datasource_access|Ver Análisis peso de ventas
+[ClickHouse Connet 192(docker)].[Corte Ventas Clickhouse](id:3)|datasource_access|Ver Corte de Ventas
+[ClickHouse Connet 192(docker)].[Cumplimiento_Plan](id:7)|datasource_access|Gerencias
+[ClickHouse Connet 192(docker)].[Cumplimiento_Plan](id:7)|datasource_access|Ver Cumplimiento Plan Ventas
+[ClickHouse Connet 192(docker)].[data_scanner](id:318)|datasource_access|Ver Data Scanner
+[ClickHouse Connet 192(docker)].[eventos_servicio_cliente](id:123)|datasource_access|Ver reportes servicio al cliente
+[ClickHouse Connet 192(docker)].[Faltantes CR por vendedor](id:92)|datasource_access|Ver Faltantes
+[ClickHouse Connet 192(docker)].[indirectos_cv](id:344)|datasource_access|ventas directos e indirectos
+[ClickHouse Connet 192(docker)].[Lento_mov_actualizada](id:346)|datasource_access|lento movimiento
+[ClickHouse Connet 192(docker)].[matriz_cobertura](id:58)|datasource_access|Gerencias
+[ClickHouse Connet 192(docker)].[matriz_cobertura](id:58)|datasource_access|Ver Matriz Cobert Distribuidores
+[ClickHouse Connet 192(docker)].[Metas PNC](id:345)|datasource_access|Ver reporte PNC al cierre
+[ClickHouse Connet 192(docker)].[plan_inductivo](id:347)|datasource_access|plan_induccion
+[ClickHouse Connet 192(docker)].[Retail Link pedidos + ef](id:356)|datasource_access|Ver volumen pedidos semanales WM
+[ClickHouse Connet 192(docker)].[Revisión sell in y plan 4 años](id:271)|datasource_access|Ver Cumplimiento Plan Ventas
+[ClickHouse Connet 192(docker)].[ventas_comerciales_contraloria](id:297)|datasource_access|ventas_contraloria
+[ClickHouse Connet 192(docker)].[ventas_monteazul](id:307)|datasource_access|monteazul
+Consultas Guardadas|menu_access|Admin
+Consultas Guardadas|menu_access|Alpha
+Consultas Guardadas|menu_access|Coop Admin
+Consultas Guardadas|menu_access|Gamma
+Consultas Guardadas|menu_access|Inteligencia
+CssTemplate|can_read|Admin
+CssTemplate|can_read|Alpha
+CssTemplate|can_read|Coop Admin
+CssTemplate|can_read|Gamma
+CssTemplate|can_read|Inteligencia
+CssTemplate|can_read|Permiso basico
+CssTemplate|can_read|Permiso para visualizar
+CssTemplate|can_read|Permiso para visualizar copy
+CssTemplate|can_write|Admin
+CssTemplate|can_write|Alpha
+CssTemplate|can_write|Coop Admin
+CssTemplate|can_write|Inteligencia
+CssTemplate|can_write|Permiso basico
+CssTemplate|can_write|Permiso para visualizar
+CssTemplate|can_write|Permiso para visualizar copy
+CSS Templates|menu_access|Admin
+CSS Templates|menu_access|Alpha
+CSS Templates|menu_access|Coop Admin
+CSS Templates|menu_access|Inteligencia
+[Cubo PSQL].[base control de ofertas](id:155)|datasource_access|Ver reporte ofertas
+[Cubo PSQL].[Base indicadores](id:86)|datasource_access|ver indicadores
+[Cubo PSQL].[base pns responsable](id:278)|datasource_access|Ver PNS Responsables
+[Cubo PSQL].[Base Reportes Hannia](id:129)|datasource_access|Ver reporte indicadores Hannia
+[Cubo PSQL].[Braulio Ventas Brutas](id:88)|datasource_access|Ver reportes Braulio
+[Cubo PSQL].[Calculo de rutas - Plan/Real kg](id:152)|datasource_access|Ver Rutas y despachos Gerencial
+[Cubo PSQL].[Consulta Control Kilometraje](id:51)|datasource_access|Dep. Financiero
+[Cubo PSQL].[Consulta Control Kilometraje](id:51)|datasource_access|Ver reporte de kilometraje
+[Cubo PSQL].[Consulta dbo.Base Reportes Hannia](id:130)|datasource_access|Ver reporte indicadores Hannia
+[Cubo PSQL].[Cumpl. Plan Dist](id:63)|datasource_access|Gerencias
+[Cubo PSQL].[Cumpl. Plan Dist](id:63)|datasource_access|Ver Cumpl. Plan Dist
+[Cubo PSQL].[Devoluciones](id:29)|datasource_access|Gerencias
+[Cubo PSQL].[Devoluciones](id:29)|datasource_access|Ver Devoluciones
+[Cubo PSQL].[Efectividad de venta grupos para sell out](id:202)|datasource_access|ver avance sell out
+[Cubo PSQL].[estadistica_anual_jd](id:164)|datasource_access|ver Estadística Anual Junta Directiva
+[Cubo PSQL].[Exactitud Acumulada ESV](id:195)|datasource_access|Ver exactitud SV
+[Cubo PSQL].[Exactitud acumulada](id:175)|datasource_access|Ver exactitud Nacional
+[Cubo PSQL].[Exactitud_Pronostico_ESV](id:194)|datasource_access|Ver exactitud SV
+[Cubo PSQL].[Exactitud_Pronostico](id:100)|datasource_access|Inteligencia
+[Cubo PSQL].[Exactitud_Pronostico](id:100)|datasource_access|Ver exactitud Nacional
+[Cubo PSQL].[Fecha Actual](id:93)|datasource_access|Ver Faltantes
+[Cubo PSQL].[Historico Cambios de precio PSMT](id:76)|datasource_access|Ver Precios PSMT
+[Cubo PSQL].[innovacionBD](id:83)|datasource_access|Ver innovación
+[Cubo PSQL].[Matriz cobertura Directos](id:62)|datasource_access|Gerencias
+[Cubo PSQL].[Matriz cobertura Directos](id:62)|datasource_access|Ver Matriz Cobert Directos
+[Cubo PSQL].[mv_nip](id:248)|datasource_access|coberturas cadenas
+[Cubo PSQL].[Nivel de Servicio](id:87)|datasource_access|Ver Nivel de Servicio
+[Cubo PSQL].[nivel_inv_planeacion](id:8)|datasource_access|Ver Saldo Inv Planeación
+[Cubo PSQL].[Nivel servicio acumulado](id:176)|datasource_access|Ver Nivel de Servicio
+[Cubo PSQL].[Precios PSMT](id:75)|datasource_access|Ver Precios PSMT
+[Cubo PSQL].[Preliminar Cuotas](id:84)|datasource_access|ver cuotas trimestrales
+[Cubo PSQL].[Reporte Pedidos SV](id:104)|datasource_access|Ver Reporte Pedidos SV
+[Cubo PSQL].[reporte_real_acum](id:233)|datasource_access|Ver reporte de comparativa de ventas reales
+[Cubo PSQL].[Revision de Plan anual](id:198)|datasource_access|Ver Cumplimiento Plan Ventas
+[Cubo PSQL].[Rutas Cilindro Produccion](id:97)|datasource_access|Ver Reportes produccion
+[Cubo PSQL].[Tiempos de Pedidos](id:1)|datasource_access|Ver Tiempos de Pedido
+[Cubo PSQL].[Variables Mes](id:85)|datasource_access|ver cuotas trimestrales
+[Cubo PSQL].[Ventas_Cjs_Br](id:91)|datasource_access|Ver reportes Braulio
+[Cubo PSQL].[Ventas Indirectas Franklin](id:99)|datasource_access|Ver Ventas Ind Franklin
+[Cubo PSQL].[Vista_inv_dist_V2](id:48)|datasource_access|Ver Compra sugerida Dist
+CurrentUserRestApi|can_read|Admin
+CurrentUserRestApi|can_read|Alpha
+CurrentUserRestApi|can_read|Gamma
+CurrentUserRestApi|can_read|Permiso basico
+CurrentUserRestApi|can_write|Admin
+CurrentUserRestApi|can_write|Alpha
+CurrentUserRestApi|can_write|Gamma
+Dashboard|can_cache_dashboard_screenshot|Admin
+Dashboard|can_cache_dashboard_screenshot|Alpha
+Dashboard|can_cache_dashboard_screenshot|Gamma
+Dashboard|can_cache_dashboard_screenshot|Permiso basico
+Dashboard|can_delete_embedded|Admin
+Dashboard|can_delete_embedded|Alpha
+Dashboard|can_delete_embedded|Coop Admin
+Dashboard|can_delete_embedded|Gamma
+Dashboard|can_delete_embedded|Inteligencia
+Dashboard|can_delete_embedded|Permiso basico
+Dashboard|can_delete_embedded|Permiso para visualizar
+Dashboard|can_delete_embedded|Permiso para visualizar copy
+Dashboard|can_drill|Admin
+Dashboard|can_drill|Alpha
+Dashboard|can_drill|Gamma
+Dashboard|can_export|Admin
+Dashboard|can_export|Alpha
+Dashboard|can_export|Coop Admin
+Dashboard|can_export|Gamma
+Dashboard|can_export|Inteligencia
+Dashboard|can_export|Permiso basico
+Dashboard|can_export_as_example|Admin
+Dashboard|can_export_as_example|Alpha
+Dashboard|can_export_as_example|Gamma
+Dashboard|can_get_embedded|Admin
+Dashboard|can_get_embedded|Alpha
+Dashboard|can_get_embedded|Coop Admin
+Dashboard|can_get_embedded|Gamma
+Dashboard|can_get_embedded|Inteligencia
+Dashboard|can_get_embedded|Permiso basico
+Dashboard|can_get_embedded|Permiso para visualizar
+Dashboard|can_get_embedded|Permiso para visualizar copy
+Dashboard|can_put_chart_customizations|Admin
+Dashboard|can_put_chart_customizations|Alpha
+Dashboard|can_put_chart_customizations|Gamma
+Dashboard|can_read|Admin
+Dashboard|can_read|Alpha
+Dashboard|can_read|Coop Admin
+Dashboard|can_read|Gamma
+Dashboard|can_read|Inteligencia
+Dashboard|can_read|Permiso basico
+Dashboard|can_read|Permiso para visualizar
+Dashboard|can_read|Permiso para visualizar copy
+Dashboard|can_set_embedded|Admin
+Dashboard|can_set_embedded|Coop Admin
+Dashboard|can_tag|Admin
+Dashboard|can_tag|Alpha
+Dashboard|can_tag|Gamma
+Dashboard|can_view_chart_as_table|Admin
+Dashboard|can_view_chart_as_table|Alpha
+Dashboard|can_view_chart_as_table|Gamma
+Dashboard|can_view_chart_as_table|Permiso para visualizar
+Dashboard|can_view_query|Admin
+Dashboard|can_view_query|Alpha
+Dashboard|can_view_query|Gamma
+Dashboard|can_write|Admin
+Dashboard|can_write|Alpha
+Dashboard|can_write|Coop Admin
+Dashboard|can_write|Gamma
+Dashboard|can_write|Inteligencia
+Dashboard|can_write|Permiso para visualizar copy
+DashboardFilterStateRestApi|can_read|Admin
+DashboardFilterStateRestApi|can_read|Alpha
+DashboardFilterStateRestApi|can_read|Coop Admin
+DashboardFilterStateRestApi|can_read|Gamma
+DashboardFilterStateRestApi|can_read|Inteligencia
+DashboardFilterStateRestApi|can_read|Permiso basico
+DashboardFilterStateRestApi|can_read|Permiso para visualizar
+DashboardFilterStateRestApi|can_read|Permiso para visualizar copy
+DashboardFilterStateRestApi|can_write|Admin
+DashboardFilterStateRestApi|can_write|Alpha
+DashboardFilterStateRestApi|can_write|Coop Admin
+DashboardFilterStateRestApi|can_write|Gamma
+DashboardFilterStateRestApi|can_write|Inteligencia
+DashboardFilterStateRestApi|can_write|Permiso basico
+DashboardFilterStateRestApi|can_write|Permiso para visualizar
+DashboardFilterStateRestApi|can_write|Permiso para visualizar copy
+DashboardPermalinkRestApi|can_read|Admin
+DashboardPermalinkRestApi|can_read|Alpha
+DashboardPermalinkRestApi|can_read|Coop Admin
+DashboardPermalinkRestApi|can_read|Gamma
+DashboardPermalinkRestApi|can_read|Inteligencia
+DashboardPermalinkRestApi|can_read|Permiso basico
+DashboardPermalinkRestApi|can_read|Permiso para visualizar
+DashboardPermalinkRestApi|can_read|Permiso para visualizar copy
+DashboardPermalinkRestApi|can_write|Admin
+DashboardPermalinkRestApi|can_write|Alpha
+DashboardPermalinkRestApi|can_write|Coop Admin
+DashboardPermalinkRestApi|can_write|Gamma
+DashboardPermalinkRestApi|can_write|Inteligencia
+DashboardPermalinkRestApi|can_write|Permiso basico
+DashboardPermalinkRestApi|can_write|Permiso para visualizar
+DashboardPermalinkRestApi|can_write|Permiso para visualizar copy
+Dashboards|menu_access|Admin
+Dashboards|menu_access|Alpha
+Dashboards|menu_access|Coop Admin
+Dashboards|menu_access|Gamma
+Dashboards|menu_access|Inteligencia
+Dashboards|menu_access|Permiso basico
+Dashboards|menu_access|Permiso para visualizar
+Dashboards|menu_access|Permiso para visualizar copy
+Data|menu_access|Admin
+Data|menu_access|Alpha
+Data|menu_access|Coop Admin
+Data|menu_access|Gamma
+Data|menu_access|Inteligencia
+Database|can_export|Admin
+Database|can_export|Coop Admin
+Database|can_read|Admin
+Database|can_read|Alpha
+Database|can_read|Coop Admin
+Database|can_read|Gamma
+Database|can_read|Permiso para visualizar
+Database|can_read|Permiso para visualizar copy
+Database|can_read|sql_lab
+Database|can_upload|Admin
+Database|can_upload|Alpha
+Database|can_upload|Coop Admin
+Database|can_upload|Inteligencia
+Database|can_upload|Permiso para visualizar
+Database|can_upload|Permiso para visualizar copy
+Database|can_write|Admin
+Database|can_write|Coop Admin
+Database|can_write|Inteligencia
+Databases|menu_access|Admin
+Databases|menu_access|Alpha
+Databases|menu_access|Coop Admin
+Databases|menu_access|Gamma
+Databases|menu_access|Inteligencia
+Dataset|can_duplicate|Admin
+Dataset|can_duplicate|Alpha
+Dataset|can_duplicate|Coop Admin
+Dataset|can_export|Admin
+Dataset|can_export|Alpha
+Dataset|can_export|Coop Admin
+Dataset|can_export|Inteligencia
+Dataset|can_export|Permiso para visualizar
+Dataset|can_export|Permiso para visualizar copy
+Dataset|can_get_drill_info|Admin
+Dataset|can_get_drill_info|Alpha
+Dataset|can_get_drill_info|Gamma
+Dataset|can_get_or_create_dataset|Admin
+Dataset|can_get_or_create_dataset|Alpha
+Dataset|can_get_or_create_dataset|Coop Admin
+Dataset|can_read|Admin
+Dataset|can_read|Alpha
+Dataset|can_read|Coop Admin
+Dataset|can_read|Gamma
+Dataset|can_read|Inteligencia
+Dataset|can_read|Permiso basico
+Dataset|can_read|Permiso para visualizar
+Dataset|can_read|Permiso para visualizar copy
+Dataset|can_warm_up_cache|Admin
+Dataset|can_warm_up_cache|Coop Admin
+Dataset|can_write|Admin
+Dataset|can_write|Alpha
+Dataset|can_write|Coop Admin
+Dataset|can_write|Inteligencia
+Dataset|can_write|Permiso para visualizar
+Dataset|can_write|Permiso para visualizar copy
+Datasets|menu_access|Admin
+Datasets|menu_access|Alpha
+Datasets|menu_access|Coop Admin
+Datasets|menu_access|Gamma
+Datasets|menu_access|Inteligencia
+Datasource|can_external_metadata|Admin
+Datasource|can_external_metadata|Alpha
+Datasource|can_external_metadata|Coop Admin
+Datasource|can_external_metadata|Gamma
+Datasource|can_external_metadata|Inteligencia
+Datasource|can_external_metadata|Permiso basico
+Datasource|can_external_metadata|Permiso para visualizar
+Datasource|can_external_metadata|Permiso para visualizar copy
+Datasource|can_external_metadata_by_name|Admin
+Datasource|can_external_metadata_by_name|Alpha
+Datasource|can_external_metadata_by_name|Coop Admin
+Datasource|can_external_metadata_by_name|Gamma
+Datasource|can_external_metadata_by_name|Inteligencia
+Datasource|can_external_metadata_by_name|Permiso basico
+Datasource|can_external_metadata_by_name|Permiso para visualizar
+Datasource|can_external_metadata_by_name|Permiso para visualizar copy
+Datasource|can_get|Admin
+Datasource|can_get|Alpha
+Datasource|can_get|Coop Admin
+Datasource|can_get|Gamma
+Datasource|can_get|Inteligencia
+Datasource|can_get|Permiso basico
+Datasource|can_get|Permiso para visualizar
+Datasource|can_get|Permiso para visualizar copy
+Datasource|can_get_column_values|Admin
+Datasource|can_get_column_values|Alpha
+Datasource|can_get_column_values|Coop Admin
+Datasource|can_samples|Admin
+Datasource|can_samples|Alpha
+Datasource|can_samples|Coop Admin
+Datasource|can_save|Admin
+Datasource|can_save|Alpha
+Datasource|can_save|Coop Admin
+Datasource|can_save|Inteligencia
+Datasource|can_save|Permiso basico
+Datasource|can_save|Permiso para visualizar
+Datasource|can_save|Permiso para visualizar copy
+Datasource|can_validate_expression|Admin
+Datasource|can_validate_expression|Alpha
+DynamicPlugin|can_add|Admin
+DynamicPlugin|can_add|Coop Admin
+DynamicPlugin|can_delete|Admin
+DynamicPlugin|can_delete|Coop Admin
+DynamicPlugin|can_download|Admin
+DynamicPlugin|can_download|Coop Admin
+DynamicPlugin|can_edit|Admin
+DynamicPlugin|can_edit|Coop Admin
+DynamicPlugin|can_list|Admin
+DynamicPlugin|can_list|Alpha
+DynamicPlugin|can_list|Coop Admin
+DynamicPlugin|can_list|Gamma
+DynamicPlugin|can_list|Inteligencia
+DynamicPlugin|can_list|Permiso basico
+DynamicPlugin|can_list|Permiso para visualizar
+DynamicPlugin|can_list|Permiso para visualizar copy
+DynamicPlugin|can_show|Admin
+DynamicPlugin|can_show|Alpha
+DynamicPlugin|can_show|Coop Admin
+DynamicPlugin|can_show|Gamma
+DynamicPlugin|can_show|Inteligencia
+DynamicPlugin|can_show|Permiso basico
+DynamicPlugin|can_show|Permiso para visualizar
+DynamicPlugin|can_show|Permiso para visualizar copy
+DynamicPlugin|can_write|Admin
+DynamicPlugin|can_write|Coop Admin
+EmbeddedDashboard|can_read|Admin
+EmbeddedDashboard|can_read|Alpha
+EmbeddedDashboard|can_read|Coop Admin
+EmbeddedDashboard|can_read|Gamma
+EmbeddedDashboard|can_read|Inteligencia
+EmbeddedDashboard|can_read|Permiso basico
+EmbeddedDashboard|can_read|Permiso para visualizar
+EmbeddedDashboard|can_read|Permiso para visualizar copy
+Explore|can_read|Admin
+Explore|can_read|Alpha
+Explore|can_read|Coop Admin
+Explore|can_read|Gamma
+ExploreFormDataRestApi|can_read|Admin
+ExploreFormDataRestApi|can_read|Alpha
+ExploreFormDataRestApi|can_read|Coop Admin
+ExploreFormDataRestApi|can_read|Gamma
+ExploreFormDataRestApi|can_read|Inteligencia
+ExploreFormDataRestApi|can_read|Permiso basico
+ExploreFormDataRestApi|can_read|Permiso para visualizar
+ExploreFormDataRestApi|can_read|Permiso para visualizar copy
+ExploreFormDataRestApi|can_write|Admin
+ExploreFormDataRestApi|can_write|Alpha
+ExploreFormDataRestApi|can_write|Coop Admin
+ExploreFormDataRestApi|can_write|Gamma
+ExploreFormDataRestApi|can_write|Inteligencia
+ExploreFormDataRestApi|can_write|Permiso basico
+ExploreFormDataRestApi|can_write|Permiso para visualizar
+ExploreFormDataRestApi|can_write|Permiso para visualizar copy
+ExplorePermalinkRestApi|can_read|Admin
+ExplorePermalinkRestApi|can_read|Alpha
+ExplorePermalinkRestApi|can_read|Coop Admin
+ExplorePermalinkRestApi|can_read|Gamma
+ExplorePermalinkRestApi|can_read|Inteligencia
+ExplorePermalinkRestApi|can_read|Permiso basico
+ExplorePermalinkRestApi|can_read|Permiso para visualizar
+ExplorePermalinkRestApi|can_read|Permiso para visualizar copy
+ExplorePermalinkRestApi|can_write|Admin
+ExplorePermalinkRestApi|can_write|Alpha
+ExplorePermalinkRestApi|can_write|Coop Admin
+ExplorePermalinkRestApi|can_write|Gamma
+ExplorePermalinkRestApi|can_write|Inteligencia
+ExplorePermalinkRestApi|can_write|Permiso basico
+ExplorePermalinkRestApi|can_write|Permiso para visualizar
+ExplorePermalinkRestApi|can_write|Permiso para visualizar copy
+Extensions|can_read|Admin
+Extensions|menu_access|Admin
+ExtensionsRestApi|can_content|Admin
+ExtensionsRestApi|can_content|Alpha
+ExtensionsRestApi|can_content|Gamma
+ExtensionsRestApi|can_get|Admin
+ExtensionsRestApi|can_get|Alpha
+ExtensionsRestApi|can_get|Gamma
+ExtensionsRestApi|can_get_list|Admin
+ExtensionsRestApi|can_get_list|Alpha
+ExtensionsRestApi|can_get_list|Gamma
+ExtensionsRestApi|can_info|Admin
+ExtensionsRestApi|can_info|Alpha
+ExtensionsRestApi|can_info|Gamma
+FilterSets|can_add|Admin
+FilterSets|can_add|Alpha
+FilterSets|can_add|Coop Admin
+FilterSets|can_add|Gamma
+FilterSets|can_add|Inteligencia
+FilterSets|can_add|Permiso basico
+FilterSets|can_add|Permiso para visualizar
+FilterSets|can_delete|Admin
+FilterSets|can_delete|Alpha
+FilterSets|can_delete|Coop Admin
+FilterSets|can_delete|Gamma
+FilterSets|can_delete|Inteligencia
+FilterSets|can_delete|Permiso basico
+FilterSets|can_delete|Permiso para visualizar
+FilterSets|can_edit|Admin
+FilterSets|can_edit|Alpha
+FilterSets|can_edit|Coop Admin
+FilterSets|can_edit|Gamma
+FilterSets|can_edit|Inteligencia
+FilterSets|can_edit|Permiso basico
+FilterSets|can_edit|Permiso para visualizar
+FilterSets|can_list|Admin
+FilterSets|can_list|Alpha
+FilterSets|can_list|Coop Admin
+FilterSets|can_list|Gamma
+FilterSets|can_list|Inteligencia
+FilterSets|can_list|Permiso basico
+FilterSets|can_list|Permiso para visualizar
+FilterSets|can_list|Permiso para visualizar copy
+Group|can_delete|Admin
+Group|can_get|Admin
+Group|can_info|Admin
+Group|can_post|Admin
+Group|can_put|Admin
+Home|menu_access|Admin
+Home|menu_access|Alpha
+Home|menu_access|Coop Admin
+Home|menu_access|Gamma
+Import Dashboards|menu_access|Admin
+Import Dashboards|menu_access|Alpha
+Import Dashboards|menu_access|Coop Admin
+Import Dashboards|menu_access|Gamma
+Import Dashboards|menu_access|Inteligencia
+ImportExportRestApi|can_export|Admin
+ImportExportRestApi|can_export|Alpha
+ImportExportRestApi|can_export|Coop Admin
+ImportExportRestApi|can_export|Inteligencia
+ImportExportRestApi|can_export|Permiso basico
+ImportExportRestApi|can_export|Permiso para visualizar
+ImportExportRestApi|can_export|Permiso para visualizar copy
+ImportExportRestApi|can_import_|Admin
+ImportExportRestApi|can_import_|Alpha
+ImportExportRestApi|can_import_|Coop Admin
+ImportExportRestApi|can_import_|Inteligencia
+ImportExportRestApi|can_import_|Permiso basico
+ImportExportRestApi|can_import_|Permiso para visualizar
+ImportExportRestApi|can_import_|Permiso para visualizar copy
+KV|can_get_value|Admin
+KV|can_get_value|Alpha
+KV|can_get_value|Coop Admin
+KV|can_get_value|Gamma
+KV|can_get_value|Inteligencia
+KV|can_get_value|Permiso basico
+KV|can_get_value|Permiso para visualizar
+KV|can_get_value|Permiso para visualizar copy
+KV|can_store|Admin
+KV|can_store|Alpha
+KV|can_store|Coop Admin
+KV|can_store|Gamma
+KV|can_store|Inteligencia
+KV|can_store|Permiso basico
+KV|can_store|Permiso para visualizar
+KV|can_store|Permiso para visualizar copy
+List Groups|menu_access|Admin
+List Roles|menu_access|Admin
+List Roles|menu_access|Coop Admin
+List Roles|menu_access|Inteligencia
+List Users|menu_access|Admin
+List Users|menu_access|Coop Admin
+List Users|menu_access|Inteligencia
+Log|can_read|Admin
+Log|can_read|Coop Admin
+Log|can_read|Permiso para visualizar
+Log|can_read|Permiso para visualizar copy
+Log|can_recent_activity|Admin
+Log|can_recent_activity|Alpha
+Log|can_recent_activity|Coop Admin
+Log|can_recent_activity|Gamma
+Log|can_recent_activity|Permiso para visualizar
+Log|can_recent_activity|Permiso para visualizar copy
+Log|can_write|Admin
+Log|can_write|Coop Admin
+Log|can_write|Permiso para visualizar
+Log|can_write|Permiso para visualizar copy
+Manage|menu_access|Admin
+Manage|menu_access|Alpha
+Manage|menu_access|Coop Admin
+Manage|menu_access|Inteligencia
+Manage|menu_access|Permiso para visualizar
+Manage|menu_access|Permiso para visualizar copy
+MenuApi|can_get|Admin
+MenuApi|can_get|Alpha
+MenuApi|can_get|Coop Admin
+MenuApi|can_get|Gamma
+MenuApi|can_get|Inteligencia
+MenuApi|can_get|Permiso basico
+MenuApi|can_get|Permiso para visualizar
+MenuApi|can_get|Permiso para visualizar copy
+OpenApi|can_get|Admin
+OpenApi|can_get|Alpha
+OpenApi|can_get|Coop Admin
+OpenApi|can_get|Gamma
+OpenApi|can_get|Inteligencia
+OpenApi|can_get|Permiso basico
+OpenApi|can_get|Permiso para visualizar
+OpenApi|can_get|Permiso para visualizar copy
+Permission|can_get|Admin
+Permission|can_info|Admin
+PermissionViewMenu|can_delete|Admin
+PermissionViewMenu|can_get|Admin
+PermissionViewMenu|can_info|Admin
+PermissionViewMenu|can_post|Admin
+PermissionViewMenu|can_put|Admin
+Plugins|menu_access|Admin
+Plugins|menu_access|Alpha
+Plugins|menu_access|Coop Admin
+Plugins|menu_access|Gamma
+Plugins|menu_access|Inteligencia
+[Postgresql Curri].[acumulado_colonirex](id:287)|datasource_access|colonirex
+[Postgresql Curri].[alertas_competitivas](id:216)|datasource_access|Ver Alertas Competitivas
+[Postgresql Curri].[Analisis toma de precios CR](id:353)|datasource_access|Análisis de Precios CR
+[Postgresql Curri].[Base PNC 80-20](id:125)|datasource_access|Ver reporte PNC al cierre
+[Postgresql Curri].[Base PNC 80-20](id:125)|datasource_access|Ver reporte PNC preliminar
+[Postgresql Curri].[Base PNC](id:122)|datasource_access|Ver reporte PNC al cierre
+[Postgresql Curri].[Base PNC](id:122)|datasource_access|Ver reporte PNC preliminar
+[Postgresql Curri].[Base pnc snap](id:148)|datasource_access|Ver reporte PNC al cierre
+[Postgresql Curri].[Base pnc snap](id:148)|datasource_access|Ver reporte PNC preliminar
+[Postgresql Curri].[Botón generador de reporte CT](id:222)|datasource_access|Ver Dinámicas CT
+[Postgresql Curri].[canjes_colonirex](id:282)|datasource_access|colonirex
+[Postgresql Curri].[colonirex](id:281)|datasource_access|colonirex
+[Postgresql Curri].[Consulta Actividades Comerciales](id:207)|datasource_access|Ver Actividades comerciales
+[Postgresql Curri].[Data Scanner por mes](id:197)|datasource_access|Presentación Dicther
+[Postgresql Curri].[Data Scanner por mes](id:197)|datasource_access|Ver Presentacion Dichter
+[Postgresql Curri].[Desperdicio Ordenes producción](id:275)|datasource_access|Reporte produccion Yamary
+[Postgresql Curri].[detalle gastos rh](id:272)|datasource_access|pcc_smi_rh
+[Postgresql Curri].[detalle_generalista_cindy](id:324)|datasource_access|presupuesto cindy
+[Postgresql Curri].[dinamicas_ct_js](id:213)|datasource_access|Ver Dinámicas CT
+[Postgresql Curri].[dinamicas_wm2](id:215)|datasource_access|Ver dinámicas Wm
+[Postgresql Curri].[espacios](id:220)|datasource_access|Ver Espacios
+[Postgresql Curri].[evaluacion_pdv](id:224)|datasource_access|Ver evaluación PDV
+[Postgresql Curri].[historial_pensiones](id:265)|datasource_access|reporte_quin_remu_rh
+[Postgresql Curri].[jubilacion](id:261)|datasource_access|reporte_quin_remu_rh
+[Postgresql Curri].[mama_papa_rh](id:257)|datasource_access|reporte_quin_remu_rh
+[Postgresql Curri].[Ordenes de producción](id:274)|datasource_access|Reporte produccion Yamary
+[Postgresql Curri].[PNC 80-20 Snap](id:163)|datasource_access|Ver reporte PNC al cierre
+[Postgresql Curri].[PNC indicador Snap v2](id:157)|datasource_access|Ver reporte PNC al cierre
+[Postgresql Curri].[presupuesto_general](id:323)|datasource_access|presupuesto cindy
+[Postgresql Curri].[presu_rh](id:270)|datasource_access|pcc_smi_rh
+[Postgresql Curri].[Produccion: Consumo de Materiales](id:299)|datasource_access|Reporte produccion Yamary
+[Postgresql Curri].[Produccion: Estado de las órdenes](id:298)|datasource_access|Reporte produccion Yamary
+[Postgresql Curri].[Produccion: Indicador % Utilización de la Línea](id:293)|datasource_access|Reporte produccion Yamary
+[Postgresql Curri].[Produccion: Produccion por Centro](id:296)|datasource_access|Reporte produccion Yamary
+[Postgresql Curri].[Produccion: Ruta máquina y ruta ejecución (real vs estándar)](id:292)|datasource_access|Reporte produccion Yamary
+[Postgresql Curri].[Produccion - Tiempo máquina y Tiempo ejecución (real vs estándar)](id:291)|datasource_access|Reporte produccion Yamary
+[Postgresql Curri].[Produccion: Tiempo medio entre fallas](id:300)|datasource_access|Reporte produccion Yamary
+[Postgresql Curri].[Produccion: Tiempos No Productivos](id:294)|datasource_access|Reporte produccion Yamary
+[Postgresql Curri].[Registro Visitas App Irex](id:180)|datasource_access|Ver Visitas Aplicación
+[Postgresql Curri].[Reportes de Dinamicas CT](id:223)|datasource_access|Ver Dinámicas CT
+[Postgresql Curri].[Reporte semanal vendedores viaticos](id:218)|datasource_access|Ver repórte viaticos vendedores
+[Postgresql Curri].[Reporte vendedores y viaticos](id:212)|datasource_access|Ver repórte viaticos vendedores
+[Postgresql Curri].[req_qui2](id:255)|datasource_access|reporte_quin_remu_rh
+[Postgresql Curri].[Revision por Art toma de precios CR](id:289)|datasource_access|Ver revisión clientes tomas de precio
+[Postgresql Curri].[revision toma de precios cr](id:229)|datasource_access|Ver revisión clientes tomas de precio
+[Postgresql Curri].[Revisión Toma Precios CR Completo](id:288)|datasource_access|Ver revisión clientes tomas de precio
+[Postgresql Curri].[tarimas_rojas_toma](id:217)|datasource_access|Ver Tarimas Rojas
+[Postgresql Curri].[Toma de Precios CEAM](id:141)|datasource_access|Ver toma CEAM admin
+[Postgresql Curri].[uso_colonIrex](id:286)|datasource_access|colonirex
+[Postgresql Curri].[ventas_de_directos](id:336)|datasource_access|ventas directos e indirectos
+[Postgresql Curri].[Viaticos vendedores eventos](id:219)|datasource_access|Ver repórte viaticos vendedores
+[Postgresql Curri].[vista_data_scanner](id:170)|datasource_access|Presentación Dicther
+[Postgresql Curri].[vista_data_scanner](id:170)|datasource_access|Ver Presentacion Dichter
+[Postgresql Curri].[vw_colonirex_canjes_premios_img](id:283)|datasource_access|colonirex
+Profile|can_read|Admin
+Profile|can_read|Alpha
+Profile|can_read|Coop Admin
+Profile|can_read|Gamma
+Query|can_read|Admin
+Query|can_read|Coop Admin
+Query|can_read|Inteligencia
+Query|can_read|Permiso basico
+Query|can_read|Permiso para visualizar
+Query|can_read|Permiso para visualizar copy
+Query|can_read|sql_lab
+Query Search|menu_access|Admin
+Query Search|menu_access|Coop Admin
+Query Search|menu_access|Inteligencia
+Query Search|menu_access|sql_lab
+ReportSchedule|can_read|Admin
+ReportSchedule|can_read|Alpha
+ReportSchedule|can_read|Coop Admin
+ReportSchedule|can_read|Inteligencia
+ReportSchedule|can_read|Permiso basico
+ReportSchedule|can_read|Permiso para visualizar
+ReportSchedule|can_read|Permiso para visualizar copy
+ReportSchedule|can_write|Admin
+ReportSchedule|can_write|Alpha
+ReportSchedule|can_write|Coop Admin
+ReportSchedule|can_write|Inteligencia
+ReportSchedule|can_write|Permiso basico
+ReportSchedule|can_write|Permiso para visualizar
+ReportSchedule|can_write|Permiso para visualizar copy
+ResetMyPasswordView|can_this_form_get|Admin
+ResetMyPasswordView|can_this_form_get|Alpha
+ResetMyPasswordView|can_this_form_get|Coop Admin
+ResetMyPasswordView|can_this_form_get|Gamma
+ResetMyPasswordView|can_this_form_get|Inteligencia
+ResetMyPasswordView|can_this_form_get|Permiso basico
+ResetMyPasswordView|can_this_form_get|Permiso para visualizar
+ResetMyPasswordView|can_this_form_get|Permiso para visualizar copy
+ResetMyPasswordView|can_this_form_post|Admin
+ResetMyPasswordView|can_this_form_post|Alpha
+ResetMyPasswordView|can_this_form_post|Coop Admin
+ResetMyPasswordView|can_this_form_post|Gamma
+ResetMyPasswordView|can_this_form_post|Inteligencia
+ResetMyPasswordView|can_this_form_post|Permiso basico
+ResetMyPasswordView|can_this_form_post|Permiso para visualizar
+ResetMyPasswordView|can_this_form_post|Permiso para visualizar copy
+ResetPasswordView|can_this_form_get|Admin
+ResetPasswordView|can_this_form_get|Coop Admin
+ResetPasswordView|can_this_form_get|Permiso para visualizar
+ResetPasswordView|can_this_form_get|Permiso para visualizar copy
+ResetPasswordView|can_this_form_post|Admin
+ResetPasswordView|can_this_form_post|Coop Admin
+ResetPasswordView|can_this_form_post|Permiso para visualizar
+ResetPasswordView|can_this_form_post|Permiso para visualizar copy
+Role|can_add_role_permissions|Admin
+Role|can_delete|Admin
+Role|can_get|Admin
+Role|can_info|Admin
+Role|can_list_role_permissions|Admin
+Role|can_post|Admin
+Role|can_put|Admin
+Role|can_update_role_groups|Admin
+Role|can_update_role_users|Admin
+RoleModelView|can_add|Admin
+RoleModelView|can_add|Coop Admin
+RoleModelView|can_delete|Admin
+RoleModelView|can_delete|Coop Admin
+RoleModelView|can_download|Admin
+RoleModelView|can_edit|Admin
+RoleModelView|can_edit|Coop Admin
+RoleModelView|can_list|Admin
+RoleModelView|can_list|Coop Admin
+RoleModelView|can_show|Admin
+RoleModelView|can_show|Coop Admin
+RoleModelView|copyrole|Admin
+RoleModelView|copyrole|Coop Admin
+RoleRestAPI|can_list_roles|Admin
+Row Level Security|can_read|Admin
+Row Level Security|can_read|Coop Admin
+Row Level Security|can_write|Admin
+Row Level Security|can_write|Coop Admin
+Row Level Security|menu_access|Admin
+Row Level Security|menu_access|Coop Admin
+RowLevelSecurity|can_read|Admin
+RowLevelSecurity|can_read|Alpha
+RowLevelSecurity|can_read|Coop Admin
+RowLevelSecurity|can_read|Gamma
+RowLevelSecurityFiltersModelView|can_add|Admin
+RowLevelSecurityFiltersModelView|can_add|Alpha
+RowLevelSecurityFiltersModelView|can_add|Coop Admin
+RowLevelSecurityFiltersModelView|can_add|Gamma
+RowLevelSecurityFiltersModelView|can_delete|Admin
+RowLevelSecurityFiltersModelView|can_delete|Alpha
+RowLevelSecurityFiltersModelView|can_delete|Coop Admin
+RowLevelSecurityFiltersModelView|can_delete|Gamma
+RowLevelSecurityFiltersModelView|can_download|Admin
+RowLevelSecurityFiltersModelView|can_download|Alpha
+RowLevelSecurityFiltersModelView|can_download|Coop Admin
+RowLevelSecurityFiltersModelView|can_download|Gamma
+RowLevelSecurityFiltersModelView|can_edit|Admin
+RowLevelSecurityFiltersModelView|can_edit|Alpha
+RowLevelSecurityFiltersModelView|can_edit|Coop Admin
+RowLevelSecurityFiltersModelView|can_edit|Gamma
+RowLevelSecurityFiltersModelView|can_list|Admin
+RowLevelSecurityFiltersModelView|can_list|Alpha
+RowLevelSecurityFiltersModelView|can_list|Coop Admin
+RowLevelSecurityFiltersModelView|can_list|Gamma
+RowLevelSecurityFiltersModelView|can_show|Admin
+RowLevelSecurityFiltersModelView|can_show|Alpha
+RowLevelSecurityFiltersModelView|can_show|Coop Admin
+RowLevelSecurityFiltersModelView|can_show|Gamma
+RowLevelSecurityFiltersModelView|muldelete|Admin
+RowLevelSecurityFiltersModelView|muldelete|Alpha
+RowLevelSecurityFiltersModelView|muldelete|Coop Admin
+Saved Queries|menu_access|Admin
+Saved Queries|menu_access|Coop Admin
+Saved Queries|menu_access|sql_lab
+SavedQuery|can_add|Admin
+SavedQuery|can_add|Alpha
+SavedQuery|can_add|Gamma
+SavedQuery|can_delete|Admin
+SavedQuery|can_delete|Alpha
+SavedQuery|can_delete|Gamma
+SavedQuery|can_edit|Admin
+SavedQuery|can_edit|Alpha
+SavedQuery|can_edit|Gamma
+SavedQuery|can_export|Admin
+SavedQuery|can_export|Coop Admin
+SavedQuery|can_export|Inteligencia
+SavedQuery|can_export|Permiso basico
+SavedQuery|can_export|Permiso para visualizar
+SavedQuery|can_export|Permiso para visualizar copy
+SavedQuery|can_export|sql_lab
+SavedQuery|can_list|Admin
+SavedQuery|can_list|Alpha
+SavedQuery|can_list|Coop Admin
+SavedQuery|can_list|Gamma
+SavedQuery|can_read|Admin
+SavedQuery|can_read|Coop Admin
+SavedQuery|can_read|Inteligencia
+SavedQuery|can_read|Permiso basico
+SavedQuery|can_read|Permiso para visualizar
+SavedQuery|can_read|Permiso para visualizar copy
+SavedQuery|can_read|sql_lab
+SavedQuery|can_show|Admin
+SavedQuery|can_show|Alpha
+SavedQuery|can_show|Gamma
+SavedQuery|can_write|Admin
+SavedQuery|can_write|Coop Admin
+SavedQuery|can_write|Inteligencia
+SavedQuery|can_write|Permiso basico
+SavedQuery|can_write|Permiso para visualizar
+SavedQuery|can_write|Permiso para visualizar copy
+SavedQuery|can_write|sql_lab
+security|can_read|Admin
+security|can_read|Alpha
+security|can_read|Gamma
+Security|menu_access|Admin
+Security|menu_access|Coop Admin
+SecurityRestApi|can_grant_guest_token|Admin
+SecurityRestApi|can_grant_guest_token|Coop Admin
+SecurityRestApi|can_grant_guest_token|Permiso para visualizar
+SecurityRestApi|can_read|Admin
+SecurityRestApi|can_read|Alpha
+SecurityRestApi|can_read|Coop Admin
+SecurityRestApi|can_read|Gamma
+SecurityRestApi|can_read|Inteligencia
+SecurityRestApi|can_read|Permiso basico
+SecurityRestApi|can_read|Permiso para visualizar
+SecurityRestApi|can_read|Permiso para visualizar copy
+SQL Editor|menu_access|Admin
+SQL Editor|menu_access|Coop Admin
+SQL Editor|menu_access|Inteligencia
+SQL Editor|menu_access|sql_lab
+SqlLab|can_my_queries|Admin
+SqlLab|can_my_queries|Alpha
+SqlLab|can_my_queries|Coop Admin
+SqlLab|can_my_queries|Gamma
+SqlLab|can_my_queries|Inteligencia
+SqlLab|can_my_queries|Permiso para visualizar
+SqlLab|can_my_queries|Permiso para visualizar copy
+SQL Lab|menu_access|Admin
+SQL Lab|menu_access|Coop Admin
+SQL Lab|menu_access|sql_lab
+SQLLab|can_estimate_query_cost|Admin
+SQLLab|can_estimate_query_cost|Coop Admin
+SQLLab|can_estimate_query_cost|sql_lab
+SQLLab|can_execute_sql_query|acceso chat
+SQLLab|can_execute_sql_query|Admin
+SQLLab|can_execute_sql_query|Coop Admin
+SQLLab|can_execute_sql_query|sql_lab
+SQLLab|can_export_csv|Admin
+SQLLab|can_export_csv|Coop Admin
+SQLLab|can_export_csv|sql_lab
+SQLLab|can_export_streaming_csv|Admin
+SQLLab|can_export_streaming_csv|Alpha
+SQLLab|can_export_streaming_csv|Gamma
+SQLLab|can_format_sql|Admin
+SQLLab|can_format_sql|Coop Admin
+SQLLab|can_format_sql|sql_lab
+SQLLab|can_get_results|Admin
+SQLLab|can_get_results|Coop Admin
+SQLLab|can_get_results|sql_lab
+SQLLab|can_read|acceso chat
+SQLLab|can_read|Admin
+SQLLab|can_read|Coop Admin
+SQLLab|can_read|sql_lab
+SqlLabPermalinkRestApi|can_read|Admin
+SqlLabPermalinkRestApi|can_read|sql_lab
+SqlLabPermalinkRestApi|can_write|Admin
+SqlLabPermalinkRestApi|can_write|sql_lab
+Superset|can_add_slices|Admin
+Superset|can_add_slices|Alpha
+Superset|can_add_slices|Coop Admin
+Superset|can_add_slices|Gamma
+Superset|can_add_slices|Inteligencia
+Superset|can_add_slices|Permiso basico
+Superset|can_add_slices|Permiso para visualizar
+Superset|can_add_slices|Permiso para visualizar copy
+Superset|can_annotation_json|Admin
+Superset|can_annotation_json|Alpha
+Superset|can_annotation_json|Coop Admin
+Superset|can_annotation_json|Gamma
+Superset|can_annotation_json|Inteligencia
+Superset|can_annotation_json|Permiso basico
+Superset|can_annotation_json|Permiso para visualizar
+Superset|can_annotation_json|Permiso para visualizar copy
+Superset|can_approve|Admin
+Superset|can_approve|Alpha
+Superset|can_approve|Coop Admin
+Superset|can_approve|Gamma
+Superset|can_approve|granter
+Superset|can_approve|Permiso para visualizar
+Superset|can_available_domains|Admin
+Superset|can_available_domains|Alpha
+Superset|can_available_domains|Coop Admin
+Superset|can_available_domains|Gamma
+Superset|can_available_domains|Inteligencia
+Superset|can_available_domains|Permiso basico
+Superset|can_available_domains|Permiso para visualizar
+Superset|can_available_domains|Permiso para visualizar copy
+Superset|can_copy_dash|Admin
+Superset|can_copy_dash|Alpha
+Superset|can_copy_dash|Coop Admin
+Superset|can_copy_dash|Gamma
+Superset|can_copy_dash|Inteligencia
+Superset|can_created_dashboards|Admin
+Superset|can_created_dashboards|Alpha
+Superset|can_created_dashboards|Coop Admin
+Superset|can_created_dashboards|Gamma
+Superset|can_created_dashboards|Inteligencia
+Superset|can_created_dashboards|Permiso para visualizar
+Superset|can_created_slices|Admin
+Superset|can_created_slices|Alpha
+Superset|can_created_slices|Coop Admin
+Superset|can_created_slices|Gamma
+Superset|can_created_slices|Inteligencia
+Superset|can_created_slices|Permiso para visualizar
+Superset|can_csv|Admin
+Superset|can_csv|Alpha
+Superset|can_csv|Coop Admin
+Superset|can_csv|Gamma
+Superset|can_csv|Inteligencia
+Superset|can_csv|Permiso basico
+Superset|can_csv|Permiso para visualizar
+Superset|can_csv|Permiso para visualizar copy
+Superset|can_csv|sql_lab
+Superset|can_dashboard|Admin
+Superset|can_dashboard|Alpha
+Superset|can_dashboard|Coop Admin
+Superset|can_dashboard|Gamma
+Superset|can_dashboard|Inteligencia
+Superset|can_dashboard|Permiso basico
+Superset|can_dashboard_permalink|Admin
+Superset|can_dashboard_permalink|Alpha
+Superset|can_dashboard_permalink|Coop Admin
+Superset|can_dashboard_permalink|Gamma
+Superset|can_dashboard_permalink|Inteligencia
+Superset|can_dashboard_permalink|Permiso basico
+Superset|can_dashboard_permalink|Permiso para visualizar
+Superset|can_dashboard_permalink|Permiso para visualizar copy
+Superset|can_datasources|Admin
+Superset|can_datasources|Alpha
+Superset|can_datasources|Coop Admin
+Superset|can_datasources|Gamma
+Superset|can_datasources|Inteligencia
+Superset|can_datasources|Permiso basico
+Superset|can_datasources|Permiso para visualizar
+Superset|can_datasources|Permiso para visualizar copy
+Superset|can_estimate_query_cost|Admin
+Superset|can_estimate_query_cost|Alpha
+Superset|can_estimate_query_cost|Coop Admin
+Superset|can_estimate_query_cost|Gamma
+Superset|can_estimate_query_cost|Inteligencia
+Superset|can_estimate_query_cost|Permiso basico
+Superset|can_estimate_query_cost|Permiso para visualizar
+Superset|can_estimate_query_cost|Permiso para visualizar copy
+Superset|can_explore|Admin
+Superset|can_explore|Alpha
+Superset|can_explore|Coop Admin
+Superset|can_explore|Gamma
+Superset|can_explore|Inteligencia
+Superset|can_explore|Permiso basico
+Superset|can_explore|Permiso para visualizar
+Superset|can_explore_json|Admin
+Superset|can_explore_json|Alpha
+Superset|can_explore_json|Coop Admin
+Superset|can_explore_json|Gamma
+Superset|can_explore_json|Inteligencia
+Superset|can_explore_json|Permiso basico
+Superset|can_explore_json|Permiso para visualizar
+Superset|can_explore_json|Permiso para visualizar copy
+Superset|can_extra_table_metadata|Admin
+Superset|can_extra_table_metadata|Alpha
+Superset|can_extra_table_metadata|Coop Admin
+Superset|can_extra_table_metadata|Gamma
+Superset|can_extra_table_metadata|Inteligencia
+Superset|can_extra_table_metadata|Permiso basico
+Superset|can_extra_table_metadata|Permiso para visualizar
+Superset|can_extra_table_metadata|Permiso para visualizar copy
+Superset|can_fave_dashboards|Admin
+Superset|can_fave_dashboards|Alpha
+Superset|can_fave_dashboards|Coop Admin
+Superset|can_fave_dashboards|Gamma
+Superset|can_fave_dashboards|Inteligencia
+Superset|can_fave_dashboards|Permiso basico
+Superset|can_fave_dashboards|Permiso para visualizar
+Superset|can_fave_dashboards|Permiso para visualizar copy
+Superset|can_fave_dashboards_by_username|Admin
+Superset|can_fave_dashboards_by_username|Alpha
+Superset|can_fave_dashboards_by_username|Coop Admin
+Superset|can_fave_dashboards_by_username|Gamma
+Superset|can_fave_dashboards_by_username|Inteligencia
+Superset|can_fave_dashboards_by_username|Permiso basico
+Superset|can_fave_dashboards_by_username|Permiso para visualizar
+Superset|can_fave_slices|Admin
+Superset|can_fave_slices|Alpha
+Superset|can_fave_slices|Coop Admin
+Superset|can_fave_slices|Gamma
+Superset|can_fave_slices|Inteligencia
+Superset|can_fave_slices|Permiso basico
+Superset|can_fave_slices|Permiso para visualizar
+Superset|can_fave_slices|Permiso para visualizar copy
+Superset|can_favstar|Admin
+Superset|can_favstar|Alpha
+Superset|can_favstar|Coop Admin
+Superset|can_favstar|Gamma
+Superset|can_favstar|Inteligencia
+Superset|can_favstar|Permiso basico
+Superset|can_favstar|Permiso para visualizar
+Superset|can_favstar|Permiso para visualizar copy
+Superset|can_fetch_datasource_metadata|Admin
+Superset|can_fetch_datasource_metadata|Alpha
+Superset|can_fetch_datasource_metadata|Coop Admin
+Superset|can_fetch_datasource_metadata|Gamma
+Superset|can_fetch_datasource_metadata|Inteligencia
+Superset|can_fetch_datasource_metadata|Permiso basico
+Superset|can_fetch_datasource_metadata|Permiso para visualizar
+Superset|can_fetch_datasource_metadata|Permiso para visualizar copy
+Superset|can_file_handler|Admin
+Superset|can_file_handler|Alpha
+Superset|can_file_handler|Gamma
+Superset|can_filter|Admin
+Superset|can_filter|Alpha
+Superset|can_filter|Coop Admin
+Superset|can_filter|Gamma
+Superset|can_filter|Inteligencia
+Superset|can_filter|Permiso basico
+Superset|can_filter|Permiso para visualizar
+Superset|can_filter|Permiso para visualizar copy
+Superset|can_import_dashboards|Admin
+Superset|can_import_dashboards|Alpha
+Superset|can_import_dashboards|Coop Admin
+Superset|can_import_dashboards|Gamma
+Superset|can_import_dashboards|Inteligencia
+Superset|can_import_dashboards|Permiso basico
+Superset|can_language_pack|Admin
+Superset|can_language_pack|Alpha
+Superset|can_language_pack|Gamma
+Superset|can_language_pack|Permiso basico
+Superset|can_log|Admin
+Superset|can_log|Alpha
+Superset|can_log|Coop Admin
+Superset|can_log|Gamma
+Superset|can_log|Inteligencia
+Superset|can_log|Permiso basico
+Superset|can_log|Permiso para visualizar
+Superset|can_log|Permiso para visualizar copy
+Superset|can_override_role_permissions|Admin
+Superset|can_override_role_permissions|Alpha
+Superset|can_override_role_permissions|Coop Admin
+Superset|can_override_role_permissions|Gamma
+Superset|can_override_role_permissions|granter
+Superset|can_profile|Admin
+Superset|can_profile|Alpha
+Superset|can_profile|Coop Admin
+Superset|can_profile|Gamma
+Superset|can_profile|Inteligencia
+Superset|can_profile|Permiso basico
+Superset|can_profile|Permiso para visualizar
+Superset|can_profile|Permiso para visualizar copy
+Superset|can_queries|Admin
+Superset|can_queries|Alpha
+Superset|can_queries|Coop Admin
+Superset|can_queries|Gamma
+Superset|can_queries|Inteligencia
+Superset|can_queries|Permiso basico
+Superset|can_queries|Permiso para visualizar
+Superset|can_queries|Permiso para visualizar copy
+Superset|can_recent_activity|Admin
+Superset|can_recent_activity|Alpha
+Superset|can_recent_activity|Coop Admin
+Superset|can_recent_activity|Gamma
+Superset|can_recent_activity|Inteligencia
+Superset|can_recent_activity|Permiso basico
+Superset|can_recent_activity|Permiso para visualizar
+Superset|can_recent_activity|Permiso para visualizar copy
+Superset|can_request_access|Admin
+Superset|can_request_access|Alpha
+Superset|can_request_access|Coop Admin
+Superset|can_request_access|Gamma
+Superset|can_request_access|Inteligencia
+Superset|can_request_access|Permiso basico
+Superset|can_request_access|Permiso para visualizar
+Superset|can_request_access|Permiso para visualizar copy
+Superset|can_results|Admin
+Superset|can_results|Alpha
+Superset|can_results|Coop Admin
+Superset|can_results|Gamma
+Superset|can_results|Inteligencia
+Superset|can_results|Permiso basico
+Superset|can_results|Permiso para visualizar
+Superset|can_results|Permiso para visualizar copy
+Superset|can_save_dash|Admin
+Superset|can_save_dash|Alpha
+Superset|can_save_dash|Coop Admin
+Superset|can_save_dash|Gamma
+Superset|can_save_dash|Inteligencia
+Superset|can_save_dash|Permiso basico
+Superset|can_save_dash|Permiso para visualizar
+Superset|can_schemas_access_for_file_upload|Admin
+Superset|can_schemas_access_for_file_upload|Alpha
+Superset|can_schemas_access_for_file_upload|Coop Admin
+Superset|can_schemas_access_for_file_upload|Gamma
+Superset|can_schemas_access_for_file_upload|Inteligencia
+Superset|can_schemas_access_for_file_upload|Permiso basico
+Superset|can_schemas_access_for_file_upload|Permiso para visualizar
+Superset|can_schemas_access_for_file_upload|Permiso para visualizar copy
+Superset|can_search_queries|Admin
+Superset|can_search_queries|Alpha
+Superset|can_search_queries|Coop Admin
+Superset|can_search_queries|Gamma
+Superset|can_search_queries|Inteligencia
+Superset|can_search_queries|Permiso basico
+Superset|can_search_queries|Permiso para visualizar
+Superset|can_search_queries|Permiso para visualizar copy
+Superset|can_share_chart|Admin
+Superset|can_share_chart|Alpha
+Superset|can_share_chart|Coop Admin
+Superset|can_share_chart|Gamma
+Superset|can_share_chart|Inteligencia
+Superset|can_share_dashboard|Admin
+Superset|can_share_dashboard|Alpha
+Superset|can_share_dashboard|Coop Admin
+Superset|can_share_dashboard|Gamma
+Superset|can_share_dashboard|Inteligencia
+Superset|can_share_dashboard|Permiso basico
+Superset|can_slice|Admin
+Superset|can_slice|Alpha
+Superset|can_slice|Coop Admin
+Superset|can_slice|Gamma
+Superset|can_slice|Inteligencia
+Superset|can_slice|Permiso basico
+Superset|can_slice|Permiso para visualizar
+Superset|can_slice|Permiso para visualizar copy
+Superset|can_slice_json|Admin
+Superset|can_slice_json|Alpha
+Superset|can_slice_json|Coop Admin
+Superset|can_slice_json|Gamma
+Superset|can_slice_json|Inteligencia
+Superset|can_slice_json|Permiso basico
+Superset|can_slice_json|Permiso para visualizar
+Superset|can_slice_json|Permiso para visualizar copy
+Superset|can_sql_json|Admin
+Superset|can_sql_json|Alpha
+Superset|can_sql_json|Coop Admin
+Superset|can_sql_json|Gamma
+Superset|can_sqllab|Admin
+Superset|can_sqllab|Coop Admin
+Superset|can_sqllab|Inteligencia
+Superset|can_sqllab|Permiso para visualizar
+Superset|can_sqllab|Permiso para visualizar copy
+Superset|can_sqllab|sql_lab
+Superset|can_sqllab_history|Admin
+Superset|can_sqllab_history|Coop Admin
+Superset|can_sqllab_history|Inteligencia
+Superset|can_sqllab_history|Permiso para visualizar
+Superset|can_sqllab_history|Permiso para visualizar copy
+Superset|can_sqllab_history|sql_lab
+Superset|can_sqllab_table_viz|Admin
+Superset|can_sqllab_table_viz|Alpha
+Superset|can_sqllab_table_viz|Coop Admin
+Superset|can_sqllab_table_viz|Gamma
+Superset|can_sqllab_table_viz|Inteligencia
+Superset|can_sqllab_table_viz|Permiso basico
+Superset|can_sqllab_table_viz|Permiso para visualizar
+Superset|can_sqllab_table_viz|Permiso para visualizar copy
+Superset|can_sqllab_viz|Admin
+Superset|can_sqllab_viz|Alpha
+Superset|can_sqllab_viz|Coop Admin
+Superset|can_sqllab_viz|Gamma
+Superset|can_sqllab_viz|Inteligencia
+Superset|can_sqllab_viz|Permiso basico
+Superset|can_sqllab_viz|Permiso para visualizar
+Superset|can_sqllab_viz|Permiso para visualizar copy
+Superset|can_stop_query|Admin
+Superset|can_stop_query|Alpha
+Superset|can_stop_query|Coop Admin
+Superset|can_stop_query|Gamma
+Superset|can_stop_query|Inteligencia
+Superset|can_stop_query|Permiso basico
+Superset|can_stop_query|Permiso para visualizar
+Superset|can_stop_query|Permiso para visualizar copy
+Superset|can_tables|Admin
+Superset|can_tables|Alpha
+Superset|can_tables|Coop Admin
+Superset|can_tables|Gamma
+Superset|can_tables|Inteligencia
+Superset|can_tables|Permiso basico
+Superset|can_tables|Permiso para visualizar
+Superset|can_tables|Permiso para visualizar copy
+Superset|can_testconn|Admin
+Superset|can_testconn|Alpha
+Superset|can_testconn|Coop Admin
+Superset|can_testconn|Gamma
+Superset|can_testconn|Inteligencia
+Superset|can_testconn|Permiso basico
+Superset|can_testconn|Permiso para visualizar
+Superset|can_testconn|Permiso para visualizar copy
+Superset|can_user_slices|Admin
+Superset|can_user_slices|Alpha
+Superset|can_user_slices|Coop Admin
+Superset|can_user_slices|Gamma
+Superset|can_user_slices|Inteligencia
+Superset|can_user_slices|Permiso basico
+Superset|can_user_slices|Permiso para visualizar
+Superset|can_user_slices|Permiso para visualizar copy
+Superset|can_validate_sql_json|Admin
+Superset|can_validate_sql_json|Alpha
+Superset|can_validate_sql_json|Coop Admin
+Superset|can_validate_sql_json|Gamma
+Superset|can_validate_sql_json|Inteligencia
+Superset|can_validate_sql_json|Permiso basico
+Superset|can_validate_sql_json|Permiso para visualizar
+Superset|can_validate_sql_json|Permiso para visualizar copy
+Superset|can_warm_up_cache|Admin
+Superset|can_warm_up_cache|Coop Admin
+Superset|can_warm_up_cache|Inteligencia
+Superset|can_warm_up_cache|Permiso basico
+Superset|can_warm_up_cache|Permiso para visualizar
+Superset|can_warm_up_cache|Permiso para visualizar copy
+SwaggerView|can_show|Admin
+SwaggerView|can_show|Alpha
+SwaggerView|can_show|Coop Admin
+SwaggerView|can_show|Gamma
+SwaggerView|can_show|Inteligencia
+SwaggerView|can_show|Permiso basico
+SwaggerView|can_show|Permiso para visualizar
+SwaggerView|can_show|Permiso para visualizar copy
+TableSchemaView|can_delete|Admin
+TableSchemaView|can_delete|Coop Admin
+TableSchemaView|can_delete|Inteligencia
+TableSchemaView|can_delete|Permiso basico
+TableSchemaView|can_delete|Permiso para visualizar
+TableSchemaView|can_delete|Permiso para visualizar copy
+TableSchemaView|can_delete|sql_lab
+TableSchemaView|can_expanded|Admin
+TableSchemaView|can_expanded|Coop Admin
+TableSchemaView|can_expanded|Inteligencia
+TableSchemaView|can_expanded|Permiso basico
+TableSchemaView|can_expanded|Permiso para visualizar
+TableSchemaView|can_expanded|Permiso para visualizar copy
+TableSchemaView|can_expanded|sql_lab
+TableSchemaView|can_post|Admin
+TableSchemaView|can_post|Coop Admin
+TableSchemaView|can_post|Inteligencia
+TableSchemaView|can_post|Permiso basico
+TableSchemaView|can_post|Permiso para visualizar
+TableSchemaView|can_post|Permiso para visualizar copy
+TableSchemaView|can_post|sql_lab
+TabStateView|can_activate|Admin
+TabStateView|can_activate|Coop Admin
+TabStateView|can_activate|Inteligencia
+TabStateView|can_activate|Permiso basico
+TabStateView|can_activate|Permiso para visualizar
+TabStateView|can_activate|Permiso para visualizar copy
+TabStateView|can_activate|sql_lab
+TabStateView|can_delete|Admin
+TabStateView|can_delete|Coop Admin
+TabStateView|can_delete|Inteligencia
+TabStateView|can_delete|Permiso basico
+TabStateView|can_delete|Permiso para visualizar
+TabStateView|can_delete|Permiso para visualizar copy
+TabStateView|can_delete|sql_lab
+TabStateView|can_delete_query|Admin
+TabStateView|can_delete_query|Coop Admin
+TabStateView|can_delete_query|Inteligencia
+TabStateView|can_delete_query|Permiso basico
+TabStateView|can_delete_query|Permiso para visualizar
+TabStateView|can_delete_query|Permiso para visualizar copy
+TabStateView|can_delete_query|sql_lab
+TabStateView|can_get|Admin
+TabStateView|can_get|Coop Admin
+TabStateView|can_get|Inteligencia
+TabStateView|can_get|Permiso basico
+TabStateView|can_get|Permiso para visualizar
+TabStateView|can_get|Permiso para visualizar copy
+TabStateView|can_get|sql_lab
+TabStateView|can_migrate_query|Admin
+TabStateView|can_migrate_query|Coop Admin
+TabStateView|can_migrate_query|Inteligencia
+TabStateView|can_migrate_query|Permiso basico
+TabStateView|can_migrate_query|Permiso para visualizar
+TabStateView|can_migrate_query|Permiso para visualizar copy
+TabStateView|can_migrate_query|sql_lab
+TabStateView|can_post|Admin
+TabStateView|can_post|Coop Admin
+TabStateView|can_post|Inteligencia
+TabStateView|can_post|Permiso basico
+TabStateView|can_post|Permiso para visualizar
+TabStateView|can_post|Permiso para visualizar copy
+TabStateView|can_post|sql_lab
+TabStateView|can_put|Admin
+TabStateView|can_put|Coop Admin
+TabStateView|can_put|Inteligencia
+TabStateView|can_put|Permiso basico
+TabStateView|can_put|Permiso para visualizar
+TabStateView|can_put|Permiso para visualizar copy
+TabStateView|can_put|sql_lab
+Tag|can_bulk_create|Admin
+Tag|can_bulk_create|Alpha
+Tag|can_bulk_create|Coop Admin
+Tag|can_bulk_create|Gamma
+Tag|can_read|Admin
+Tag|can_read|Alpha
+Tag|can_read|Coop Admin
+Tag|can_read|Gamma
+Tag|can_read|Inteligencia
+Tag|can_read|Permiso basico
+Tag|can_read|tags
+Tag|can_write|Admin
+Tag|can_write|Alpha
+Tag|can_write|Coop Admin
+Tag|can_write|Gamma
+Tags|can_add|Admin
+Tags|can_add|Alpha
+Tags|can_add|Coop Admin
+Tags|can_add|Gamma
+Tags|can_delete|Admin
+Tags|can_delete|Alpha
+Tags|can_delete|Coop Admin
+Tags|can_delete|Gamma
+Tags|can_download|Admin
+Tags|can_download|Alpha
+Tags|can_download|Coop Admin
+Tags|can_download|Gamma
+Tags|can_edit|Admin
+Tags|can_edit|Alpha
+Tags|can_edit|Coop Admin
+Tags|can_edit|Gamma
+Tags|can_list|Admin
+Tags|can_list|Alpha
+Tags|can_list|Coop Admin
+Tags|can_list|Gamma
+Tags|can_show|Admin
+Tags|can_show|Alpha
+Tags|can_show|Coop Admin
+Tags|can_show|Gamma
+Tags|menu_access|Admin
+Tags|menu_access|Alpha
+Tags|menu_access|Coop Admin
+Tags|menu_access|Gamma
+TagView|can_delete|Admin
+TagView|can_delete|Alpha
+TagView|can_delete|Coop Admin
+TagView|can_delete|Gamma
+TagView|can_delete|Inteligencia
+TagView|can_delete|Permiso basico
+TagView|can_delete|Permiso para visualizar
+TagView|can_delete|Permiso para visualizar copy
+TagView|can_get|Admin
+TagView|can_get|Alpha
+TagView|can_get|Coop Admin
+TagView|can_get|Gamma
+TagView|can_get|Inteligencia
+TagView|can_get|Permiso basico
+TagView|can_get|Permiso para visualizar
+TagView|can_get|Permiso para visualizar copy
+TagView|can_post|Admin
+TagView|can_post|Alpha
+TagView|can_post|Coop Admin
+TagView|can_post|Gamma
+TagView|can_post|Inteligencia
+TagView|can_post|Permiso basico
+TagView|can_post|Permiso para visualizar
+TagView|can_post|Permiso para visualizar copy
+TagView|can_suggestions|Admin
+TagView|can_suggestions|Alpha
+TagView|can_suggestions|Coop Admin
+TagView|can_suggestions|Gamma
+TagView|can_suggestions|Inteligencia
+TagView|can_suggestions|Permiso basico
+TagView|can_suggestions|Permiso para visualizar
+TagView|can_suggestions|Permiso para visualizar copy
+TagView|can_tagged_objects|Admin
+TagView|can_tagged_objects|Alpha
+TagView|can_tagged_objects|Coop Admin
+TagView|can_tagged_objects|Gamma
+TagView|can_tagged_objects|Inteligencia
+TagView|can_tagged_objects|Permiso basico
+TagView|can_tagged_objects|Permiso para visualizar
+TagView|can_tagged_objects|Permiso para visualizar copy
+TagView|can_tags|Admin
+TagView|can_tags|Alpha
+TagView|can_tags|Coop Admin
+TagView|can_tags|Gamma
+Task|can_read|Admin
+Task|can_read|Alpha
+Task|can_read|Gamma
+Tasks|menu_access|Admin
+Tasks|menu_access|Alpha
+Tasks|menu_access|Gamma
+Theme|can_export|Admin
+Theme|can_export|Alpha
+Theme|can_export|Gamma
+Theme|can_read|Admin
+Theme|can_read|Alpha
+Theme|can_read|Gamma
+Theme|can_write|Admin
+Theme|can_write|Alpha
+Theme|can_write|Gamma
+Themes|menu_access|Admin
+Themes|menu_access|Alpha
+Themes|menu_access|Gamma
+user|can_read|Admin
+user|can_read|Alpha
+user|can_read|Gamma
+user|can_read|Permiso basico
+User|can_delete|Admin
+User|can_get|Admin
+User|can_info|Admin
+User|can_post|Admin
+User|can_put|Admin
+UserDBModelView|can_add|Admin
+UserDBModelView|can_add|Coop Admin
+UserDBModelView|can_delete|Admin
+UserDBModelView|can_delete|Coop Admin
+UserDBModelView|can_download|Admin
+UserDBModelView|can_edit|Admin
+UserDBModelView|can_edit|Coop Admin
+UserDBModelView|can_edit|Permiso basico
+UserDBModelView|can_list|Admin
+UserDBModelView|can_list|Coop Admin
+UserDBModelView|can_show|Admin
+UserDBModelView|can_show|Coop Admin
+UserDBModelView|can_show|Permiso basico
+UserDBModelView|can_userinfo|Admin
+UserDBModelView|can_userinfo|Alpha
+UserDBModelView|can_userinfo|Coop Admin
+UserDBModelView|can_userinfo|Gamma
+UserDBModelView|can_userinfo|Inteligencia
+UserDBModelView|can_userinfo|Permiso basico
+UserDBModelView|can_userinfo|Permiso para visualizar
+UserDBModelView|can_userinfo|Permiso para visualizar copy
+UserDBModelView|resetmypassword|Admin
+UserDBModelView|resetmypassword|Alpha
+UserDBModelView|resetmypassword|Coop Admin
+UserDBModelView|resetmypassword|Gamma
+UserDBModelView|resetmypassword|Inteligencia
+UserDBModelView|resetmypassword|Permiso basico
+UserDBModelView|resetmypassword|Permiso para visualizar
+UserDBModelView|resetmypassword|Permiso para visualizar copy
+UserDBModelView|resetpasswords|Admin
+UserDBModelView|resetpasswords|Coop Admin
+UserDBModelView|userinfoedit|Admin
+UserDBModelView|userinfoedit|Coop Admin
+UserDBModelView|userinfoedit|Permiso basico
+UserGroupModelView|can_add|Admin
+UserGroupModelView|can_delete|Admin
+UserGroupModelView|can_download|Admin
+UserGroupModelView|can_edit|Admin
+UserGroupModelView|can_list|Admin
+UserGroupModelView|can_show|Admin
+UserInfoEditView|can_this_form_get|Admin
+UserInfoEditView|can_this_form_get|Coop Admin
+UserInfoEditView|can_this_form_get|Inteligencia
+UserInfoEditView|can_this_form_get|Permiso basico
+UserInfoEditView|can_this_form_get|Permiso para visualizar
+UserInfoEditView|can_this_form_get|Permiso para visualizar copy
+UserInfoEditView|can_this_form_post|Admin
+UserInfoEditView|can_this_form_post|Coop Admin
+UserInfoEditView|can_this_form_post|Inteligencia
+UserInfoEditView|can_this_form_post|Permiso basico
+UserInfoEditView|can_this_form_post|Permiso para visualizar
+UserInfoEditView|can_this_form_post|Permiso para visualizar copy
+User Registrations|menu_access|Admin
+UserRegistrationsRestAPI|can_add|Admin
+UserRegistrationsRestAPI|can_add|Alpha
+UserRegistrationsRestAPI|can_add|Gamma
+UserRegistrationsRestAPI|can_delete|Admin
+UserRegistrationsRestAPI|can_delete|Alpha
+UserRegistrationsRestAPI|can_delete|Gamma
+UserRegistrationsRestAPI|can_edit|Admin
+UserRegistrationsRestAPI|can_edit|Alpha
+UserRegistrationsRestAPI|can_edit|Gamma
+UserRegistrationsRestAPI|can_list|Admin
+UserRegistrationsRestAPI|can_list|Alpha
+UserRegistrationsRestAPI|can_list|Gamma
+UserRegistrationsRestAPI|can_show|Admin
+UserRegistrationsRestAPI|can_show|Alpha
+UserRegistrationsRestAPI|can_show|Gamma
+ViewMenu|can_delete|Admin
+ViewMenu|can_get|Admin
+ViewMenu|can_info|Admin
+ViewMenu|can_post|Admin
+ViewMenu|can_put|Admin

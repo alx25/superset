@@ -77,9 +77,13 @@ class _FakeCursor:
 class _FakeConnection:
     def __init__(self, cursor):
         self._cursor = cursor
+        self.rollbacks = 0
 
     def cursor(self):
         return self._cursor
+
+    def rollback(self):
+        self.rollbacks += 1
 
     def __enter__(self):
         return self
@@ -107,7 +111,8 @@ class FakeDatabase:
     def get_raw_connection(self, catalog=None, schema=None, source=None):
         if self._raise_on_connect:
             raise RuntimeError("no se pudo conectar")
-        return _FakeConnection(self.cursor)
+        self.connection = _FakeConnection(self.cursor)
+        return self.connection
 
 
 def _install_superset_stubs(database=None, can_access_database=True, render_sql=None, raise_on_render=False):
@@ -201,7 +206,10 @@ class TestLimitWrapping:
         db = FakeDatabase(engine="postgresql", columns=["a"], rows=[])
         _install_superset_stubs(database=db)
         check_query_nulls(_base_request(sample_size=25))
-        assert db.cursor.executed_statements == ["SELECT * FROM (SELECT 1) AS irex_sample LIMIT 25"]
+        assert db.cursor.executed_statements == [
+            "SET TRANSACTION READ ONLY",
+            "SELECT * FROM (SELECT 1) AS irex_sample LIMIT 25",
+        ]
 
     def test_clickhouse_uses_trailing_limit(self):
         db = FakeDatabase(engine="clickhousedb", columns=["a"], rows=[])
@@ -305,3 +313,35 @@ class TestProgressReporting:
         response = check_query_nulls(_base_request(), ctx=ctx)
         assert response.success is False
         assert [message for (_, _, message) in ctx.calls] == ["Validando la sentencia"]
+
+
+class TestReadOnlyEnforcement:
+    """Capas de `_sql_safety` aplicadas a la muestra real (2026-09-23)."""
+
+    def test_rejects_delete_hidden_in_cte_without_executing(self):
+        db = FakeDatabase(engine="postgresql", columns=["a"], rows=[])
+        _install_superset_stubs(database=db)
+        response = check_query_nulls(_base_request(sql="WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d"))
+        assert response.success is False
+        assert response.error_type == "INVALID_SQL_ERROR"
+        assert db.cursor.executed_statements == []
+
+    def test_postgres_always_rolls_back(self):
+        db = FakeDatabase(engine="postgresql", columns=["a"], rows=[(1,)])
+        _install_superset_stubs(database=db)
+        check_query_nulls(_base_request())
+        assert db.connection.rollbacks == 1
+
+    def test_postgres_rolls_back_even_when_execute_fails(self):
+        db = FakeDatabase(engine="postgresql", columns=["a"], raise_on_execute=True)
+        _install_superset_stubs(database=db)
+        response = check_query_nulls(_base_request())
+        assert response.success is False
+        assert db.connection.rollbacks == 1
+
+    def test_clickhouse_has_no_transaction_statements(self):
+        db = FakeDatabase(engine="clickhousedb", columns=["a"], rows=[])
+        _install_superset_stubs(database=db)
+        check_query_nulls(_base_request())
+        assert "SET TRANSACTION READ ONLY" not in db.cursor.executed_statements
+        assert db.connection.rollbacks == 0

@@ -85,9 +85,13 @@ class _FakeCursor:
 class _FakeConnection:
     def __init__(self, cursor):
         self._cursor = cursor
+        self.rollbacks = 0
 
     def cursor(self):
         return self._cursor
+
+    def rollback(self):
+        self.rollbacks += 1
 
     def __enter__(self):
         return self
@@ -113,7 +117,8 @@ class FakeDatabase:
     def get_raw_connection(self, catalog=None, schema=None, source=None):
         if self._raise_on_connect:
             raise RuntimeError("no se pudo conectar")
-        return _FakeConnection(self.cursor)
+        self.connection = _FakeConnection(self.cursor)
+        return self.connection
 
 
 def _install_superset_stubs(
@@ -216,7 +221,7 @@ class TestJinjaRendering:
         _install_superset_stubs(database=db, render_sql=lambda sql: "SELECT 1")
         response = explain_query(_base_request(sql="{% set x = 1 %}SELECT {{ x }}"))
         assert response.success is True
-        assert db.cursor.executed_statements == ["EXPLAIN (FORMAT JSON) SELECT 1"]
+        assert db.cursor.executed_statements == ["SET TRANSACTION READ ONLY", "EXPLAIN (FORMAT JSON) SELECT 1"]
 
     def test_jinja_render_failure_is_reported_not_raised(self):
         _install_superset_stubs(database=FakeDatabase(), raise_on_render=True)
@@ -231,7 +236,7 @@ class TestJinjaRendering:
         _install_superset_stubs(database=db)  # render_sql=None -> identidad
         response = explain_query(_base_request(sql="SELECT 1"))
         assert response.success is True
-        assert db.cursor.executed_statements == ["EXPLAIN (FORMAT JSON) SELECT 1"]
+        assert db.cursor.executed_statements == ["SET TRANSACTION READ ONLY", "EXPLAIN (FORMAT JSON) SELECT 1"]
 
 
 class TestPostgres:
@@ -241,7 +246,7 @@ class TestPostgres:
         response = explain_query(_base_request(analyze=False))
         assert response.success is True
         assert response.executed is False
-        assert db.cursor.executed_statements == ["EXPLAIN (FORMAT JSON) SELECT 1"]
+        assert db.cursor.executed_statements == ["SET TRANSACTION READ ONLY", "EXPLAIN (FORMAT JSON) SELECT 1"]
         assert '"Node Type": "Seq Scan"' in response.plan
 
     def test_analyze_executes_the_query(self):
@@ -250,7 +255,10 @@ class TestPostgres:
         response = explain_query(_base_request(analyze=True))
         assert response.success is True
         assert response.executed is True
-        assert db.cursor.executed_statements == ["EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) SELECT 1"]
+        assert db.cursor.executed_statements == [
+            "SET TRANSACTION READ ONLY",
+            "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) SELECT 1",
+        ]
 
     def test_string_plan_passthrough(self):
         """Algunos drivers devuelven el JSON ya como texto en vez de parseado."""
@@ -376,3 +384,66 @@ class TestProgressReporting:
         response = explain_query(_base_request(), ctx=ctx)
         assert response.success is False
         assert [message for (_, _, message) in ctx.calls] == ["Validando la sentencia"]
+
+
+class TestReadOnlyEnforcement:
+    """Capas de `_sql_safety` (2026-09-23). Caso real que motivó el cambio:
+    con la regex anterior, este CTE pasaba la validación y EXPLAIN ANALYZE
+    en Postgres ejecutaba el DELETE (verificado contra PostgreSQL real)."""
+
+    def test_rejects_delete_hidden_in_cte_with_analyze(self):
+        db = FakeDatabase(engine="postgresql")
+        _install_superset_stubs(database=db)
+        response = explain_query(
+            _base_request(sql="WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d", analyze=True)
+        )
+        assert response.success is False
+        assert response.error_type == "INVALID_SQL_ERROR"
+        assert db.cursor.executed_statements == []
+
+    def test_rejects_select_into_with_analyze(self):
+        # Postgres permite EXPLAIN ANALYZE SELECT ... INTO incluso en una
+        # transacción READ ONLY (crea la tabla) — solo el parser lo frena.
+        db = FakeDatabase(engine="postgresql")
+        _install_superset_stubs(database=db)
+        response = explain_query(_base_request(sql="SELECT 1 AS x INTO nueva", analyze=True))
+        assert response.success is False
+        assert response.error_type == "INVALID_SQL_ERROR"
+        assert db.cursor.executed_statements == []
+
+    def test_jinja_rendering_into_dml_is_rejected(self):
+        db = FakeDatabase(engine="postgresql")
+        _install_superset_stubs(
+            database=db,
+            render_sql=lambda sql: "WITH d AS (UPDATE t SET a = 1 RETURNING *) SELECT * FROM d",
+        )
+        response = explain_query(_base_request(sql="{{ algo }}", analyze=True))
+        assert response.error_type == "INVALID_SQL_ERROR"
+        assert db.cursor.executed_statements == []
+
+    def test_postgres_always_rolls_back(self):
+        db = FakeDatabase(engine="postgresql", fetch_results=[[("[]",)]])
+        _install_superset_stubs(database=db)
+        explain_query(_base_request(analyze=True))
+        assert db.connection.rollbacks == 1
+
+    def test_postgres_rolls_back_even_when_explain_fails(self):
+        db = FakeDatabase(engine="postgresql")
+
+        def _execute_fails(statement):
+            db.cursor.executed_statements.append(statement)
+            if statement.startswith("EXPLAIN"):
+                raise RuntimeError("canceling statement due to statement timeout")
+
+        db.cursor.execute = _execute_fails
+        _install_superset_stubs(database=db)
+        response = explain_query(_base_request(analyze=True))
+        assert response.success is False
+        assert db.connection.rollbacks == 1
+
+    def test_clickhouse_has_no_transaction_statements(self):
+        db = FakeDatabase(engine="clickhousedb", fetch_results=[[("plan",)]])
+        _install_superset_stubs(database=db)
+        explain_query(_base_request())
+        assert "SET TRANSACTION READ ONLY" not in db.cursor.executed_statements
+        assert db.connection.rollbacks == 0

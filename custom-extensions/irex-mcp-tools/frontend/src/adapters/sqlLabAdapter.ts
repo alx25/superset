@@ -178,13 +178,27 @@ export async function clearRevealedChange(): Promise<void> {
 }
 
 /**
+ * Límite de filas de toda ejecución lanzada por el asistente (Fase 8). Igual
+ * a `DEFAULT_SQLLAB_LIMIT` de esta instalación, pero explícito: sin esto,
+ * `executeQuery` hereda el límite elegido en la pestaña, que el usuario
+ * puede haber subido hasta `SQL_MAX_ROW` (100000). La API pública no expone
+ * el límite de la pestaña, así que no se puede tomar el mínimo de los dos.
+ * Superset solo lo aplica a consultas de lectura; no afecta DML/DDL.
+ */
+export const ASSISTANT_EXECUTION_LIMIT = 1000;
+
+/**
  * Ejecuta SQL vía el pipeline normal de SQL Lab (RLS, historial, permisos
- * de base/dataset incluidos). Debe llamarse solo tras una confirmación
- * explícita del usuario — nunca automáticamente. El MCP `execute_sql`
- * permanece deshabilitado; esta es la única vía de ejecución del spike.
+ * de base/dataset y `allow_dml` incluidos — el servidor revalida con el
+ * parser de Superset). Debe llamarse solo tras una confirmación explícita
+ * del usuario — nunca automáticamente. El MCP `execute_sql` permanece
+ * deshabilitado; esta es la única vía de ejecución del asistente.
+ *
+ * Devuelve el client id de la consulta: el mismo valor que llega como
+ * `clientId` en `onQuerySuccess`/`onQueryFail`/`onQueryStop`.
  */
 export function executeConfirmed(sql: string): Promise<string> {
-  return sqlLab.executeQuery({ sql });
+  return sqlLab.executeQuery({ sql, limit: ASSISTANT_EXECUTION_LIMIT });
 }
 
 export function cancelQuery(queryId: string): Promise<void> {
@@ -195,12 +209,16 @@ export function onActiveTabChanged(listener: (tab: sqlLab.Tab) => void) {
   return sqlLab.onDidChangeActiveTab(listener);
 }
 
-export function onQuerySuccess(listener: (result: unknown) => void) {
+export function onQuerySuccess(listener: (result: sqlLab.QueryResultContext) => void) {
   return sqlLab.onDidQuerySuccess(listener);
 }
 
-export function onQueryFail(listener: (result: unknown) => void) {
+export function onQueryFail(listener: (result: sqlLab.QueryErrorResultContext) => void) {
   return sqlLab.onDidQueryFail(listener);
+}
+
+export function onQueryStop(listener: (query: sqlLab.QueryContext) => void) {
+  return sqlLab.onDidQueryStop(listener);
 }
 
 export type TabEditorProbeStatus = 'resolved' | 'timeout' | 'rejected';

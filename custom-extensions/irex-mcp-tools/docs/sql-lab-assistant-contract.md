@@ -15,24 +15,35 @@ interpretarlo parcialmente.
 
 ## Transporte (estado actual)
 
-El panel llama al proxy same-origin que ya expone
-`custom-src/login/mcp_widget.py` (`chat_widget_api_proxy`), el mismo que
-usa el widget de chat de dashboards hoy:
+Desde 2026-09-23 (Fase 6, portabilidad) el panel llama a la REST API
+propia de la extensión (`backend/.../assistant_api.py`):
 
 ```
-POST /api/chat-widget/api/sql-lab-assistant
+POST /extensions/irex/irex-mcp-tools/assistant/sql-lab
 Content-Type: application/json
 Accept: text/event-stream
+X-CSRFToken: <token de la sesión de Superset>
 
 <request del contrato, ver abajo>
 ```
 
-Superset reenvía esa request a `<CHAT_WIDGET_API_URL>/api/sql-lab-assistant`
-en el backend real, agregando automáticamente (el panel no los maneja):
+Si esa ruta responde 404 (no registrada), el panel reintenta una sola vez
+por el proxy genérico viejo `POST /api/chat-widget/api/sql-lab-assistant`
+(`custom-src/login/mcp_widget.py`), que sigue existiendo para el widget de
+dashboards.
+
+Cualquiera de las dos rutas reenvía a
+`<CHAT_WIDGET_API_URL>/api/sql-lab-assistant` con el mismo body y estos
+headers, que siempre salen de la sesión del servidor y nunca del navegador:
 
 - `X-Service-Secret` — secreto server-to-server (`CHAT_BACKEND_SECRET`)
 - `X-Superset-User` — username del usuario autenticado
 - `X-Superset-User-Email`, `X-Superset-User-Display-Name`
+
+Diferencia de la ruta nueva: del navegador solo reenvía `Content-Type` y
+`Accept`. No reenvía `Cookie`, `User-Agent` ni ningún otro header, cosa
+que el proxy viejo sí hacía. Antes de reenviar exige sesión válida, token
+CSRF, `can_read` sobre `SQLLab` y el rol `CHAT_WIDGET_REQUIRED_ROLE`.
 
 **No hay autenticación nueva que implementar en el chat para esto** — es
 el mismo mecanismo que ya usan los endpoints existentes del widget. El

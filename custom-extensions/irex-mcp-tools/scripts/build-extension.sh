@@ -23,16 +23,19 @@ FRONTEND_DIR="$EXT_ROOT/frontend"
 BACKEND_DIR="$EXT_ROOT/backend"
 BUILD_OUT="$EXT_ROOT/dist/irex-mcp-tools-0.1.0.supx"
 
-echo "== 1/6 Verificar API pública requerida (@apache-superset/core) =="
+echo "== 1/7 Verificar API pública requerida (@apache-superset/core) =="
 if [ ! -d "$SUPERSET_DIR/superset-frontend/packages/superset-core" ]; then
   echo "ERROR: no se encontró superset-core en $SUPERSET_DIR" >&2
   exit 1
 fi
 
-echo "== 2/6 Compilar TypeScript (validación de tipos, strict) =="
+echo "== 2/7 Compilar TypeScript (validación de tipos, strict) =="
 (cd "$FRONTEND_DIR" && npx tsc --noEmit -p tsconfig.json)
 
-echo "== 3/6 Verificar sintaxis del backend Python =="
+echo "== 3/7 Tests frontend (Jest + Testing Library) =="
+(cd "$FRONTEND_DIR" && npx jest --ci)
+
+echo "== 4/7 Verificar sintaxis del backend Python =="
 python3 -c "
 import py_compile, pathlib, sys
 backend_src = pathlib.Path('$BACKEND_DIR/src')
@@ -44,7 +47,7 @@ for f in files:
 print(f'py_compile OK ({len(files)} archivos)')
 "
 
-echo "== 4/6 Tests backend =="
+echo "== 5/7 Tests backend =="
 PYTEST_BIN="$SUPERSET_DIR/.venv/bin/pytest"
 if [ -x "$PYTEST_BIN" ]; then
   (cd "$BACKEND_DIR" && "$PYTEST_BIN" tests/ -q)
@@ -55,7 +58,7 @@ else
   echo "       se omiten los tests backend." >&2
 fi
 
-echo "== 5/6 Compilar frontend (webpack, modo producción) =="
+echo "== 6/7 Compilar frontend (webpack, modo producción) =="
 NPM_VERSION="$(npm --version)"
 if ! printf '%s\n10.8.2\n' "$NPM_VERSION" | sort -V -C 2>/dev/null; then
   echo "AVISO: npm $NPM_VERSION < 10.8.2 requerido por 'superset-extensions'." >&2
@@ -64,7 +67,7 @@ if ! printf '%s\n10.8.2\n' "$NPM_VERSION" | sort -V -C 2>/dev/null; then
 fi
 (cd "$FRONTEND_DIR" && rm -rf dist && npm run build)
 
-echo "== 6/6 Empaquetar y validar .supx (reconstruido desde cero) =="
+echo "== 7/7 Empaquetar y validar .supx (reconstruido desde cero) =="
 python3 "$EXT_ROOT/scripts/package_supx.py" "$BUILD_OUT"
 
 if [ -n "$DEST_SUPX" ]; then
