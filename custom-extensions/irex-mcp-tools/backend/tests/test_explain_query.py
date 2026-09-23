@@ -9,6 +9,7 @@ Correr con:
   ../../.venv/bin/python -m pytest tests/ -q
 """
 
+import asyncio
 import re
 import sys
 import types
@@ -40,8 +41,28 @@ sys.modules.setdefault("superset_core.mcp.decorators", _decorators)
 
 from irex.irex_mcp_tools.explain_query import (  # noqa: E402
     ExplainQueryRequest,
-    explain_query,
+    explain_query as _explain_query_async,
 )
+
+
+class _FakeCtx:
+    """Doble de `fastmcp.Context` — solo lo que usa `_progress.report_phase`
+    (`await ctx.report_progress(tick, total, message)`). Guarda cada llamada
+    para los tests que quieran verificar las fases/heartbeats emitidos."""
+
+    def __init__(self):
+        self.calls: list[tuple[int, float | None, str]] = []
+
+    async def report_progress(self, progress, total=None, message=None):
+        self.calls.append((progress, total, message))
+
+
+def explain_query(request, ctx=None):
+    """Shim sync: la tool real es `async def` (progreso MCP estándar, ver
+    `_progress.py`) — esto la corre con `asyncio.run()` y un `_FakeCtx()`
+    descartable si no se pasa uno, así los ~18 call-sites de este archivo no
+    necesitan tocarse uno por uno."""
+    return asyncio.run(_explain_query_async(request, ctx if ctx is not None else _FakeCtx()))
 
 
 class _FakeCursor:
@@ -318,3 +339,40 @@ class TestOracle:
         assert f"statement_id => '{plan_id}'" in statements[1]
         assert "PLAN_LINE_1" in response.plan
         assert any("no validado contra una instancia real" in w for w in response.warnings)
+
+
+class TestProgressReporting:
+    def test_emits_initial_and_final_phases(self):
+        db = FakeDatabase(engine="postgresql", fetch_results=[[({"Plan": {}},)]])
+        _install_superset_stubs(database=db)
+        ctx = _FakeCtx()
+        response = explain_query(_base_request(), ctx=ctx)
+        assert response.success is True
+        messages = [message for (_, _, message) in ctx.calls]
+        assert "Validando la sentencia" in messages
+        assert any("Iniciando EXPLAIN" in m for m in messages)
+        assert "Leyendo y normalizando el plan" in messages
+
+    def test_analyze_true_mentions_analyze_in_start_phase(self):
+        db = FakeDatabase(engine="postgresql", fetch_results=[[({"Plan": {}},)]])
+        _install_superset_stubs(database=db)
+        ctx = _FakeCtx()
+        explain_query(_base_request(analyze=True), ctx=ctx)
+        messages = [message for (_, _, message) in ctx.calls]
+        assert "Iniciando EXPLAIN ANALYZE" in messages
+
+    def test_progress_messages_never_include_sql_text(self):
+        """Nunca deben filtrarse fragmentos del SQL real en los mensajes de progreso."""
+        db = FakeDatabase(engine="postgresql", fetch_results=[[({"Plan": {}},)]])
+        _install_superset_stubs(database=db)
+        ctx = _FakeCtx()
+        explain_query(_base_request(sql="SELECT muy_secreto_de_negocio FROM t"), ctx=ctx)
+        for _, _, message in ctx.calls:
+            assert "muy_secreto_de_negocio" not in message
+
+    def test_error_path_still_reports_initial_phase_only(self):
+        _install_superset_stubs(database=None)
+        ctx = _FakeCtx()
+        response = explain_query(_base_request(), ctx=ctx)
+        assert response.success is False
+        assert [message for (_, _, message) in ctx.calls] == ["Validando la sentencia"]

@@ -11,6 +11,7 @@ Correr con:
   ../../.venv/bin/python -m pytest tests/ -q
 """
 
+import asyncio
 import sys
 import types
 from pathlib import Path
@@ -42,8 +43,27 @@ sys.modules.setdefault("superset_core.mcp.decorators", _decorators)
 
 from irex.irex_mcp_tools.sql_schema_context import (  # noqa: E402
     SqlSchemaContextRequest,
-    get_sql_schema_context,
+    get_sql_schema_context as _get_sql_schema_context_async,
 )
+
+
+class _FakeCtx:
+    """Doble de `fastmcp.Context` — ver el mismo patrón en test_explain_query.py."""
+
+    def __init__(self):
+        self.calls: list[tuple[int, float | None, str]] = []
+
+    async def report_progress(self, progress, total=None, message=None):
+        self.calls.append((progress, total, message))
+
+
+def get_sql_schema_context(request, ctx=None):
+    """Shim sync — la tool real es `async def` (progreso MCP estándar, ver
+    `_progress.py`, incluido progreso real por tabla en modo batch) — esto
+    la corre con `asyncio.run()` y un `_FakeCtx()` descartable si no se pasa
+    uno, así los ~48 call-sites de este archivo no necesitan tocarse uno
+    por uno."""
+    return asyncio.run(_get_sql_schema_context_async(request, ctx if ctx is not None else _FakeCtx()))
 
 
 class _FakeConnection:
@@ -855,3 +875,88 @@ class TestBatchEngineSpecificMetadata:
         assert response.success is True
         assert response.table_contexts[0].success is True
         assert response.table_contexts[0].table_definition is None
+
+
+class TestProgressReporting:
+    def test_batch_reports_real_per_table_progress(self):
+        """El requisito central: progreso real 'N de M tablas', uno por
+        tabla efectivamente resuelta — no un heartbeat genérico de tiempo."""
+        db = FakeDatabase(engine="clickhouse")
+        _install_superset_stubs(
+            database=db,
+            table_metadata_by_name={
+                "ventas": {"name": "ventas", "columns": [{"name": "id", "type": "Int32", "comment": None}]},
+                "clientes": {"name": "clientes", "columns": [{"name": "nombre", "type": "String", "comment": None}]},
+                "productos": {"name": "productos", "columns": [{"name": "sku", "type": "String", "comment": None}]},
+            },
+        )
+        ctx = _FakeCtx()
+        response = get_sql_schema_context(
+            _base_request(table_names=["ventas", "clientes", "productos"]), ctx=ctx
+        )
+        assert response.success is True
+        messages = [message for (_, _, message) in ctx.calls]
+        assert "Esquema batch: 1 de 3 tablas consultadas" in messages
+        assert "Esquema batch: 2 de 3 tablas consultadas" in messages
+        assert "Esquema batch: 3 de 3 tablas consultadas" in messages
+        # En orden: no puede aparecer "2 de 3" antes que "1 de 3".
+        assert messages.index("Esquema batch: 1 de 3 tablas consultadas") < messages.index(
+            "Esquema batch: 2 de 3 tablas consultadas"
+        )
+
+    def test_batch_progress_counts_denied_tables_too(self):
+        """Una tabla sin permiso también cuenta para el progreso — el
+        usuario ve que el batch avanzó, aunque esa tabla haya fallado sola."""
+        db = FakeDatabase(engine="clickhouse")
+        sm = _install_superset_stubs(
+            database=db,
+            table_metadata_by_name={
+                "ventas": {"name": "ventas", "columns": []},
+                "secreta": {"name": "secreta", "columns": []},
+            },
+        )
+        sm.can_access_table.side_effect = lambda database, ref: ref[0] != "secreta"
+        ctx = _FakeCtx()
+        response = get_sql_schema_context(_base_request(table_names=["ventas", "secreta"]), ctx=ctx)
+        assert response.success is True
+        assert response.table_contexts[1].success is False
+        messages = [message for (_, _, message) in ctx.calls]
+        assert "Esquema batch: 1 de 2 tablas consultadas" in messages
+        assert "Esquema batch: 2 de 2 tablas consultadas" in messages
+
+    def test_single_table_emits_initial_and_final_phases(self):
+        _install_superset_stubs(
+            database=FakeDatabase(engine="postgresql"),
+            table_metadata={"name": "t", "columns": []},
+        )
+        ctx = _FakeCtx()
+        response = get_sql_schema_context(_base_request(table="t"), ctx=ctx)
+        assert response.success is True
+        messages = [message for (_, _, message) in ctx.calls]
+        assert "Validando la sentencia" in messages
+        assert "Consultando la tabla" in messages
+        assert "Procesando el resultado recibido" in messages
+
+    def test_table_list_emits_initial_phase(self):
+        _install_superset_stubs(database=FakeDatabase(engine="postgresql", tables={("t", "public", None)}))
+        ctx = _FakeCtx()
+        response = get_sql_schema_context(_base_request(), ctx=ctx)
+        assert response.success is True
+        messages = [message for (_, _, message) in ctx.calls]
+        assert "Validando la sentencia" in messages
+        assert "Listando tablas del schema" in messages
+
+    def test_progress_messages_never_include_table_names_or_values(self):
+        """Los mensajes son fases fijas — nunca deben interpolar nombres de
+        tabla, columnas ni ningún dato de negocio."""
+        db = FakeDatabase(engine="clickhouse")
+        _install_superset_stubs(
+            database=db,
+            table_metadata_by_name={
+                "TABLA_SECRETA_DE_NEGOCIO": {"name": "TABLA_SECRETA_DE_NEGOCIO", "columns": []},
+            },
+        )
+        ctx = _FakeCtx()
+        get_sql_schema_context(_base_request(table_names=["TABLA_SECRETA_DE_NEGOCIO"]), ctx=ctx)
+        for _, _, message in ctx.calls:
+            assert "TABLA_SECRETA_DE_NEGOCIO" not in message

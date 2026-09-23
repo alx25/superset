@@ -47,27 +47,132 @@ function bubbleStyle(theme: PanelTheme, role: ConversationMessage['role']): Reac
   };
 }
 
+/** "24s" o "1m 32s" — segundos crudos son ilegibles pasado el minuto, y las
+ * consultas reales que motivan este temporizador ya llegaron a ~90-112s. */
+function formatElapsed(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return `${minutes}m ${rest}s`;
+}
+
 /**
- * Burbuja que indica que el LLM está generando la respuesta. Si el backend
- * manda progreso real por SSE (`progressLabel`, ver `chatBackendAdapter`),
- * se muestra eso ("Analizando la consulta de SQL Lab.", "Obteniendo el plan
- * de ejecución.", etc.); si no (backend sin soporte SSE todavía, o antes de
- * que llegue el primer evento) cae al "Pensando…" genérico animado de
- * siempre.
+ * Tarjeta que reemplaza el "Pensando…" plano mientras el pedido está en
+ * vuelo. Cada evento `status`/`activity` que llega por SSE (ver
+ * `chatBackendAdapter`) se acumula como un paso más en vez de pisar al
+ * anterior — así el usuario ve el historial de lo que ya pasó ("Analizando
+ * la solicitud." ✓, "Consultando a Irex Superset." ✓, …) y no solo la
+ * última línea, igual que el widget de chat del dashboard. El último paso
+ * de la lista es el único que todavía no tiene tilde: es el que sigue en
+ * curso. Si todavía no llegó ningún evento (backend sin soporte SSE, o
+ * antes del primero) cae al "Pensando…" genérico animado de siempre.
  */
-function TypingIndicator({ label }: { label?: string }): React.ReactElement {
+function WorkingIndicator({ steps, elapsedSeconds }: { steps: string[]; elapsedSeconds?: number }): React.ReactElement {
   const theme = themeNs.useTheme();
+  const [expanded, setExpanded] = React.useState(true);
   const [tick, setTick] = React.useState(0);
   React.useEffect(() => {
     const id = window.setInterval(() => setTick(t => t + 1), 420);
     return () => window.clearInterval(id);
   }, []);
   const dots = '.'.repeat((tick % 3) + 1);
+  const displaySteps = steps.length > 0 ? steps : [`Pensando${dots}`];
+  const stepsRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    const el = stepsRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [displaySteps.length]);
   return (
     <div style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'flex-start' }}>
       <div style={avatarStyle(theme, 'assistant')}>{ROLE_AVATAR.assistant}</div>
-      <div style={{ ...bubbleStyle(theme, 'assistant'), minWidth: 78, color: theme.colorTextSecondary }}>
-        {label ?? `Pensando${dots}`}
+      <div
+        style={{
+          ...bubbleStyle(theme, 'assistant'),
+          whiteSpace: 'normal',
+          minWidth: 220,
+          padding: 0,
+          overflow: 'hidden',
+        }}
+      >
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setExpanded(e => !e)}
+          onKeyDown={event => {
+            if (event.key === 'Enter' || event.key === ' ') setExpanded(e => !e);
+          }}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '9px 12px',
+            cursor: 'pointer',
+            borderBottom: expanded ? `1px solid ${theme.colorBorderSecondary}` : 'none',
+          }}
+        >
+          <span
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: '50%',
+              flexShrink: 0,
+              background: theme.colorPrimary,
+              opacity: 0.35 + 0.65 * (((tick % 3) + 1) / 3),
+            }}
+          />
+          <strong style={{ fontSize: 12.5, flex: 1 }}>Trabajando</strong>
+          {elapsedSeconds !== undefined && (
+            <span style={{ fontSize: 10.5, color: theme.colorTextTertiary, whiteSpace: 'nowrap' }}>
+              {formatElapsed(elapsedSeconds)}
+            </span>
+          )}
+          <span
+            style={{
+              fontSize: 9,
+              color: theme.colorTextTertiary,
+              display: 'inline-block',
+              transform: expanded ? 'rotate(180deg)' : 'none',
+            }}
+          >
+            ▾
+          </span>
+        </div>
+        {expanded && (
+          <div
+            ref={stepsRef}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 5,
+              padding: '8px 12px 10px',
+              maxHeight: 140,
+              overflowY: 'auto',
+            }}
+          >
+            {displaySteps.map((step, index) => {
+              const isCurrent = steps.length > 0 && index === displaySteps.length - 1;
+              return (
+                <div
+                  // eslint-disable-next-line react/no-array-index-key
+                  key={index}
+                  style={{ display: 'flex', alignItems: 'flex-start', gap: 7, fontSize: 11.5, lineHeight: 1.4 }}
+                >
+                  <span
+                    style={{
+                      flexShrink: 0,
+                      marginTop: 1,
+                      color: isCurrent ? theme.colorPrimary : theme.colorSuccess ?? '#52c41a',
+                    }}
+                  >
+                    {isCurrent ? '○' : '✓'}
+                  </span>
+                  <span style={{ color: isCurrent ? theme.colorText : theme.colorTextSecondary }}>{step}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -89,9 +194,14 @@ export interface ConversationProps {
   onUserMessageChange: (text: string) => void;
   onSend: () => void;
   sending: boolean;
-  /** Paso actual reportado por el backend vía SSE mientras `sending` es
-   * true (ver `AssistantProgressEvent`). undefined -> "Pensando…" genérico. */
-  progressLabel?: string;
+  /** Historial acumulado de pasos reportados por el backend vía SSE mientras
+   * `sending` es true (ver `AssistantProgressEvent`) — cada `status`/`activity`
+   * nuevo se agrega al final, nunca reemplaza al anterior. Array vacío ->
+   * "Pensando…" genérico. */
+  progressSteps: string[];
+  /** Segundos transcurridos desde que se mandó el pedido en curso — cronómetro
+   * del cliente, independiente de si el backend manda progreso SSE o no. */
+  elapsedSeconds?: number;
   sendDisabledReason?: string;
   lastErrorMessage?: string;
   children?: React.ReactNode;
@@ -105,7 +215,8 @@ export function Conversation({
   onUserMessageChange,
   onSend,
   sending,
-  progressLabel,
+  progressSteps,
+  elapsedSeconds,
   sendDisabledReason,
   lastErrorMessage,
   children,
@@ -216,7 +327,7 @@ export function Conversation({
           ))}
         </div>
         )}
-        {sending && <TypingIndicator label={progressLabel} />}
+        {sending && <WorkingIndicator steps={progressSteps} elapsedSeconds={elapsedSeconds} />}
         {children}
       </div>
 
@@ -330,7 +441,7 @@ export function Conversation({
             color: canSend ? theme.colorWhite ?? '#fff' : theme.colorTextTertiary,
           }}
         >
-          {sending ? 'Analizando…' : 'Pedir propuesta'}
+          {sending ? `Analizando… ${elapsedSeconds !== undefined ? formatElapsed(elapsedSeconds) : ''}`.trim() : 'Pedir propuesta'}
         </button>
         <span style={{ marginTop: -4, fontSize: 10.5, color: theme.colorTextTertiary, textAlign: 'center' }}>
           Ctrl/Cmd + Enter para enviar · los cambios siempre requieren confirmación

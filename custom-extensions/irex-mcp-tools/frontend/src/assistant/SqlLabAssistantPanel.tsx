@@ -354,7 +354,10 @@ export function SqlLabAssistantPanel(): React.ReactElement {
   const [userMessage, setUserMessage] = useState('');
   const [history, setHistory] = useState<ConversationMessage[]>([]);
   const [sending, setSending] = useState(false);
-  const [progressLabel, setProgressLabel] = useState<string | undefined>();
+  // Historial acumulado de pasos del pedido en curso — cada evento `status`/
+  // `activity` que llega por SSE se agrega al final (ver WorkingIndicator en
+  // Conversation.tsx), no pisa al anterior como hacía `progressLabel`.
+  const [progressSteps, setProgressSteps] = useState<string[]>([]);
   const [sendError, setSendError] = useState<string | undefined>();
   const [proposal, setProposal] = useState<AssistantResponse | undefined>();
   const [proposalContext, setProposalContext] = useState<AssistantContext | undefined>();
@@ -376,9 +379,27 @@ export function SqlLabAssistantPanel(): React.ReactElement {
   // el otro lo define el backend como identidad real de esa conversación.
   const [conversationKey, setConversationKey] = useState<string>(createConversationKey);
   const [sessionId, setSessionId] = useState<string | undefined>();
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const sendStartRef = useRef<number | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const panelHeight = usePanelHeight(rootRef);
   const pendingRequestRef = useRef<AbortController | null>(null);
+
+  // Temporizador del pedido en curso — independiente de los eventos SSE de
+  // progreso (que ya traen "Ns transcurridos" en su propio texto, pero solo
+  // si el backend los manda): esto siempre corre desde el click, útil para
+  // ver cuánto lleva una consulta real incluso sin soporte SSE desplegado.
+  // Basado en `Date.now()` (no un contador que suma de a 1 por tick) para no
+  // arrastrar drift en pedidos largos.
+  React.useEffect(() => {
+    if (!sending) return undefined;
+    const id = window.setInterval(() => {
+      if (sendStartRef.current !== null) {
+        setElapsedSeconds(Math.floor((Date.now() - sendStartRef.current) / 1000));
+      }
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [sending]);
 
   const handleApplied = useCallback((snapshot: AppliedSnapshot) => {
     setLastChange(snapshot);
@@ -468,7 +489,9 @@ export function SqlLabAssistantPanel(): React.ReactElement {
         return;
       }
       setSending(true);
-      setProgressLabel(undefined);
+      setProgressSteps([]);
+      sendStartRef.current = Date.now();
+      setElapsedSeconds(0);
       setSendError(undefined);
       setHistory(prev => [...prev, { role: 'user', text: text || `[${effectiveMode}]` }]);
       // Se limpia apenas se envía (no al recibir respuesta): así el compositor
@@ -491,11 +514,13 @@ export function SqlLabAssistantPanel(): React.ReactElement {
         const response = await requestAssistantResponse(context, conversationKey, undefined, controller.signal, event => {
           if (event.type === 'session') {
             setSessionId(event.sessionId);
-          } else if (event.type === 'activity') {
-            setProgressLabel(event.message);
-          } else {
-            setProgressLabel(STATUS_LABELS[event.state]);
+            return;
           }
+          const label = event.type === 'activity' ? event.message : STATUS_LABELS[event.state];
+          // Evita repetir la misma línea dos veces seguidas (p. ej. un
+          // `status: thinking` inmediatamente seguido de una `activity` que
+          // dice exactamente lo mismo) sin perder pasos genuinamente nuevos.
+          setProgressSteps(prev => (prev[prev.length - 1] === label ? prev : [...prev, label]));
         });
         setProposal(response);
         setProposalContext(context);
@@ -527,7 +552,8 @@ export function SqlLabAssistantPanel(): React.ReactElement {
         setHistory(prev => [...prev, { role: 'assistant', text: `Error: ${message}` }]);
       } finally {
         setSending(false);
-        setProgressLabel(undefined);
+        setProgressSteps([]);
+        sendStartRef.current = null;
       }
     },
     [mode, userMessage, lastError, conversationKey],
@@ -560,7 +586,9 @@ export function SqlLabAssistantPanel(): React.ReactElement {
     setMode('create');
     setUserMessage('');
     setSending(false);
-    setProgressLabel(undefined);
+    setProgressSteps([]);
+    sendStartRef.current = null;
+    setElapsedSeconds(0);
     setSendError(undefined);
     setHistory([]);
     setProposal(undefined);
@@ -757,7 +785,8 @@ export function SqlLabAssistantPanel(): React.ReactElement {
           void handleSend();
         }}
         sending={sending}
-        progressLabel={progressLabel}
+        progressSteps={progressSteps}
+        elapsedSeconds={sending ? elapsedSeconds : undefined}
         sendDisabledReason={contextUnavailable}
         lastErrorMessage={lastError?.message}
       >

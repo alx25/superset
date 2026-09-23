@@ -40,6 +40,14 @@ valor no rompen el render — `DebugUndefined` las evalúa como falsy dentro
 de un `{% if %}`, así que una consulta con su propio fallback
 (`{% if from_dttm %}...{% else %}...{% endif %}`) cae a un valor por
 defecto en vez de fallar.
+
+Progreso (2026-09-22): la tool es `async def` con `ctx: Context` (FastMCP la
+inyecta sola, no es parte del contrato público) para poder emitir
+`notifications/progress` mientras el EXPLAIN corre — ver `_progress.py` para
+el patrón completo (por qué, y qué pasa si el cliente cancela mientras la
+consulta sigue viva). Todo el trabajo bloqueante (`_prepare_explain` y el
+handler por motor) corre en threads reales, nunca directo en el event loop
+compartido del servidor MCP.
 """
 
 import json
@@ -47,8 +55,12 @@ import re
 import uuid
 from typing import Any
 
+import anyio
+from fastmcp import Context
 from pydantic import AliasChoices, BaseModel, Field
 from superset_core.mcp.decorators import tool
+
+from ._progress import report_phase, run_with_heartbeat
 
 _SUPPORTED_ENGINES = {"postgresql", "clickhouse", "clickhousedb", "mssql", "oracle"}
 
@@ -252,6 +264,68 @@ _ENGINE_HANDLERS = {
 }
 
 
+def _prepare_explain(
+    request: "ExplainQueryRequest",
+) -> tuple[Any, str, Any, str] | ExplainQueryResponse:
+    """Todo lo previo al handler pesado: lookup de la base, RBAC, render de
+    Jinja, validación de solo-lectura y resolución del handler por motor —
+    nunca toca la conexión externa lenta. Devuelve el `ExplainQueryResponse`
+    de error ya armado si algo falla acá, o `(database, engine, handler,
+    sql)` listo para el paso pesado. Función sync a propósito: se corre en
+    un thread real desde `explain_query`, nunca directo en el event loop.
+    """
+    from superset import db, security_manager
+    from superset.jinja_context import get_template_processor
+    from superset.models.core import Database
+
+    database = db.session.query(Database).filter_by(id=request.database_id).first()
+    if not database:
+        return _error(
+            request,
+            f"Database with ID {request.database_id} not found",
+            "DATABASE_NOT_FOUND_ERROR",
+        )
+
+    if not security_manager.can_access_database(database):
+        return _error(
+            request,
+            f"Access denied to database {database.database_name}",
+            "DATABASE_SECURITY_ACCESS_ERROR",
+        )
+
+    # Mismo orden que `QueryEstimationCommand` (superset/commands/sql_lab/
+    # estimate.py, el "estimar costo" nativo de SQL Lab): renderizar Jinja
+    # ANTES de validar que sea un SELECT/WITH. Sin esto, cualquier consulta
+    # parametrizada (`{% set %}`, `{{ from_dttm }}`, etc. — común en SQL Lab)
+    # se rechazaba como "no es SELECT/WITH" sin llegar a resolverse.
+    # Variables sin valor no rompen el render: `DebugUndefined` (el motor de
+    # Jinja de Superset) las evalúa como falsy dentro de un `{% if %}`, así
+    # que una consulta bien escrita con su propio fallback
+    # (`{% if from_dttm %}...{% else %}...{% endif %}`) cae a un valor por
+    # defecto en vez de fallar.
+    try:
+        sql = get_template_processor(database).process_template(request.sql)
+    except Exception as e:  # noqa: BLE001 - error real de templating, no de conexión
+        return _error(request, str(e), "JINJA_TEMPLATE_ERROR")
+
+    validation_error = _validate_select_only(sql)
+    if validation_error:
+        return _error(request, validation_error, "INVALID_SQL_ERROR")
+
+    engine = database.db_engine_spec.engine
+    handler = _ENGINE_HANDLERS.get(engine)
+    if handler is None:
+        return _error(
+            request,
+            f"Motor '{engine}' no soportado por esta tool todavía (soportados: "
+            f"{', '.join(sorted(_SUPPORTED_ENGINES))}).",
+            "ENGINE_NOT_SUPPORTED_ERROR",
+        )
+
+    sql = sql.strip().rstrip(";").strip()
+    return database, engine, handler, sql
+
+
 @tool(
     name="irex.explain_query",
     description=(
@@ -282,62 +356,24 @@ _ENGINE_HANDLERS = {
     class_permission_name="SQLLab",
     method_permission_name="execute_sql_query",
 )
-def explain_query(request: ExplainQueryRequest) -> ExplainQueryResponse:
-    from superset import db, security_manager
-    from superset.models.core import Database
+async def explain_query(request: ExplainQueryRequest, ctx: Context) -> ExplainQueryResponse:
+    await report_phase(ctx, 0, "Validando la sentencia")
+    prepared = await anyio.to_thread.run_sync(_prepare_explain, request)
+    if isinstance(prepared, ExplainQueryResponse):
+        return prepared
+    database, engine, handler, sql = prepared
 
-    database = db.session.query(Database).filter_by(id=request.database_id).first()
-    if not database:
-        return _error(
-            request,
-            f"Database with ID {request.database_id} not found",
-            "DATABASE_NOT_FOUND_ERROR",
-        )
-
-    if not security_manager.can_access_database(database):
-        return _error(
-            request,
-            f"Access denied to database {database.database_name}",
-            "DATABASE_SECURITY_ACCESS_ERROR",
-        )
-
-    # Mismo orden que `QueryEstimationCommand` (superset/commands/sql_lab/
-    # estimate.py, el "estimar costo" nativo de SQL Lab): renderizar Jinja
-    # ANTES de validar que sea un SELECT/WITH. Sin esto, cualquier consulta
-    # parametrizada (`{% set %}`, `{{ from_dttm }}`, etc. — común en SQL Lab)
-    # se rechazaba como "no es SELECT/WITH" sin llegar a resolverse.
-    # Variables sin valor no rompen el render: `DebugUndefined` (el motor de
-    # Jinja de Superset) las evalúa como falsy dentro de un `{% if %}`, así
-    # que una consulta bien escrita con su propio fallback
-    # (`{% if from_dttm %}...{% else %}...{% endif %}`) cae a un valor por
-    # defecto en vez de fallar.
-    from superset.jinja_context import get_template_processor
-
+    await report_phase(ctx, 0, f"Iniciando EXPLAIN{' ANALYZE' if request.analyze else ''}")
     try:
-        sql = get_template_processor(database).process_template(request.sql)
-    except Exception as e:  # noqa: BLE001 - error real de templating, no de conexión
-        return _error(request, str(e), "JINJA_TEMPLATE_ERROR")
-
-    validation_error = _validate_select_only(sql)
-    if validation_error:
-        return _error(request, validation_error, "INVALID_SQL_ERROR")
-
-    engine = database.db_engine_spec.engine
-    handler = _ENGINE_HANDLERS.get(engine)
-    if handler is None:
-        return _error(
-            request,
-            f"Motor '{engine}' no soportado por esta tool todavía (soportados: "
-            f"{', '.join(sorted(_SUPPORTED_ENGINES))}).",
-            "ENGINE_NOT_SUPPORTED_ERROR",
+        plan, executed, warnings = await run_with_heartbeat(
+            ctx,
+            lambda: handler(database, request, sql),
+            heartbeat_message=lambda elapsed: f"La consulta sigue en ejecución; {elapsed}s transcurridos",
         )
-
-    sql = sql.strip().rstrip(";").strip()
-    try:
-        plan, executed, warnings = handler(database, request, sql)
     except Exception as e:  # noqa: BLE001 - se reporta como error de negocio, no se re-lanza
         return _error(request, str(e), "EXPLAIN_EXECUTION_ERROR")
 
+    await report_phase(ctx, 1, "Leyendo y normalizando el plan")
     return ExplainQueryResponse(
         success=True,
         database_id=request.database_id,

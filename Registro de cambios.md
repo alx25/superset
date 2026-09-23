@@ -1,5 +1,124 @@
 ## Registro de cambios
 
+### 2026-09-22 (40) (temporizador de la consulta en curso)
+
+Cambio realizado:
+Cronómetro del pedido en curso en el panel, a pedido del usuario antes de
+arrancar las pruebas reales contra SQL Lab del progreso MCP recién agregado.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlLabAssistantPanel.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/Conversation.tsx`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- Deliberadamente independiente de los eventos SSE de progreso (que ya
+  traen "Ns transcurridos" en su propio texto, pero solo si el backend los
+  manda para ese pedido) — este cronómetro arranca en el cliente apenas se
+  hace click, así que siempre funciona, incluso contra un backend sin SSE
+  desplegado todavía.
+- Basado en `Date.now()` (timestamp de inicio guardado en un ref), no un
+  contador que suma de a 1 por tick — no arrastra drift en pedidos largos
+  (las consultas reales que motivan esto ya llegaron a ~90-112s).
+- Se muestra en dos lugares, siempre visible sin depender de scroll: en el
+  botón "Analizando… Ns" (fijo, no se pierde aunque el historial crezca) y
+  junto al mensaje de progreso en la burbuja "⏱ Ns"/"⏱ 1m 32s" (formato con
+  minutos pasado el minuto).
+- Arranca en 0 en cada pedido nuevo y se detiene/limpia al terminar
+  (éxito, error o "Nueva sesión") — nunca sigue corriendo de fondo.
+
+Build: `./scripts/build-extension.sh` (TypeScript estricto OK, 214 tests
+backend sin cambios, webpack, .supx reconstruido) sobre `extensions_test/`.
+Pendiente reiniciar `superset_test.service`/`superset_mcp_test.service`
+(sudo interactivo no disponible en esta sesión) antes de las pruebas
+reales.
+
+### 2026-09-22 (39) (progreso MCP estándar en explain_query/check_query_nulls/get_sql_schema_context)
+
+Cambio realizado:
+A pedido del agente del chat (caso real: sesión sqllab-c809344518e2...,
+timeout global de ~245s cortando una operación útil de EXPLAIN ANALYZE que
+venía tardando ~90s): las 3 tools que pueden ejecutar consultas reales
+lentas ahora emiten `notifications/progress` estándar de MCP mientras
+corren, en vez de dejar al cliente sin ninguna señal de vida.
+
+Investigación previa (agente Explore, código real de Superset): el
+mecanismo es `Context.report_progress` de FastMCP — ya usado por un tool
+nativo (`generate_explore_link.py`). El servidor MCP corre en un solo
+proceso/un solo event loop; una tool `async def` con una llamada
+bloqueante SIN offload a thread (como hace hoy `execute_sql` nativo)
+congela el MCP entero para TODAS las sesiones, no solo la propia — hallazgo
+aparte, no es algo que corrija esta extensión.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/_progress.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/explain_query.py`
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/check_query_nulls.py`
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/sql_schema_context.py`
+- `custom-extensions/irex-mcp-tools/backend/tests/test_progress.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/backend/tests/test_explain_query.py`
+- `custom-extensions/irex-mcp-tools/backend/tests/test_check_query_nulls.py`
+- `custom-extensions/irex-mcp-tools/backend/tests/test_sql_schema_context.py`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild con `build-extension.sh`)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- `_progress.py`: helper compartido (`report_phase`/`run_with_heartbeat`).
+  El trabajo bloqueante SIEMPRE corre en un thread real
+  (`anyio.to_thread.run_sync`), nunca directo en el event loop compartido.
+  El heartbeat se despierta INMEDIATAMENTE apenas la operación termina
+  (`anyio.Event` + `move_on_after`, no polling con margen de error) — no
+  queda ninguna tarea de heartbeat huérfana. Si la operación lanza, se
+  re-lanza la excepción ORIGINAL (no una `ExceptionGroup` de anyio), así
+  el `try/except` de cada tool no necesitó cambiar — mismos JSON de
+  éxito/error de siempre.
+- Las 3 tools pasaron de `def` a `async def` con `ctx: Context` (FastMCP lo
+  inyecta solo, no es parte del contrato público/JSON Schema). Cada una se
+  partió en una función `_prepare_*` (rápida: lookup de base, RBAC, Jinja,
+  validación — corre en thread pero sin heartbeat) + el paso pesado
+  (heartbeat mientras corre). Mensajes siempre fijos, `total=None` siempre
+  (nunca se inventa un % de avance):
+  - `explain_query`: "Validando la sentencia" → "Iniciando EXPLAIN[ ANALYZE]"
+    → heartbeat "La consulta sigue en ejecución; Ns transcurridos" →
+    "Leyendo y normalizando el plan".
+  - `check_query_nulls`: mismo patrón, con "Iniciando muestreo de filas" y
+    "Midiendo perfil de nulos" al final.
+  - `get_sql_schema_context`: modo individual/listado con el mismo patrón
+    de heartbeat; **modo batch con progreso REAL por tabla** (no heartbeat
+    de tiempo) — cada `get_table_metadata` corre en su propio thread y se
+    reporta "Esquema batch: N de M tablas consultadas" apenas esa tabla
+    específica termina (éxito o error aislado), así el número siempre
+    refleja tablas efectivamente resueltas.
+- Cancelación (documentado en `_progress.py`, tal como se pidió): si el
+  cliente cancela mientras el thread sigue vivo, `anyio.to_thread.run_sync`
+  (default `abandon_on_cancel=False`) NO abandona el thread — sigue
+  esperándolo hasta que la consulta termine sola y recién ahí propaga la
+  cancelación. No genera un thread huérfano sin nada que lo espere, pero
+  tampoco libera el worker MCP antes de que la query real termine, ni
+  cancela la query en la base — eso es la Fase 2 pendiente (mail aparte:
+  reusar `cancel_query()` si permite cancelar el cursor activo, o diseñar
+  cancelación por PID/query_id con conexión separada para Postgres/
+  ClickHouse).
+- Tests: shim sync (`asyncio.run` + `_FakeCtx` descartable) en los 3
+  archivos de test existentes para no tocar los ~82 call-sites ya
+  probados — se ejecuta el código async real, no un bypass. 37 tests
+  nuevos: heartbeat en aislamiento (wake-up inmediato, re-lanzado de
+  excepción original, cero heartbeats si termina rápido), fases
+  inicial/final por tool, progreso real por tabla en batch (incluida una
+  tabla denegada, que también cuenta), y que ningún mensaje de progreso
+  interpole SQL/nombres de tabla/valores de negocio.
+
+Build: `./scripts/build-extension.sh` (TypeScript sin cambios, 214 tests
+backend, webpack, .supx reconstruido) sobre `extensions_test/`. Pendiente
+reiniciar `superset_test.service`/`superset_mcp_test.service` (sudo
+interactivo no disponible en esta sesión) — **importante**: este cambio
+convierte 3 tools activamente usadas de sync a async; los tests cubren la
+lógica con dobles de `Context`, pero la inyección REAL de `ctx` por FastMCP
+y el comportamiento end-to-end del progreso solo se puede confirmar
+probando contra el servidor MCP real, no se pudo verificar desde esta
+sesión.
+
 ### 2026-09-22 (38) (ChatMarkdown: soporte de encabezados, línea horizontal y blockquote)
 
 Cambio realizado:

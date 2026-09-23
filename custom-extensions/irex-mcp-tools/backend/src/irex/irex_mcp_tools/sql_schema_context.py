@@ -11,8 +11,12 @@ REST equivalente (`check_table_access` en `superset/databases/decorators.py`).
 
 from typing import Any, Literal
 
+import anyio
+from fastmcp import Context
 from pydantic import AliasChoices, BaseModel, Field
 from superset_core.mcp.decorators import tool
+
+from ._progress import report_phase, run_with_heartbeat
 
 # pg_class.relkind -> nuestro enum público. 'p' (tabla particionada) y 'f'
 # (foreign table) se comportan como tabla física a los fines de esta tool;
@@ -503,28 +507,20 @@ def _postgres_relation_info_batch(
         return {}
 
 
-def _build_batch_response(
+def _resolve_batch_access_and_ddl(
     database: Any, request: "SqlSchemaContextRequest", table_names: list[str]
-) -> SqlSchemaContextResponse:
-    """Arma 'table_contexts' — un elemento por tabla de 'table_names', en el
-    mismo orden, reutilizando exactamente las mismas validaciones de permiso
-    (`can_access_table`) y la misma fuente de columnas/claves
-    (`get_table_metadata`) que el camino individual. Una tabla inexistente o
-    sin permiso se marca success=false y NO aborta el resto del batch —
-    'get_table_metadata' no tiene equivalente batched en Superset, así que
-    ese dato se aisla por tabla; el DDL/relation_type sí se pide una única
-    vez para todo el batch cuando el motor lo permite (ClickHouse/PostgreSQL),
-    pero SOLO para las tablas que ya pasaron 'can_access_table' — una tabla
-    sin permiso no debe disparar ninguna consulta adicional contra la base,
-    ni siquiera una cuyo resultado se termine descartando (mismo criterio que
-    el camino individual, donde 'can_access_table' corta antes de cualquier
-    otra consulta)."""
+) -> tuple[set[str], dict[str, str | None], dict[str, tuple[str | None, str | None]]]:
+    """Primera mitad (bloqueante) del batch: RBAC por tabla + DDL/relation_type
+    batch-wide — NUNCA incluye `get_table_metadata` (eso es por-tabla, en
+    `_fetch_one_table_context`, para poder reportar progreso real tabla por
+    tabla en vez de un solo heartbeat genérico para todo el batch). Solo se
+    pide DDL/relation_type para tablas que ya pasaron `can_access_table` —
+    una tabla sin permiso no debe disparar ninguna consulta adicional contra
+    la base, ni siquiera una cuyo resultado se termine descartando."""
     from superset import security_manager
-    from superset.databases.utils import get_table_metadata
     from superset.sql.parse import Table
 
     engine = database.db_engine_spec.engine
-
     table_refs = {name: Table(name, request.schema_name, request.catalog) for name in table_names}
     denied = {
         name for name, ref in table_refs.items() if not security_manager.can_access_table(database, ref)
@@ -542,66 +538,198 @@ def _build_batch_response(
             relation_by_table = _postgres_relation_info_batch(
                 database, request.catalog, request.schema_name, allowed
             )
+    return denied, ddl_by_table, relation_by_table
 
+
+def _fetch_one_table_context(
+    database: Any,
+    request: "SqlSchemaContextRequest",
+    name: str,
+    denied: set[str],
+    ddl_by_table: dict[str, str | None],
+    relation_by_table: dict[str, tuple[str | None, str | None]],
+) -> SqlSchemaTableContext:
+    """Arma el `SqlSchemaTableContext` de UNA tabla del batch — mismo
+    contenido que el camino individual (`get_table_metadata` + DDL/
+    relation_type ya resueltos para todo el batch). Se corre en un thread
+    real POR TABLA desde el loop async de `_build_batch_response`, para que
+    el progreso reportado ('N de M tablas') sea real, no una estimación."""
+    from superset.databases.utils import get_table_metadata
+    from superset.sql.parse import Table
+
+    if name in denied:
+        return SqlSchemaTableContext(
+            name=name,
+            success=False,
+            error=f"Access denied to table {name}",
+            error_type="TABLE_SECURITY_ACCESS_ERROR",
+        )
+
+    table_ref = Table(name, request.schema_name, request.catalog)
+    try:
+        metadata: dict[str, Any] = get_table_metadata(database, table_ref)
+    except Exception as e:  # noqa: BLE001 - se aisla, no rompe el resto del batch
+        return SqlSchemaTableContext(name=name, success=False, error=str(e), error_type="SCHEMA_LOOKUP_ERROR")
+
+    raw_columns = metadata.get("columns") or []
+    truncated = len(raw_columns) > _MAX_COLUMNS
+    columns = [
+        SqlSchemaColumn(name=col["name"], type=col.get("type") or "unknown", comment=col.get("comment"))
+        for col in raw_columns[:_MAX_COLUMNS]
+    ]
+    keys = [_map_key(k) for k in (metadata.get("indexes") or [])]
+
+    relation_type: str | None = None
+    table_definition: str | None = None
+    if name in ddl_by_table:
+        table_definition = ddl_by_table[name]
+    elif name in relation_by_table:
+        relation_type, table_definition = relation_by_table[name]
+
+    warnings: list[str] = []
+    if truncated:
+        warnings.append(f"Se truncó a {_MAX_COLUMNS} columnas (la tabla tiene más).")
+
+    return SqlSchemaTableContext(
+        name=metadata.get("name", name),
+        success=True,
+        columns=columns,
+        comment=metadata.get("comment"),
+        relation_type=relation_type,
+        keys=keys,
+        table_definition=table_definition,
+        truncated=truncated,
+        warnings=warnings,
+    )
+
+
+async def _build_batch_response(
+    database: Any, request: "SqlSchemaContextRequest", table_names: list[str], ctx: Any
+) -> SqlSchemaContextResponse:
+    """Arma 'table_contexts' — un elemento por tabla de 'table_names', en el
+    mismo orden. Progreso real por tabla ('Esquema batch: N de M tablas
+    consultadas'), no un heartbeat genérico: cada `get_table_metadata` corre
+    en su propio thread y se reporta apenas termina, así el número siempre
+    refleja tablas realmente resueltas, nunca una estimación de tiempo."""
+    await report_phase(ctx, 0, "Obteniendo definiciones DDL del batch")
+    denied, ddl_by_table, relation_by_table = await run_with_heartbeat(
+        ctx,
+        lambda: _resolve_batch_access_and_ddl(database, request, table_names),
+        heartbeat_message=lambda elapsed: f"Obteniendo definiciones DDL del batch; {elapsed}s transcurridos",
+    )
+
+    total = len(table_names)
     contexts: list[SqlSchemaTableContext] = []
-    for name in table_names:
-        if name in denied:
-            contexts.append(
-                SqlSchemaTableContext(
-                    name=name,
-                    success=False,
-                    error=f"Access denied to table {name}",
-                    error_type="TABLE_SECURITY_ACCESS_ERROR",
-                )
+    for index, name in enumerate(table_names):
+        context = await anyio.to_thread.run_sync(
+            _fetch_one_table_context, database, request, name, denied, ddl_by_table, relation_by_table
+        )
+        contexts.append(context)
+        await report_phase(ctx, index + 1, f"Esquema batch: {index + 1} de {total} tablas consultadas")
+
+    engine_meta = await anyio.to_thread.run_sync(_engine_metadata, database)
+    return SqlSchemaContextResponse(
+        success=True,
+        database_id=request.database_id,
+        catalog=request.catalog,
+        schema_name=request.schema_name,
+        table_contexts=contexts,
+        **engine_meta,
+    )
+
+
+def _prepare_schema_context(
+    request: "SqlSchemaContextRequest",
+) -> tuple[Any, list[str] | None] | SqlSchemaContextResponse:
+    """Validación de forma del request (no necesita la base de datos, falla
+    rápido con input inválido) + lookup de la base + RBAC de base — nunca
+    toca la conexión externa lenta. Devuelve el `SqlSchemaContextResponse`
+    de error ya armado si algo falla acá, o `(database, deduped_table_names)`
+    (`None` si no se pidió modo batch). Función sync a propósito: se corre
+    en un thread real desde `get_sql_schema_context`.
+    """
+    from superset import db, security_manager
+    from superset.models.core import Database
+
+    if request.table and request.table_names:
+        return _error(
+            request,
+            "'table' y 'table_names' son mutuamente excluyentes — usar uno u otro, nunca ambos.",
+            "INVALID_REQUEST_ERROR",
+        )
+
+    deduped_table_names: list[str] | None = None
+    if request.table_names is not None:
+        if len(request.table_names) == 0:
+            return _error(
+                request,
+                "'table_names' no puede ser una lista vacía.",
+                "INVALID_REQUEST_ERROR",
             )
-            continue
-
-        try:
-            metadata: dict[str, Any] = get_table_metadata(database, table_refs[name])
-        except Exception as e:  # noqa: BLE001 - se aisla, no rompe el resto del batch
-            contexts.append(
-                SqlSchemaTableContext(
-                    name=name,
-                    success=False,
-                    error=str(e),
-                    error_type="SCHEMA_LOOKUP_ERROR",
-                )
+        deduped_table_names = list(dict.fromkeys(request.table_names))
+        max_batch = _max_batch_size()
+        if len(deduped_table_names) > max_batch:
+            return _error(
+                request,
+                f"'table_names' admite un máximo de {max_batch} tablas por llamada "
+                f"(se pidieron {len(deduped_table_names)} tablas distintas) — dividir "
+                "en varias llamadas batch para una consulta con más tablas.",
+                "INVALID_REQUEST_ERROR",
             )
-            continue
 
-        raw_columns = metadata.get("columns") or []
-        truncated = len(raw_columns) > _MAX_COLUMNS
-        columns = [
-            SqlSchemaColumn(
-                name=col["name"], type=col.get("type") or "unknown", comment=col.get("comment")
-            )
-            for col in raw_columns[:_MAX_COLUMNS]
-        ]
-        keys = [_map_key(k) for k in (metadata.get("indexes") or [])]
+    database = db.session.query(Database).filter_by(id=request.database_id).first()
+    if not database:
+        return _error(
+            request,
+            f"Database with ID {request.database_id} not found",
+            "DATABASE_NOT_FOUND_ERROR",
+        )
 
-        relation_type: str | None = None
-        table_definition: str | None = None
-        if name in ddl_by_table:
-            table_definition = ddl_by_table[name]
-        elif name in relation_by_table:
-            relation_type, table_definition = relation_by_table[name]
+    if not security_manager.can_access_database(database):
+        return _error(
+            request,
+            f"Access denied to database {database.database_name}",
+            "DATABASE_SECURITY_ACCESS_ERROR",
+        )
 
-        warnings: list[str] = []
-        if truncated:
-            warnings.append(f"Se truncó a {_MAX_COLUMNS} columnas (la tabla tiene más).")
+    return database, deduped_table_names
 
-        contexts.append(
-            SqlSchemaTableContext(
-                name=metadata.get("name", name),
-                success=True,
-                columns=columns,
-                comment=metadata.get("comment"),
-                relation_type=relation_type,
-                keys=keys,
-                table_definition=table_definition,
-                truncated=truncated,
-                warnings=warnings,
-            )
+
+def _fetch_single_table(database: Any, request: "SqlSchemaContextRequest") -> SqlSchemaContextResponse:
+    """Camino completo de 'table' (modo individual): RBAC de tabla,
+    get_table_metadata, DDL/relation_type — la respuesta final entera
+    (éxito o error). Es el bloque pesado de este modo; se corre entero en
+    un thread vía `run_with_heartbeat` desde `get_sql_schema_context`."""
+    from superset import security_manager
+    from superset.databases.utils import get_table_metadata
+    from superset.sql.parse import Table
+
+    table_ref = Table(request.table, request.schema_name, request.catalog)
+    if not security_manager.can_access_table(database, table_ref):
+        return _error(request, f"Access denied to table {request.table}", "TABLE_SECURITY_ACCESS_ERROR")
+    try:
+        metadata: dict[str, Any] = get_table_metadata(database, table_ref)
+    except Exception as e:  # noqa: BLE001 - se reporta como error de negocio, no se re-lanza
+        return _error(request, str(e), "SCHEMA_LOOKUP_ERROR")
+
+    raw_columns = metadata.get("columns") or []
+    truncated = len(raw_columns) > _MAX_COLUMNS
+    columns = [
+        SqlSchemaColumn(name=col["name"], type=col.get("type") or "unknown", comment=col.get("comment"))
+        for col in raw_columns[:_MAX_COLUMNS]
+    ]
+    keys = [_map_key(k) for k in (metadata.get("indexes") or [])]
+
+    engine = database.db_engine_spec.engine
+    relation_type: str | None = None
+    table_definition: str | None = None
+    if engine in ("clickhouse", "clickhousedb"):
+        table_definition = _clickhouse_table_definition(
+            database, request.catalog, request.schema_name, request.table
+        )
+    elif engine == "postgresql":
+        relation_type, table_definition = _postgres_relation_info(
+            database, request.catalog, request.schema_name, request.table
         )
 
     return SqlSchemaContextResponse(
@@ -609,7 +737,43 @@ def _build_batch_response(
         database_id=request.database_id,
         catalog=request.catalog,
         schema_name=request.schema_name,
-        table_contexts=contexts,
+        table=SqlSchemaTableInfo(
+            name=metadata.get("name", request.table),
+            columns=columns,
+            comment=metadata.get("comment"),
+            relation_type=relation_type,
+            keys=keys,
+            table_definition=table_definition,
+        ),
+        truncated=truncated,
+        **_engine_metadata(database),
+    )
+
+
+def _fetch_table_list(database: Any, request: "SqlSchemaContextRequest") -> SqlSchemaContextResponse:
+    """Camino completo de listado de tablas (sin 'table' ni 'table_names') —
+    la respuesta final entera. Se corre entero en un thread vía
+    `run_with_heartbeat` desde `get_sql_schema_context`."""
+    try:
+        all_tables = database.get_all_table_names_in_schema(
+            catalog=request.catalog, schema=request.schema_name
+        )
+    except Exception as e:  # noqa: BLE001
+        return _error(request, str(e), "SCHEMA_LOOKUP_ERROR")
+
+    names = sorted({t[0] for t in all_tables})
+    if request.search:
+        needle = request.search.lower()
+        names = [n for n in names if needle in n.lower()]
+
+    truncated = len(names) > request.limit
+    return SqlSchemaContextResponse(
+        success=True,
+        database_id=request.database_id,
+        catalog=request.catalog,
+        schema_name=request.schema_name,
+        tables=names[: request.limit],
+        truncated=truncated,
         **_engine_metadata(database),
     )
 
@@ -654,131 +818,29 @@ def _build_batch_response(
     class_permission_name="SQLLab",
     method_permission_name="execute_sql_query",
 )
-def get_sql_schema_context(request: SqlSchemaContextRequest) -> SqlSchemaContextResponse:
-    from superset import db, security_manager
-    from superset.databases.utils import get_table_metadata
-    from superset.models.core import Database
-    from superset.sql.parse import Table
-
-    # Validación de forma del request — no necesita la base de datos, así que
-    # se resuelve antes de cualquier consulta (falla rápido con input inválido).
-    if request.table and request.table_names:
-        return _error(
-            request,
-            "'table' y 'table_names' son mutuamente excluyentes — usar uno u otro, nunca ambos.",
-            "INVALID_REQUEST_ERROR",
-        )
-
-    deduped_table_names: list[str] | None = None
-    if request.table_names is not None:
-        if len(request.table_names) == 0:
-            return _error(
-                request,
-                "'table_names' no puede ser una lista vacía.",
-                "INVALID_REQUEST_ERROR",
-            )
-        deduped_table_names = list(dict.fromkeys(request.table_names))
-        max_batch = _max_batch_size()
-        if len(deduped_table_names) > max_batch:
-            return _error(
-                request,
-                f"'table_names' admite un máximo de {max_batch} tablas por llamada "
-                f"(se pidieron {len(deduped_table_names)} tablas distintas) — dividir "
-                "en varias llamadas batch para una consulta con más tablas.",
-                "INVALID_REQUEST_ERROR",
-            )
-
-    database = db.session.query(Database).filter_by(id=request.database_id).first()
-    if not database:
-        return _error(
-            request,
-            f"Database with ID {request.database_id} not found",
-            "DATABASE_NOT_FOUND_ERROR",
-        )
-
-    if not security_manager.can_access_database(database):
-        return _error(
-            request,
-            f"Access denied to database {database.database_name}",
-            "DATABASE_SECURITY_ACCESS_ERROR",
-        )
+async def get_sql_schema_context(request: SqlSchemaContextRequest, ctx: Context) -> SqlSchemaContextResponse:
+    await report_phase(ctx, 0, "Validando la sentencia")
+    prepared = await anyio.to_thread.run_sync(_prepare_schema_context, request)
+    if isinstance(prepared, SqlSchemaContextResponse):
+        return prepared
+    database, deduped_table_names = prepared
 
     if deduped_table_names is not None:
-        return _build_batch_response(database, request, deduped_table_names)
+        return await _build_batch_response(database, request, deduped_table_names, ctx)
 
     if request.table:
-        table_ref = Table(request.table, request.schema_name, request.catalog)
-        if not security_manager.can_access_table(database, table_ref):
-            return _error(
-                request,
-                f"Access denied to table {request.table}",
-                "TABLE_SECURITY_ACCESS_ERROR",
-            )
-        try:
-            metadata: dict[str, Any] = get_table_metadata(database, table_ref)
-        except Exception as e:  # noqa: BLE001 - se reporta como error de negocio, no se re-lanza
-            return _error(request, str(e), "SCHEMA_LOOKUP_ERROR")
-
-        raw_columns = metadata.get("columns") or []
-        truncated = len(raw_columns) > _MAX_COLUMNS
-        columns = [
-            SqlSchemaColumn(
-                name=col["name"],
-                type=col.get("type") or "unknown",
-                comment=col.get("comment"),
-            )
-            for col in raw_columns[:_MAX_COLUMNS]
-        ]
-        keys = [_map_key(k) for k in (metadata.get("indexes") or [])]
-
-        engine = database.db_engine_spec.engine
-        relation_type: str | None = None
-        table_definition: str | None = None
-        if engine in ("clickhouse", "clickhousedb"):
-            table_definition = _clickhouse_table_definition(
-                database, request.catalog, request.schema_name, request.table
-            )
-        elif engine == "postgresql":
-            relation_type, table_definition = _postgres_relation_info(
-                database, request.catalog, request.schema_name, request.table
-            )
-
-        return SqlSchemaContextResponse(
-            success=True,
-            database_id=request.database_id,
-            catalog=request.catalog,
-            schema_name=request.schema_name,
-            table=SqlSchemaTableInfo(
-                name=metadata.get("name", request.table),
-                columns=columns,
-                comment=metadata.get("comment"),
-                relation_type=relation_type,
-                keys=keys,
-                table_definition=table_definition,
-            ),
-            truncated=truncated,
-            **_engine_metadata(database),
+        await report_phase(ctx, 0, "Consultando la tabla")
+        response = await run_with_heartbeat(
+            ctx,
+            lambda: _fetch_single_table(database, request),
+            heartbeat_message=lambda elapsed: f"La consulta sigue en ejecución; {elapsed}s transcurridos",
         )
+        await report_phase(ctx, 1, "Procesando el resultado recibido")
+        return response
 
-    try:
-        all_tables = database.get_all_table_names_in_schema(
-            catalog=request.catalog, schema=request.schema_name
-        )
-    except Exception as e:  # noqa: BLE001
-        return _error(request, str(e), "SCHEMA_LOOKUP_ERROR")
-
-    names = sorted({t[0] for t in all_tables})
-    if request.search:
-        needle = request.search.lower()
-        names = [n for n in names if needle in n.lower()]
-
-    truncated = len(names) > request.limit
-    return SqlSchemaContextResponse(
-        success=True,
-        database_id=request.database_id,
-        catalog=request.catalog,
-        schema_name=request.schema_name,
-        tables=names[: request.limit],
-        truncated=truncated,
-        **_engine_metadata(database),
+    await report_phase(ctx, 0, "Listando tablas del schema")
+    return await run_with_heartbeat(
+        ctx,
+        lambda: _fetch_table_list(database, request),
+        heartbeat_message=lambda elapsed: f"La consulta sigue en ejecución; {elapsed}s transcurridos",
     )

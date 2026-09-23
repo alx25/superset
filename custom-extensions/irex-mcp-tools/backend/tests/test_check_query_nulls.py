@@ -7,6 +7,7 @@ Correr con:
   ../../.venv/bin/python -m pytest tests/ -q
 """
 
+import asyncio
 import json
 import sys
 import types
@@ -38,8 +39,23 @@ sys.modules.setdefault("superset_core.mcp.decorators", _decorators)
 
 from irex.irex_mcp_tools.check_query_nulls import (  # noqa: E402
     CheckQueryNullsRequest,
-    check_query_nulls,
+    check_query_nulls as _check_query_nulls_async,
 )
+
+
+class _FakeCtx:
+    """Doble de `fastmcp.Context` — ver el mismo patrón en test_explain_query.py."""
+
+    def __init__(self):
+        self.calls: list[tuple[int, float | None, str]] = []
+
+    async def report_progress(self, progress, total=None, message=None):
+        self.calls.append((progress, total, message))
+
+
+def check_query_nulls(request, ctx=None):
+    """Shim sync — ver el mismo patrón en test_explain_query.py."""
+    return asyncio.run(_check_query_nulls_async(request, ctx if ctx is not None else _FakeCtx()))
 
 
 class _FakeCursor:
@@ -259,3 +275,33 @@ class TestNeverExposesValues:
         response = check_query_nulls(_base_request())
         dumped = json.dumps(response.model_dump(), ensure_ascii=False)
         assert secret_value not in dumped
+
+
+class TestProgressReporting:
+    def test_emits_initial_and_final_phases(self):
+        db = FakeDatabase(columns=["a"], rows=[(1,)])
+        _install_superset_stubs(database=db)
+        ctx = _FakeCtx()
+        response = check_query_nulls(_base_request(), ctx=ctx)
+        assert response.success is True
+        messages = [message for (_, _, message) in ctx.calls]
+        assert "Validando la sentencia" in messages
+        assert "Iniciando muestreo de filas" in messages
+        assert "Midiendo perfil de nulos" in messages
+
+    def test_progress_messages_never_include_sql_or_values(self):
+        secret_value = "VALOR_SECRETO_DE_NEGOCIO"
+        db = FakeDatabase(columns=["a"], rows=[(secret_value,)])
+        _install_superset_stubs(database=db)
+        ctx = _FakeCtx()
+        check_query_nulls(_base_request(sql="SELECT secreto_de_negocio FROM t"), ctx=ctx)
+        for _, _, message in ctx.calls:
+            assert "secreto_de_negocio" not in message
+            assert secret_value not in message
+
+    def test_error_path_still_reports_initial_phase_only(self):
+        _install_superset_stubs(database=None)
+        ctx = _FakeCtx()
+        response = check_query_nulls(_base_request(), ctx=ctx)
+        assert response.success is False
+        assert [message for (_, _, message) in ctx.calls] == ["Validando la sentencia"]

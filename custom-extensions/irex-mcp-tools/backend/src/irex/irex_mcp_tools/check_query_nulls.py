@@ -24,13 +24,24 @@ Seguridad — por qué esto es seguro pese a ejecutar la consulta real:
   `null_ratio`). Los valores reales se leen en memoria del proceso del MCP
   para contar `None` y se descartan inmediatamente — no hay ningún campo
   en la respuesta capaz de transportarlos.
+
+Progreso (2026-09-22): `async def` con `ctx: Context` (inyectado por
+FastMCP, no es parte del contrato público) para emitir
+`notifications/progress` mientras la muestra corre — ver `_progress.py`
+para el patrón completo y qué pasa si el cliente cancela mientras la
+consulta sigue viva. El trabajo bloqueante corre siempre en threads reales,
+nunca directo en el event loop compartido del servidor MCP.
 """
 
 import re
 from typing import Any
 
+import anyio
+from fastmcp import Context
 from pydantic import AliasChoices, BaseModel, Field
 from superset_core.mcp.decorators import tool
+
+from ._progress import report_phase, run_with_heartbeat
 
 _SUPPORTED_ENGINES = {"postgresql", "clickhouse", "clickhousedb", "mssql", "oracle"}
 _UNVALIDATED_ENGINES = {"mssql", "oracle"}
@@ -131,29 +142,16 @@ def _fetch_sample(database: Any, request: "CheckQueryNullsRequest", wrapped_sql:
     return column_names, rows
 
 
-@tool(
-    name="irex.check_query_nulls",
-    description=(
-        "Ejecuta una muestra acotada (LIMIT) de una consulta SELECT real y "
-        "devuelve, por columna, qué porcentaje de filas es NULL — NUNCA los "
-        "valores en sí. Pensada para detectar el caso donde una consulta "
-        "'funciona' (corre, devuelve filas) pero el contenido no sirve — "
-        "típicamente un LEFT JOIN que no matchea nada, donde las columnas del "
-        "lado derecho quedan NULL en todas las filas sin que eso se note en el "
-        "conteo de filas ni en irex.explain_query (que ve estructura del plan, "
-        "no valores). Usar después de armar un JOIN/lookup del que no se está "
-        "100% seguro, antes de presentar la propuesta como definitiva — sobre "
-        "todo si involucra LEFT JOIN u OUTER JOIN. 'sql' debe ser una única "
-        "sentencia SELECT/WITH de solo lectura; se procesa con el mismo "
-        "templating Jinja que una ejecución real de SQL Lab antes de validar "
-        "eso. Motores: PostgreSQL y ClickHouse probados; MSSQL y Oracle "
-        "best-effort sin validar contra una instancia real."
-    ),
-    tags=["irex", "sql", "calidad de datos", "verificación", "null"],
-    class_permission_name="SQLLab",
-    method_permission_name="execute_sql_query",
-)
-def check_query_nulls(request: CheckQueryNullsRequest) -> CheckQueryNullsResponse:
+def _prepare_check(
+    request: "CheckQueryNullsRequest",
+) -> tuple[Any, str, str] | CheckQueryNullsResponse:
+    """Todo lo previo al muestreo pesado: lookup de la base, RBAC, render de
+    Jinja, validación de solo-lectura, chequeo de motor y armado del SQL con
+    LIMIT/TOP/FETCH — nunca toca la conexión externa lenta. Devuelve el
+    `CheckQueryNullsResponse` de error ya armado si algo falla acá, o
+    `(database, engine, wrapped_sql)` listo para el paso pesado. Función
+    sync a propósito: se corre en un thread real desde `check_query_nulls`.
+    """
     from superset import db, security_manager
     from superset.jinja_context import get_template_processor
     from superset.models.core import Database
@@ -185,11 +183,49 @@ def check_query_nulls(request: CheckQueryNullsRequest) -> CheckQueryNullsRespons
 
     sql = rendered_sql.strip().rstrip(";").strip()
     wrapped_sql = _wrap_with_limit(sql, engine, request.sample_size)
+    return database, engine, wrapped_sql
+
+
+@tool(
+    name="irex.check_query_nulls",
+    description=(
+        "Ejecuta una muestra acotada (LIMIT) de una consulta SELECT real y "
+        "devuelve, por columna, qué porcentaje de filas es NULL — NUNCA los "
+        "valores en sí. Pensada para detectar el caso donde una consulta "
+        "'funciona' (corre, devuelve filas) pero el contenido no sirve — "
+        "típicamente un LEFT JOIN que no matchea nada, donde las columnas del "
+        "lado derecho quedan NULL en todas las filas sin que eso se note en el "
+        "conteo de filas ni en irex.explain_query (que ve estructura del plan, "
+        "no valores). Usar después de armar un JOIN/lookup del que no se está "
+        "100% seguro, antes de presentar la propuesta como definitiva — sobre "
+        "todo si involucra LEFT JOIN u OUTER JOIN. 'sql' debe ser una única "
+        "sentencia SELECT/WITH de solo lectura; se procesa con el mismo "
+        "templating Jinja que una ejecución real de SQL Lab antes de validar "
+        "eso. Motores: PostgreSQL y ClickHouse probados; MSSQL y Oracle "
+        "best-effort sin validar contra una instancia real."
+    ),
+    tags=["irex", "sql", "calidad de datos", "verificación", "null"],
+    class_permission_name="SQLLab",
+    method_permission_name="execute_sql_query",
+)
+async def check_query_nulls(request: CheckQueryNullsRequest, ctx: Context) -> CheckQueryNullsResponse:
+    await report_phase(ctx, 0, "Validando la sentencia")
+    prepared = await anyio.to_thread.run_sync(_prepare_check, request)
+    if isinstance(prepared, CheckQueryNullsResponse):
+        return prepared
+    database, engine, wrapped_sql = prepared
+
+    await report_phase(ctx, 0, "Iniciando muestreo de filas")
     try:
-        column_names, rows = _fetch_sample(database, request, wrapped_sql)
+        column_names, rows = await run_with_heartbeat(
+            ctx,
+            lambda: _fetch_sample(database, request, wrapped_sql),
+            heartbeat_message=lambda elapsed: f"La consulta sigue en ejecución; {elapsed}s transcurridos",
+        )
     except Exception as e:  # noqa: BLE001 - se reporta como error de negocio, no se re-lanza
         return _error(request, str(e), "PREVIEW_EXECUTION_ERROR")
 
+    await report_phase(ctx, 1, "Midiendo perfil de nulos")
     sample_size = len(rows)
     null_counts = [0] * len(column_names)
     for row in rows:
