@@ -2746,6 +2746,10 @@ MCP_TOOL_SEARCH_CONFIG = {
         "extensions.irex.irex-mcp-tools.irex.get_sql_schema_context",
         "extensions.irex.irex-mcp-tools.irex.explain_query",
         "extensions.irex.irex-mcp-tools.irex.check_query_nulls",
+        "extensions.irex.irex-mcp-tools.irex.get_explore_state",
+        "extensions.irex.irex-mcp-tools.irex.explain_chart",
+        "extensions.irex.irex-mcp-tools.irex.preview_chart",
+        "extensions.irex.irex-mcp-tools.irex.get_viz_controls",
     ],
 }
 

@@ -1,5 +1,1107 @@
 ## Registro de cambios
 
+### 2026-09-24 (78) (Explore: `irex.get_viz_controls` — catálogo de controles, genérico + específico verificado de los 3 plugins propios)
+
+Cambio realizado: siguiente punto pendiente de la Fase 4 (punto 3). El
+usuario preguntó si, dado que la mayoría de los tipos de gráfico comparten
+controles y lógica, se podía hacer algo genérico en vez de un catálogo
+completo por tipo (lo que se había estimado como una tarea enorme — los
+`controlPanel.tsx` de los 3 plugins propios son código React/TS ejecutable,
+1567+1156+139 líneas, con lógica dinámica de visibilidad, no configuración
+declarativa parseable). La respuesta fue sí: Superset mismo ya tiene un
+registro de "controles compartidos" (`@superset-ui/chart-controls`,
+`sharedControls.tsx`) que la mayoría de los tipos NATIVOS reusan en vez de
+definir los suyos desde cero — confirmado leyendo el `controlPanel.tsx` real
+de `mixed_timeseries` (el gráfico que el usuario venía probando), que
+importa `sharedControls`/`sections` de ese mismo paquete.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/explore_viz_controls_core.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/get_viz_controls.py` (nuevo — `irex.get_viz_controls`)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/entrypoint.py`
+- `custom-extensions/irex-mcp-tools/backend/tests/test_explore_viz_controls_core.py` (nuevo, 12 tests)
+- `custom-extensions/irex-mcp-tools/docs/explore-assistant-contract.md`
+  (contrato exacto de la tool — texto para el agente del backend del chat)
+- `superset_config_test.py` (`always_visible`, paso 6 obligatorio de CLAUDE.md)
+- `PLAN_COPILOTO_EXPLORE.md`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)
+
+Que cambia o corrige:
+- `irex.get_viz_controls({"viz_type": "..."})` devuelve dos niveles de
+  confianza, NUNCA mezclados:
+  - `source: "specific"` — solo para `table_v3`, `html_cards` y
+    `pivot_table_rx1`: la lista EXACTA y COMPLETA de nombres de control,
+    extraída leyendo el código fuente real de cada uno (sus
+    `controlPanel.tsx` + archivos `./controls/*`) — 41/15/47 controles
+    respectivamente. Un control ausente de esta lista NO existe para ese
+    tipo.
+  - `source: "generic"` — para cualquier otro `viz_type` (todos los
+    nativos, sin excepción todavía): el catálogo `sharedControls`
+    compartido de Superset (47 nombres: `metrics`, `groupby`,
+    `adhoc_filters`, `row_limit`, `time_range`, `x_axis`, etc., más la raíz
+    de Matrixify), con un `note` explícito de que no está verificado para
+    ese tipo en particular — un control ausente acá NO prueba que no
+    exista.
+- Se optó DELIBERADAMENTE por no mezclar ambos niveles en una sola lista
+  para un plugin propio verificado: agregar el genérico encima arriesgaba
+  sumar controles que ese plugin específico NO tiene (ej. `x_axis`/`series`
+  no existen en `html_cards`), degradando la garantía de "lista exacta" que
+  es justo lo valioso de haber leído el código fuente real.
+- No incluye tipo/valores válidos/default/descripción por control (lo que
+  pedía originalmente el punto 3 de la Fase 4) — solo nombres. Extraer eso
+  requeriría leer la lógica dinámica completa de cada control individual
+  (archivos aparte, con `mapStateToProps`/`visibility` dependientes del
+  estado en vivo del editor) — fuera de alcance de esta entrada; alcanza
+  para el uso inmediato del contrato ("validar que un nombre de control
+  propuesto existe").
+
+Verificación:
+- 12 tests nuevos (`test_explore_viz_controls_core.py`) + 269 backend en
+  total (sin regresiones).
+- `build-extension.sh` completo (7/7) sobre `extensions_test/`.
+- No requiere tests de frontend (no se tocó frontend en esta entrada).
+- Pendiente: que el usuario reinicie `superset_mcp_test.service` y que el
+  agente del backend del chat conecte esta tool (ya documentada en
+  `docs/explore-assistant-contract.md`) para que "Mejorar gráfico"/
+  "Métricas" puedan validar y proponer acciones estructuradas, no solo
+  texto.
+
+### 2026-09-24 (77) (Explore confirmado de punta a punta; UX — enumeraciones pegadas en un párrafo denso se separan en lista real)
+
+Cambio realizado: el usuario confirmó con captura que, tras el fix del
+backend (entradas 74/76), "Mejorar gráfico" ya entrega de verdad lo que
+escribe el modelo — verificado también contra el log
+(`explore-5ddc56c4973a957830acddde3a73ccf6b4e95e0963773039e7f9e5d55b10d86a`,
+`agent_done`/`done.explore_response.message` coinciden). Junto con eso,
+feedback de UX: el mensaje se ve "todo junto y pegado, difícil de leer".
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/ChatMarkdown.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/chatMarkdownInlineList.test.tsx` (nuevo, 8 tests)
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)
+
+Que cambia o corrige:
+- Causa raíz de la densidad (no es un bug de espaciado/CSS): el modelo a
+  veces enumera sugerencias SIN saltos de línea reales — "Sugerencias: 1)
+  A 2) B 3) C" como una sola oración — y como el parser de Markdown de
+  `ChatMarkdown.tsx` solo reconocía listas con el marcador AL INICIO de
+  línea, todo eso quedaba como un único párrafo denso (que sí tiene buen
+  `lineHeight`, pero no hay dónde partirlo).
+- `splitInlineEnumeration()`: detecta 2+ marcadores numéricos SEGUIDOS
+  dentro de una misma línea física, empezando en `1)`/`1.` — si la
+  secuencia es correlativa (1, 2, 3...), separa el texto anterior al
+  primer marcador como párrafo introductorio y el resto como una lista
+  ordenada real, con el mismo espaciado (`gap`) que ya tienen las listas
+  con saltos de línea reales. Exigir el arranque en 1 y la correlatividad
+  evita falsos positivos sobre prosa común ("a las 3) horas", "el punto 1)
+  y también el 3)" — probado explícitamente).
+- No ataca la causa de fondo (el modelo debería escribir Markdown con
+  saltos de línea reales desde el vamos) — eso es un tema de prompt del
+  backend del chat, fuera de lo que se puede arreglar acá. Esto es una
+  red de seguridad del lado de la renderización, no un reemplazo.
+
+Verificación:
+- `npx tsc --noEmit` estricto sin errores.
+- 213 tests de frontend (8 nuevos), 257 de backend (sin cambios, no se
+  tocó backend en esta entrada).
+- `build-extension.sh` completo (7/7) sobre `extensions_test/`.
+- Pendiente: que el usuario reinicie `superset_test.service` y confirme
+  visualmente que la lista se ve separada en vez de un bloque denso.
+
+### 2026-09-24 (76) (Explore: corrección de las entradas 71/74/75 — la mayoría de las respuestas se descartan del lado del backend, no solo el caso de `severity`)
+
+Cambio realizado: ninguno de código — auditoría a pedido del usuario tras
+probar "Mejorar gráfico" (sesión
+`explore-400cc50cf03afe3f6fd3159b2db9cb38df02173b282e3c0024ca6b694815fd5d`,
+segundo turno de esa sesión).
+
+**Corrección importante sobre las entradas 71, 74 y 75: el "éxito" que
+reporté en la entrada 71 (primera sesión, `explore-55fe250d...`) estaba
+mal.** En ese momento cité `agent_done.answer` (lo que el modelo escribió)
+como si fuera lo que llegó al usuario, sin compararlo contra
+`done.explore_response.message` (lo que realmente se entrega). Al
+comparar las 3 sesiones revisadas hoy turno por turno (5 turnos en
+total), el patrón real es:
+
+| Sesión | Modo | `agent_done` vs `done.explore_response.message` |
+|---|---|---|
+| `explore-55fe250d...` | explain | NO coinciden — reemplazado por texto genérico |
+| `explore-556e0ba4...` t1 | explain | NO coinciden — "No pude generar una propuesta..." |
+| `explore-556e0ba4...` t2 | improve_chart | NO coinciden — mismo genérico |
+| `explore-400cc50c...` t1 | explain | SÍ coinciden |
+| `explore-400cc50c...` t2 | improve_chart | NO coinciden — "Solo he verificado la configuración..." |
+
+Solo 1 de 5 turnos entregó realmente lo que el modelo escribió. La entrada
+74 (bug de `diagnostics[].severity` ausente) sigue siendo un hallazgo
+válido — explica el primer patrón de fallo — pero **no es la única
+causa**: el turno `explore-400cc50c...` t2 tiene un `diagnostics`
+ESTRUCTURALMENTE IDÉNTICO (mismo `severity`, mismo `control:
+"form_data_key"`) al turno t1 de la MISMA sesión que sí funcionó, y aun
+así se descartó — hay al menos una segunda causa de descarte del lado del
+backend que no se pudo diagnosticar sin acceso a ese código (posiblemente
+ligada al modo `improve_chart` en particular, o al contenido más que a la
+forma).
+
+Nota aparte, menor: en ese mismo turno el modelo reintentó llamar a
+`irex.get_explore_state` con los mismos argumentos ya presentes en el
+historial de la conversación; el backend lo bloqueó ("no podés repetir
+esa llamada") — se recuperó sin romper nada, pero desperdició una
+llamada, ~9s y tokens.
+
+Que cambia o corrige: nada del lado de esta extensión — el contenido que
+el modelo genera (`agent_done.answer`) sigue siendo correcto y útil en
+los 5 turnos revisados; el problema es enteramente de qué hace el backend
+del chat con ese contenido antes de entregarlo. Reportado al usuario con
+el texto completo de ambos `agent_done.answer` (el que funcionó y el que
+no, estructuralmente idénticos en su `diagnostics`) para relayar.
+
+Verificación: ninguna adicional — esta auditoría en sí es la
+verificación. Sin cambios de código en esta entrada.
+
+### 2026-09-24 (75) (Explore: el agente del backend del chat corrigió el bug de la entrada 74 — confirmado)
+
+Cambio realizado: ninguno de código de este lado — verificación a pedido
+del usuario (sesión
+`explore-400cc50cf03afe3f6fd3159b2db9cb38df02173b282e3c0024ca6b694815fd5d`).
+
+Corrección sobre la lectura de esta misma entrada al momento de escribirla
+(dejada originalmente como "probablemente intermitente, no resuelto"): el
+usuario confirmó después que el agente del backend del chat SÍ reparó el
+bug de `diagnostics[]` reportado en la entrada 74 (el modelo lo mandaba sin
+`severity`) ANTES de esta prueba, no después por azar. La secuencia real
+es: bug reportado (74) → fix del agente del backend → esta prueba (75),
+que salió bien porque el fix ya estaba aplicado. Se descarta la hipótesis
+de variabilidad del modelo que se había anotado acá — fue un fix real,
+confirmado por quien lo hizo.
+
+Verificación: la prueba de la entrada 74/75 en sí. Sin cambios de código
+en esta entrada de este lado.
+
+### 2026-09-24 (74) (Explore: confirmado el fix de la entrada 73; nuevo bug encontrado — diagnostics[] del modelo no respeta el contrato y se pierde la respuesta)
+
+Cambio realizado: ninguno de código — verificación a pedido del usuario
+(sesión `explore-556e0ba4e48b3791244214f99f0d6eb481d28fadf77fff95dba6e97a0cc7dd3e`,
+"Explicar" tras el fix de la entrada 73).
+
+Hallazgos (vía `GET /api/logs/sessions/<id>`):
+- **Confirmado: el fix de la entrada 73 funcionó.** Sin 422, `get_explore_state`
+  se llamó y respondió bien, el modelo generó una explicación completa y
+  correcta (visible en `agent_done.answer` del log).
+- **Bug nuevo, del lado del prompt/backend del chat (no del MCP):** esa
+  respuesta buena NUNCA llegó al usuario. El modelo mandó `diagnostics[]`
+  con la forma `{"type": "execution_evidence", "verified": false,
+  "message": "..."}` — sin el campo `severity` que exige el contrato
+  (`docs/explore-assistant-contract.md`: "`severity` (`error`, `warning`,
+  `info`), `message` y `control` opcional"). La validación del backend
+  (correctamente estricta) descartó el sobre entero del modelo y cayó al
+  fallback genérico `"No pude generar una propuesta estructurada y
+  verificable. Intenta de nuevo."` — la explicación real, completa y útil,
+  se perdió en el camino.
+- Reportado al usuario con texto listo para el agente del backend del chat:
+  revisar el system prompt/instrucciones sobre la forma de `diagnostics[]`
+  — probablemente describe o ejemplifica un formato distinto
+  (`type`/`verified`/`value`) en vez de `severity`/`message`/`control`.
+
+Verificación: ninguna adicional — este hallazgo en sí ES la verificación
+pedida. Sin cambios de código en esta entrada.
+
+### 2026-09-24 (73) (Explore: `chart.query_context` rompía "Explicar" — el backend del chat lo rechaza con 422; desactivado hasta que actualice su schema)
+
+Cambio realizado: regresión real de la entrada 72, encontrada por el
+usuario en su primera prueba después de esa entrega. Al pedir "Explicar",
+el backend del chat devolvió `"No se pudo completar"` con el detalle:
+
+```
+{"detail":[{"type":"extra_forbidden","loc":["body","chart","query_context"],
+"msg":"Extra inputs are not permitted", ...}]}
+```
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/exploreAdapter.ts`
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreAssistantContract.test.ts`
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/ExploreAssistantPanel.test.tsx`
+- `custom-extensions/irex-mcp-tools/docs/explore-assistant-contract.md`
+  (aviso ⚠️ bloqueante — texto para el agente del backend del chat)
+- `PLAN_COPILOTO_EXPLORE.md`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)
+
+Que cambia o corrige:
+- El backend del chat valida `chart` con un modelo (Pydantic o equivalente)
+  con `extra` prohibido: un campo que ese modelo no conoce no se ignora,
+  tumba la solicitud ENTERA con 422 antes de llegar al modelo — mandar
+  `chart.query_context` (entrada 72) rompió "Explicar", que en la entrada
+  71 SÍ funcionaba.
+- **Fix inmediato: se apaga el envío, sin borrar el trabajo.** Nuevo
+  interruptor `SEND_QUERY_CONTEXT_IN_REQUEST = false` en
+  `exploreAdapter.ts` — `buildExploreAssistantRequest` deja de agregar
+  `chart.query_context` al body mientras esté en `false`, restaurando el
+  comportamiento de la entrada 71 ("Explicar" vuelve a funcionar). Las
+  tools `irex.explain_chart`/`irex.preview_chart` (backend) quedan
+  intactas y listas — el problema nunca estuvo ahí, estaba en cómo llega
+  el dato al modelo.
+- `docs/explore-assistant-contract.md` suma un aviso ⚠️ explícito, junto a
+  `chart.query_context`, con lo que falta del lado del backend del chat
+  para reactivarlo: agregar ese campo (opcional, string) a su modelo de
+  `chart` antes de avisar — ahí se cambia la constante a `true` y se
+  redespliega.
+- Dos aserciones de test que esperaban `query_context` en el body (una en
+  `exploreAssistantContract.test.ts`, otra en `ExploreAssistantPanel.test.tsx`)
+  se revirtieron a esperar su ausencia.
+
+Verificación:
+- `npx tsc --noEmit` estricto sin errores.
+- 205 tests de frontend (mismo total que la entrada 72 — 2 revertidas, 0
+  nuevas), 257 de backend (sin cambios, no se tocó backend en esta
+  entrada).
+- `build-extension.sh` completo (7/7) sobre `extensions_test/`.
+- Pendiente: que el usuario reinicie `superset_test.service` y confirme
+  que "Explicar" volvió a funcionar; que el agente del backend del chat
+  actualice su schema y avise para reactivar `chart.query_context`.
+
+### 2026-09-24 (72) (Explore: `irex.explain_chart`/`irex.preview_chart` — verificación independiente del query_context real)
+
+Cambio realizado: con "Explicar" ya funcionando de punta a punta pero
+limitado a la configuración persistida (sin SQL ni resultados, entrada 71),
+se construyen las tools que faltaban para eso — reusando el pipeline real
+de ejecución que ya usa `irex.chart_option` en producción
+(`QueryContextFactory`/`ChartDataCommand`, con RLS aplicado
+automáticamente), en vez de reconstruir o adivinar el `query_context`.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/explore_query_context_core.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/explore_chart_diagnostics.py` (nuevo — `irex.explain_chart`, `irex.preview_chart`)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/entrypoint.py`
+- `custom-extensions/irex-mcp-tools/backend/tests/test_explore_query_context_core.py` (nuevo, 20 tests)
+- `custom-extensions/irex-mcp-tools/frontend/src/contracts/exploreAssistant.ts`
+  (nuevo campo opcional `chart.query_context`)
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/exploreAdapter.ts`
+  (`buildExploreAssistantRequest` lo llena cuando la fidelidad ya es 'fiel')
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreAssistantContract.test.ts`
+  (2 aserciones actualizadas)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/ExploreAssistantPanel.test.tsx`
+  (1 aserción actualizada)
+- `custom-extensions/irex-mcp-tools/docs/explore-assistant-contract.md`
+  (documenta el campo nuevo y el contrato de las dos tools — es el texto
+  para el agente del backend del chat)
+- `superset_config_test.py` (`always_visible`: paso 6 obligatorio de
+  CLAUDE.md, esta vez hecho ANTES de que el usuario pruebe, no después)
+- `PLAN_COPILOTO_EXPLORE.md`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)
+
+Que cambia o corrige:
+- **`irex.explain_chart`**: recibe `form_data_key` + `query_context` (el
+  string EXACTO que el navegador capturó al observar el
+  `POST /api/v1/chart/data` real — nunca reconstruido, ver
+  `exploreQueryCapture.ts`), verifica que ese `query_context` referencia el
+  mismo dataset/gráfico que `form_data_key` (`explore_query_context_core.py`,
+  20 tests), y fuerza `result_type=query`: Superset genera el SQL sin
+  ejecutarlo contra la base — más barato incluso que `irex.explain_query`
+  (que sí corre EXPLAIN). Devuelve `{status, sql, language, datasource, slice_id}`.
+- **`irex.preview_chart`**: mismo input + `row_limit` (1-5000, default 100,
+  nunca mayor al que ya traía el `query_context` capturado — `capped_queries`).
+  Fuerza `result_type=full` (resultado real, nunca `samples` — la regla que
+  ya pedía el contrato v1). Devuelve columnas/tipos/filas/rowcount/SQL/
+  filtros aplicados y rechazados, o `{status:"error", ...}` si la consulta
+  falla en Superset (filtro inválido, división por cero, etc. — no se
+  propaga como excepción, se devuelve estructurado, mismo criterio que
+  `chart_option.py`).
+- **La verificación es la re-ejecución misma**, no un chequeo de forma
+  aparte: `ChartDataCommand.validate()` llama a
+  `query_context.raise_for_access()` — el mismo control de acceso/RLS que
+  aplicaría Superset si el propio navegador hubiera mandado ese
+  `query_context` a `/api/v1/chart/data`. Un `query_context` para un
+  dataset que el usuario no puede leer, o con filtros/columnas inválidas,
+  falla ahí — no hace falta reimplementar esos chequeos.
+- El frontend manda `chart.query_context` en el body solo cuando la
+  fidelidad ya resolvió a `'fiel'` (capturado en vivo, o el guardado del
+  gráfico si no hubo ejecuciones posteriores) — mismo criterio ya usado
+  para el indicador del dock, ahora también para lo que viaja al backend.
+
+Verificación:
+- 20 tests nuevos (`test_explore_query_context_core.py`) + 257 backend en
+  total (sin regresiones). 205 tests de frontend (2 aserciones
+  desactualizadas corregidas, ninguna nueva rota).
+- `build-extension.sh` completo (7/7) sobre `extensions_test/`.
+- La capa de wiring (`explore_chart_diagnostics.py`, que toca
+  `QueryContextFactory`/`ChartDataCommand`/`cache_manager` reales) no tiene
+  tests propios — mismo criterio ya establecido por `get_explore_state.py`
+  en la entrada 67 (requiere contexto completo de Superset; solo el núcleo
+  puro se testea aisladamente).
+- Sin verificación end-to-end en navegador — pendiente que el usuario
+  reinicie `superset_mcp_test.service` y pruebe de nuevo "Explicar"/
+  "Mejorar gráfico" contra un gráfico ejecutado; y que el agente del
+  backend del chat conecte su lado (pasar `chart.query_context` al modelo
+  y darle acceso a estas dos tools nuevas — texto listo en
+  `docs/explore-assistant-contract.md`).
+
+### 2026-09-24 (71) (Explore: primera prueba real del usuario contra el chat — un caso funciona, uno falla del lado del backend del chat)
+
+Cambio realizado: ninguno de código — verificación de la entrada 70 contra
+el backend real, a pedido del usuario, que probó los modos "Explicar" y
+"Generar" y pasó los dos `session_id`.
+
+Hallazgos (vía `GET /api/logs/sessions/<id>` y una llamada directa a la
+tool por MCP, sin pasar por el backend del chat):
+- **Sesión `explore-55fe2...` (Explicar, gráfico guardado slice_id=36,
+  `mixed_timeseries`): funciona de punta a punta.** El modelo llamó a
+  `irex.get_explore_state`, recibió el estado real y devolvió una
+  explicación completa, con el sobre `contract_version`/`actions:[]`/
+  `diagnostics:[]` bien formado. Confirma que el fix de la entrada 69
+  (`always_visible`) resolvió el problema real: la tool ya es visible
+  para el modelo.
+- **Sesión `explore-e6ff0...` (Generar, "Mejorar gráfico", gráfico SIN
+  guardar — `slice_id: null`, `form_data_key: "pNUmZuVgkgk"`, tipo
+  `table_v3`, uno de los plugins propios): falla ANTES de llegar al
+  modelo**, con un error genérico `"No fue posible revisar el gráfico."`
+  y sin ningún `tool_call` logueado (a diferencia de la sesión que sí
+  funcionó).
+- **Diagnóstico — descartado el lado de esta extensión:** se llamó a
+  `irex.get_explore_state` directo contra el MCP de test (JWT propio,
+  mismo patrón que `scripts/e2e_rbac.py`) con la misma `form_data_key`
+  exacta de la sesión fallida — responde `is_error: false` con un estado
+  completo y válido (`slice_id: null`, `datasource`, `form_data`,
+  `state_kind: "last_persisted"`, `user.is_admin: true`). El proxy
+  (`_assistant_proxy.py::prepare_explore_body`) tampoco toca `slice_id` —
+  confirmado leyendo su propio `turn_start`, que ya trae el valor
+  correcto (`null`). La tool y el proxy funcionan bien.
+- **Conclusión: bug del lado del backend del chat**, no del MCP — su
+  verificación previa al modelo (que el propio contrato documenta como
+  "el backend lee `irex.get_explore_state` por MCP... antes de consultar
+  al modelo") no maneja `slice_id: null` (gráfico sin guardar), un caso
+  que el contrato v1 (`docs/explore-assistant-contract.md`) documenta
+  explícitamente como válido. Reportado al usuario con el texto listo
+  para pasarle al agente del backend del chat (session id, body recibido,
+  y la prueba de que la tool MCP responde bien para ese mismo caso).
+
+Verificación: ninguna adicional — este hallazgo en sí ES la verificación
+pedida ("probar un mensaje real"). Sin cambios de código en esta entrada.
+
+### 2026-09-24 (70) (Explore: el panel ya se conecta al chat — composer, modos, aclaraciones, acciones de solo lectura)
+
+Cambio realizado:
+El dock de Explore mostraba solo el diagnóstico de fidelidad (sin caja de
+texto ni forma de escribirle al asistente, confirmado por el usuario con
+una captura). Se lo conecta al backend del chat usando el contrato y el
+transporte que ya había armado la sesión en paralelo (entradas 61-68):
+`exploreAdapter.ts`/`exploreBackendAdapter.ts`/`contracts/exploreAssistant.ts`.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/ExploreAssistantPanel.tsx` (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/ExploreConversation.tsx` (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/Conversation.tsx`
+  (solo exports nuevos: `WorkingIndicator`, `UserTurn`, `EarlierTurns`)
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/exploreAdapter.ts`
+  (nuevo `readIsAdminHint()`)
+- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreHost.tsx`
+  (`ExploreDockRoot` ahora monta `<ExploreAssistantPanel/>`; se le quita la
+  lógica de fidelidad, que se muda al panel)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreAdapter.test.ts` (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/ExploreAssistantPanel.test.tsx` (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreHost.test.tsx`
+  (1 aserción actualizada: "Nueva sesión" ahora SÍ debe aparecer)
+- `PLAN_COPILOTO_EXPLORE.md`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)
+
+Que cambia o corrige:
+- `ExploreAssistantPanel.tsx`: orquestación completa — lee el contexto
+  (`readExploreContext`), arma el pedido (`buildExploreAssistantRequest`,
+  con la pista de rol Admin de `readIsAdminHint()`), lo manda
+  (`requestExploreAssistant`, SSE con progreso o JSON), muestra la
+  respuesta, aclaraciones (reusando `Clarification.tsx` tal cual — el
+  contrato de Explore ya usa la misma forma `{id, text, options, axis?}`),
+  diagnósticos y "Nueva sesión" (rota `conversation_key`, corta cualquier
+  pedido en vuelo). El banner de contrato/fidelidad (criterios de salida 1
+  y 2 de la Fase 0) se mudó acá desde `exploreHost.tsx` — es lógica del
+  asistente, no del mecanismo de montaje — y queda SIEMPRE visible, no solo
+  antes del primer mensaje (el criterio dice "lo dice en la interfaz").
+- **No se reutilizó `SqlLabAssistantPanel.tsx`/`Conversation.tsx` sin
+  adaptar.** `Conversation.tsx` está atado a `AssistantMode` (4 modos de
+  SQL Lab) y sus diagnósticos requieren `line`/`column` (posición en texto
+  SQL) — Explore tiene 3 modos distintos (`explain`/`improve_chart`/
+  `metrics`) y sus diagnósticos apuntan a un `control` del formulario, sin
+  posición de texto. Forzar `Conversation.tsx` a cubrir ambos casos era más
+  riesgo sobre un componente con muchos tests que escribir
+  `ExploreConversation.tsx` aparte (mismo lenguaje visual, tipos propios).
+  Sí se reutilizaron sin cambios las piezas genéricas: se exportaron
+  `WorkingIndicator`/`UserTurn`/`EarlierTurns` de `Conversation.tsx`
+  (cambio aditivo, cero riesgo para sus tests) para no duplicarlas.
+- **Acciones de solo lectura, a propósito.** `ExploreActionCard` describe
+  cada propuesta (`patch_form_data`, `add_adhoc_metric`/`column`,
+  `change_viz_type`, `add_dataset_metric`/`add_calculated_column`,
+  `preview`) pero NO tiene botón "Aplicar": aplicar de verdad requiere
+  validar el catálogo de controles y la key vigente inmediatamente antes
+  (contrato v1, sección de acciones) — trabajo real de Fase 6, no
+  construido todavía. Un botón que no hiciera nada sería peor que no
+  mostrarlo. Hoy además `actions` casi seguro llega vacío en la práctica:
+  el backend descarta cualquier acción que dependa de `irex.get_viz_controls`/
+  `irex.validate_expression`, que todavía no existen (ver "Por dónde
+  continuar" de la entrada 68).
+- `readIsAdminHint()`: lee `bootstrap.user.roles` del mismo
+  `data-bootstrap` de `#app` que ya usa `themeBridge.ts` para el tema.
+  Nunca autoritativo (el contrato lo llama "pista"): el backend re-verifica
+  el rol real vía `irex.get_explore_state` con la identidad MCP del
+  usuario antes de habilitar cualquier acción sobre el dataset.
+
+Verificación:
+- `npx tsc --noEmit` estricto sin errores.
+- 205 tests de frontend (16 nuevos: 6 en `exploreAdapter.test.ts` + 10 en
+  `ExploreAssistantPanel.test.tsx`), 237 de backend (sin cambios). Los 189
+  tests previos siguen pasando sin modificarse, salvo la única aserción
+  desactualizada de `exploreHost.test.tsx` (esperaba que "Nueva sesión" NO
+  apareciera — ahora aparece a propósito, porque ya hay una conversación
+  real que vaciar).
+- `build-extension.sh` completo (7/7) sobre `extensions_test/`.
+- Sin verificación end-to-end en navegador contra el backend real del
+  chat — pendiente que el usuario pruebe con un mensaje real una vez
+  reiniciado `superset_test.service`.
+
+### 2026-09-24 (69) (Explore: `irex.get_explore_state` no llegaba a `tools/list` — faltaba el paso 6 obligatorio)
+
+Archivos afectados:
+- `superset_config_test.py` (raíz del proyecto, `SUPERSET_CONFIG_PATH` de
+  `superset_mcp_test.service` — confirmado en
+  `.env_superset_mcp_test`)
+
+Cambio realizado: al retomar el trabajo de las entradas 61-68 (hecho por otra
+sesión en paralelo sobre este mismo repo), verifiqué el estado real antes de
+seguir — `npx tsc --noEmit`, 189 tests de frontend, 237 de backend, todos
+correctos, coincidiendo con lo reportado. Pero `irex.get_explore_state`
+(entrada 67, `@tool(name="irex.get_explore_state", tags=["irex", "explore",
+"chart", "read_only"], ...)`) nunca se agregó a `MCP_TOOL_SEARCH_CONFIG
+["always_visible"]` — el paso 6 que CLAUDE.md marca como CRÍTICO y
+OBLIGATORIO para cualquier tool nuevo: "Sin este paso el tool se registra
+pero NO aparece en tools/list y el LLM no lo ve." Sin este fix, todo el
+trabajo de las entradas 66-68 (que depende de que el backend del chat pueda
+invocar esta tool) quedaba con la tool invisible en la práctica.
+
+Que cambia o corrige: se agregó
+`"extensions.irex.irex-mcp-tools.irex.get_explore_state"` a la lista, mismo
+formato que las demás 16 entradas ya presentes. Solo se tocó el config de
+TEST (`superset_config_test.py`) — coherente con que este trabajo no se
+promovió a producción (confirmado: `extensions/` no tiene este `.supx`,
+solo `extensions_test/`). La lista equivalente de producción
+(`/home/imercados/.superset/superset_config.py`) queda intacta a propósito.
+De paso corrijo un desliz de formato en esta misma entrada anterior (68): el
+header `## Registro de cambios` había quedado desplazado debajo de esa
+entrada en vez de al principio del archivo — no es un cambio de contenido,
+solo la posición del título.
+
+Verificación: `python -m py_compile` sobre `superset_config_test.py` (sin
+errores de sintaxis). Pendiente: reiniciar `superset_mcp_test.service` para
+que tome el cambio (el usuario ya había reiniciado tras la entrada 68, pero
+antes de este fix) y confirmar con `tools/list` que `irex.get_explore_state`
+ahora aparece.
+
+### 2026-09-24 (68) (Explore: lectura del chat desde estado persistido)
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/exploreAdapter.ts`
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreAssistantContract.test.ts`
+- `custom-extensions/irex-mcp-tools/docs/explore-assistant-contract.md`
+- `PLAN_COPILOTO_EXPLORE.md`
+- `Registro de cambios.md`
+- `extensions_test/irex-mcp-tools-0.1.0.supx`
+
+Cambio realizado: el body v1 del chat identifica dataset y tipo desde el
+`form_data` persistido (`id__table`) y usa el `slice_id` superior de la URL,
+aunque `form_data.slice_id` esté obsoleto. Permite explicar la configuración
+cuando no hay SQL ejecutado. La key y la identidad son pistas que el backend
+y el MCP vuelven a verificar; SQL, resultados y `preview` siguen sujetos a
+verificación independiente del `query_context` ejecutado. El contrato local
+y el plan reflejan el cambio confirmado por el agente del backend a
+`state_kind=last_persisted`.
+
+Verificación: 10 pruebas focalizadas; build 7/7 con 189 frontend, 237 backend,
+TypeScript estricto y webpack; `.supx` actualizado solo en `extensions_test/`.
+Pendiente prueba autenticada extremo a extremo
+con el backend de chat y completar el catálogo MCP de controles.
+
+### 2026-09-24 (67) (Explore: primera tool MCP con estado persistido verificado)
+
+Cambio realizado: se implementó `irex.get_explore_state` de solo lectura y
+se identificó una incompatibilidad semántica del contrato con el backend de
+chat (`last_executed` no se puede probar desde `form_data_key`).
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/explore_state_core.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/get_explore_state.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/entrypoint.py`
+- `custom-extensions/irex-mcp-tools/backend/tests/test_explore_state_core.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/docs/explore-assistant-contract.md`
+- `PLAN_COPILOTO_EXPLORE.md`
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (tras build)
+
+Qué cambia o corrige: la tool lee la key desde la caché bajo identidad MCP,
+exige permisos de Explore, Chart y Dataset y el `check_access` nativo al
+dataset/gráfico. Deriva `slice_id` del estado cacheado, no del form_data que
+puede contener un ID antiguo. Devuelve `is_admin` del servidor y
+`state_kind=last_persisted`, sin afirmar que esa configuración se ejecutó.
+El backend de chat debe aceptar ese estado para lectura; SQL/preview requieren
+prueba separada del `query_context` ejecutado. No se ejecutan consultas ni se
+modifican gráficos o datasets.
+
+Verificación: build 7/7 aprobado (188 pruebas frontend, 237 backend,
+TypeScript estricto, webpack y paquete de test). Ocho pruebas focalizadas,
+Ruff lint/formato y `git diff --check` aprobados. Los hooks `mypy` y Ruff
+del pre-commit del core no resuelven el paquete/ejecutable de esta extensión;
+Ruff directo pasó. El `.supx` de test contiene la tool y el import de
+registro. El usuario reinició `superset_mcp_test.service` a las 13:55; el journal
+registró `extensions.irex.irex-mcp-tools.irex.get_explore_state` como tool
+protegida a las 13:56. Web test `/health` 200 y MCP de test activo en 5009,
+sin errores de arranque. No se invocó la tool con datos de un gráfico:
+falta que el backend acepte `last_persisted`. Producción intacta.
+
+### 2026-09-24 (66) (Explore: proxy de test y transporte SSE)
+
+Cambio realizado: con autorización explícita del usuario para el envío de
+identidad y estado al backend de chat configurado en test, se conectó la
+ruta Explore del proxy y el transporte del contrato v1.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/_assistant_proxy.py`
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/assistant_api.py`
+- `custom-extensions/irex-mcp-tools/backend/tests/test_assistant_proxy.py`
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/exploreBackendAdapter.ts` (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreBackendAdapter.test.ts` (nuevo)
+- `PLAN_COPILOTO_EXPLORE.md`
+- `extensions_test/irex-mcp-tools-0.1.0.supx`
+
+Qué cambia o corrige: la REST `/assistant/explore` exige sesión, rol del chat,
+permisos de Explore/Chart/Dataset, acceso real al dataset y CSRF. Reemplaza
+Admin y MCP del navegador con valores del servidor, filtra headers y reenvía
+solo a `/api/explore-assistant`. El frontend procesa JSON y SSE del contrato
+Explore v1 con CSRF; no usa el proxy legacy como fallback. El panel no llama
+aún al transporte ni aplica propuestas: `irex.get_explore_state` y la Fase 0
+siguen pendientes. Producción intacta.
+
+Verificación: build 7/7 aprobado (188 pruebas frontend, 229 backend,
+TypeScript estricto, Ruff lint/formato, webpack y paquete de test). Pruebas
+focalizadas cubren denegación RBAC/dataset, suplantación de Admin/MCP, errores
+HTTP y SSE. `pre-commit` pasó los hooks disponibles, pero mypy del hook no
+resuelve imports de esta extensión y el hook Ruff no tiene ejecutable; Ruff
+se ejecutó directamente desde `.venv` y pasó. El intento inicial de reinicio con `sudo -n` falló por contraseña; el usuario
+reinició `superset_test.service` después. Validación en vivo en `localhost:9090`:
+`/health` 200; `POST /extensions/irex/irex-mcp-tools/assistant/explore`
+sin sesión ni CSRF devuelve 400 por token faltante; `GET` a esa ruta devuelve
+405; una ruta inexistente devuelve 404. La extensión se registró en el
+arranque. No se envió ningún gráfico al backend del chat en esta prueba.
+Queda pendiente la prueba autenticada y `irex.get_explore_state`. Producción
+intacta.
+
+### 2026-09-24 (65) (Explore: contrato v1 y auditoría RBAC)
+
+Cambio realizado: se preparó el contrato frontend de Explore v1 sin habilitar
+transporte ni acciones; se auditó el acceso de lectura en test.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/docs/explore-assistant-contract.md` (aportado por el usuario)
+- `custom-extensions/irex-mcp-tools/frontend/src/contracts/exploreAssistant.ts` (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/exploreAdapter.ts`
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreAssistantContract.test.ts` (nuevo)
+- `PLAN_COPILOTO_EXPLORE.md`
+- `extensions_test/irex-mcp-tools-0.1.0.supx`
+- `Registro de cambios.md`
+
+Qué cambia o corrige: el parser acepta solo respuestas `superset_explore` v1,
+valida acciones y aclaraciones, y rechaza acciones mal formadas. El adaptador
+arma el body desde la key y el `query_context` fiel; si faltan, falla sin
+enviar datos. La metadata de test muestra lectura de Chart/Dataset para
+Admin, Alpha, Gamma y Solo PNS; solo los tres primeros tienen `can_explore`.
+El rol `acceso chat` no basta por sí solo. Ningún permiso del body se toma como
+autorización.
+
+Verificación: build 7/7 aprobado: TypeScript estricto, 182 pruebas
+frontend y 223 backend; `git diff --check` limpio. Paquete actualizado
+solo en `extensions_test/`. La revisión automática rechazó añadir el proxy
+hacia `CHAT_WIDGET_API_URL` por falta de autorización explícita para enviar
+identidad y estado del gráfico a ese destino. No se aplicó el cambio
+rechazado. Quedan pendientes proxy, tools MCP, pruebas negativas del gate y
+validación de extremo a extremo. Producción intacta.
+
+### 2026-09-24 (64) (Explore: adaptador de lectura y encabezado propio)
+
+Cambio realizado: inicio de la Fase 1 del copiloto de Explore, manteniendo
+la separación entre el estado persistido y la consulta ejecutada.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/exploreAdapter.ts` (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreState.ts`
+- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreHost.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/PanelHeader.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreState.test.ts`
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreHost.test.tsx`
+- `PLAN_COPILOTO_EXPLORE.md`
+- `extensions_test/irex-mcp-tools-0.1.0.supx`
+
+Qué cambia o corrige: el adaptador expone el gráfico leído desde la URL y
+su `query_context` fiel como datos distintos, y centraliza los eventos de
+URL y de captura. El dock evita una segunda lectura de `form_data` para el
+indicador. El encabezado en Explore dice «Asistente de gráficos» y no ofrece
+un botón «Limpiar» que aún no tenía efecto. SQL Lab conserva su título y
+botón de sesión. No se aplican cambios al gráfico ni se habilita chat.
+
+Verificación: TypeScript estricto y build 7/7 aprobados; 173 pruebas
+frontend y 223 backend aprobadas. `pre-commit` pasó en los archivos
+afectados (los hooks de frontend del core no cubren esta extensión);
+`git diff --check` sin errores. Paquete actualizado solo en
+`extensions_test/`; producción intacta. El servicio test requiere reinicio
+para cargar esta versión. Fase 1 parcial; Fase 0 pendiente de validación
+visual de los demás tipos.
+
+### 2026-09-24 (63) (Explore: usar el último request ejecutado)
+
+Cambio realizado: el panel usa el último `query_context` de una petición
+`/api/v1/chart/data` completa y exitosa para el `slice_id` abierto, sin
+compararlo con el `form_data` crudo de `form_data_key`.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreQueryCapture.ts`
+- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreState.ts`
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreQueryCapture.test.ts`
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreState.test.ts`
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreHost.test.tsx`
+- `PLAN_COPILOTO_EXPLORE.md`
+- `extensions_test/irex-mcp-tools-0.1.0.supx`
+
+Qué cambia o corrige: la entrada 62 comparaba dos representaciones distintas:
+la consulta se construye desde controles normalizados y la URL guarda el
+estado crudo del editor. En el gráfico 682, `chart.params` y el contexto
+almacenado contienen además un `slice_id` antiguo (1187); se conserva la
+restricción de no confiar en ese contexto como SQL de la vista actual.
+Solo se captura la respuesta 200 de la consulta completa JSON del gráfico
+abierto. Los cambios de controles posteriores siguen pendientes hasta que
+Superset los ejecute. No hay consultas adicionales ni escritura al gráfico.
+
+Verificación: build 7/7 aprobado (TypeScript estricto, 172 pruebas frontend,
+223 backend, webpack y empaquetado); 45 pruebas de Explore, incluida la
+selección por gráfico y el rechazo de requests que no son `full`. Paquete
+copiado a `extensions_test/`. El usuario reinició `superset_test.service`
+a las 13:06 y, tras pulsar «Actualizar gráfico» en el gráfico 682
+(`table_v3`), confirmó que el panel muestra «SQL del estado ejecutado
+disponible (table_v3).» Validación visual de ese caso aprobada; faltan
+otros tipos para cerrar el criterio 2 de la Fase 0. Producción intacta.
+
+### 2026-09-24 (62) (Explore: capturar el query_context ejecutado)
+
+Cambio realizado: el dock observa el `POST /api/v1/chart/data` que Explore ya
+hace, sin ejecutar otra consulta ni reconstruir `buildQuery`. Si la petición
+responde 200 y su `form_data` coincide con el estado persistido de la URL,
+reutiliza el body exacto como `query_context` del estado ejecutado. Al salir
+de Explore restaura `fetch` y descarta los contextos en memoria.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreQueryCapture.ts`
+  (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreState.ts`
+- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreHost.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreQueryCapture.test.ts`
+  (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreState.test.ts`
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreHost.test.tsx`
+- `PLAN_COPILOTO_EXPLORE.md`
+- `extensions_test/irex-mcp-tools-0.1.0.supx`
+
+Qué cambia o corrige: el estado ejecutado puede mostrar `SQL del estado
+ejecutado disponible` aunque `chart.params` difiera por los campos añadidos
+por Explore. La comprobación sigue siendo conservadora: cualquier diferencia
+real de `form_data`, parámetros URL con valores, respuesta fallida o uso de
+la API legacy mantiene el aviso. No se captura SQL de otros sitios ni se
+persiste en disco. Aún falta validación visual con gráficos reales y las
+funciones de SQL/vista previa posteriores del plan.
+
+Verificación: TypeScript estricto, 44 pruebas de Explore, build 7/7
+(171 frontend, 223 backend) y una prueba adicional de consultas múltiples
+aprobados. El `.supx` nuevo está en `extensions_test/`; el servicio de test
+seguía cargando la versión anterior al comprobarlo a las 11:50. Hace falta
+reiniciarlo y validar en navegador con gráficos reales. Producción intacta.
+
+### 2026-09-24 (61) (Explore: corregir diagnóstico falso de cambios sin guardar)
+
+Cambio realizado: al abrir o actualizar un gráfico, el panel ya no interpreta
+una diferencia entre el historial de Explore y `chart.params` como prueba de
+cambios hechos por el usuario. También invalida lecturas pendientes al cambiar
+de gráfico y valida estrictamente el `slice_id` de la URL.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreState.ts`
+- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreHost.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreState.test.ts`
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreHost.test.tsx`
+- `PLAN_COPILOTO_EXPLORE.md`
+- `extensions_test/irex-mcp-tools-0.1.0.supx`
+
+Qué cambia o corrige: Superset agrega campos y valores por defecto a
+`form_data`; en 13 estados reales de la base de test, ninguno coincidía con
+`chart.params`, tampoco tras quitar `slice_id`, `dashboards` y `dashboardId`.
+El aviso anterior atribuía incorrectamente esa diferencia a cambios sin
+guardar. La desigualdad queda como fidelidad no verificada; solo la igualdad
+exacta confirma que se puede reutilizar el `query_context` guardado. Se
+revoca el cierre del criterio 2 de la entrada 60 hasta obtener el
+`query_context` de la ejecución actual. Las respuestas de un gráfico anterior
+ya no pueden sobrescribir el estado del gráfico nuevo.
+
+Verificación: `npx tsc --noEmit`, 39 pruebas de Explore, suite completa
+(166 frontend, 223 backend) y `build-extension.sh` 7/7 aprobados. Paquete
+actualizado solo en `extensions_test/`. `pre-commit` sobre los archivos
+corregidos pasó (los hooks específicos de frontend se omitieron por su
+configuración de rutas). El reinicio de `superset_test.service`
+no se pudo ejecutar porque `sudo -n` requiere contraseña; falta comprobar
+el panel en la app de test tras reiniciar el servicio.
+
+### 2026-09-24 (60) (copiloto de Explore: se cierran los criterios de salida 1 y 2 de la Fase 0)
+
+Cambio realizado:
+Con el mecanismo de montaje/resize/plegado ya confirmado por el usuario,
+se implementa la lógica que faltaba para cerrar los dos criterios de
+salida que el propio plan exige antes de dar la Fase 0 por terminada:
+detectar de forma confiable si hay que confiar en el estado leído, y de
+dónde sale un `query_context` fiel.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreState.ts`
+  (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/hosts/routeObserver.ts`
+  (nuevo export `onDidChangeLocation`)
+- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreHost.tsx`
+  (banner de contrato + estado de fidelidad, reemplaza el placeholder)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreState.test.ts`
+  (nuevo, 13 tests)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/routeObserver.test.ts`
+  (+3 tests, total 12)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreHost.test.tsx`
+  (+4 tests, total 23)
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)
+- `PLAN_COPILOTO_EXPLORE.md`
+
+Que cambia o corrige:
+- **Criterio de salida 1 (estado visible vs. persistido) — opción (b) del
+  plan, implementada tal cual la recomendaba la revisión externa.** El
+  panel ahora muestra SIEMPRE, sin excepción, un contrato explícito
+  (`UNSAVED_STATE_CONTRACT`): "trabajo sobre el último estado EJECUTADO del
+  gráfico [...] si cambiaste controles sin ejecutar, hacelo antes". No se
+  intenta detectar "hay ediciones sin ejecutar" inspeccionando el store de
+  Redux del host (la opción (a) que el plan mismo advertía como frágil) —
+  se declara el límite en vez de fingir que no existe.
+- `routeObserver.ts` suma `onDidChangeLocation`: a diferencia de
+  `onDidChangeSurface` (que solo dispara al cruzar entre
+  explore/sqllab/other), este dispara en CADA cambio de URL — necesario
+  para reaccionar a un cambio de `slice_id` o de `form_data_key` sin salir
+  de `/explore`, algo que `onDidChangeSurface` nunca iba a notificar por
+  diseño.
+- **Criterio de salida 2 (`query_context` fiel), decisión final:** se reusa
+  el `query_context` GUARDADO del gráfico (`GET /api/v1/chart/<id>`) solo
+  cuando el `form_data` actual (leído de `GET /api/v1/explore/form_data/
+  <form_data_key>`, comparación estructural, no por referencia) es
+  IDÉNTICO al `params` guardado del gráfico. En cualquier otro caso —
+  gráfico sin guardar (sin `slice_id`), form_data_key vencida, o cambios
+  EJECUTADOS que divergen de lo guardado — SQL/vista previa quedan
+  deshabilitados con el motivo explícito, **para cualquier tipo de gráfico,
+  nativos y los tres plugins propios por igual**, sin excepción por tipo.
+  Se descartan las otras dos vías que evaluaba el plan (ejecutar el
+  `buildQuery` del plugin en el navegador; reconstruirlo en el servidor por
+  tipo, al estilo `chart_helpers.py` de `master`) por el mismo motivo que
+  señaló la revisión externa del plan: reimplementar `buildQuery` por tipo
+  es superficie de divergencia que no vale la pena para esta fase.
+- Toda fallo de red, HTTP no-2xx, o JSON inválido en cualquiera de los dos
+  fetch se trata de forma uniforme como "no puedo confiar en esto" →
+  `no-disponible`, nunca se propaga como excepción — postura conservadora
+  consistente con el resto del módulo.
+- El panel resuelve la fidelidad al montar y se vuelve a resolver
+  (debounced 400ms, `RESOLVE_DEBOUNCE_MS`) en cada cambio de URL dentro de
+  Explore vía el nuevo `onDidChangeLocation`.
+
+Verificación:
+- `npx tsc --noEmit` estricto sin errores.
+- 163 tests de frontend (20 nuevos: 13 en `exploreState.test.ts` + 3 en
+  `routeObserver.test.ts` + 4 en `exploreHost.test.tsx`), 223 de backend
+  (sin cambios, no se tocó backend).
+- `build-extension.sh` completo (7/7) sobre `extensions_test/`.
+- **Sin verificación end-to-end en navegador contra gráficos reales** — es
+  justamente lo que el criterio de salida 2 del plan pide como prueba
+  final ("contra un gráfico real de cada uno de los tres plugins propios")
+  y no es posible sin una sesión interactiva. El mecanismo construido acá
+  deja el banner de fidelidad VISIBLE en el panel (mensaje "SQL fiel
+  disponible"/"SQL/vista previa no disponible: <motivo>") precisamente
+  para que esa prueba la haga el usuario en la app real — pendiente.
+
+### 2026-09-24 (59) (copiloto de Explore: botón para plegar/desplegar el dock)
+
+Cambio realizado:
+Tras confirmar que el mecanismo de la entrada 58 (dock que reserva espacio
+en vez de superponerse) ya funcionaba, el usuario pidió un último detalle:
+un botón para ocultar y volver a mostrar el panel.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreHost.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreHost.test.tsx`
+  (+5 tests, total 19)
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)
+
+Que cambia o corrige:
+- Botón circular (`‹`/`›`) apoyado sobre el handle de resize, mitad hacia
+  el lienzo y mitad hacia el panel — vive FUERA de `#irex-explore-dock` a
+  propósito, así el `overflow:hidden` del dock nunca se lo lleva puesto
+  cuando el ancho baja a 0: queda visible y clickeable incluso con el panel
+  totalmente plegado.
+- Un click pliega el dock a `width:0` sin perder el ancho elegido (se
+  guarda aparte en `expandedWidth`, no se recalcula el default al volver a
+  desplegar); otro click lo restaura exactamente a ese ancho. El panel
+  sigue montado (no se desmonta React) — plegar es solo una cuestión de
+  ancho, no de destruir y recrear el árbol.
+- Con el panel plegado, arrastrar el resizer no hace nada (no tiene sentido
+  redimensionar un panel en ancho 0) — `setupResize` ahora recibe un
+  `isCollapsed()` que ignora el `mousedown` mientras el panel está plegado.
+- Estado persistido en `localStorage` (`irex-explore-dock-collapsed`, clave
+  propia) — un usuario que lo pliega lo encuentra plegado la próxima vez
+  que entra a Explore, igual que ya pasa con el ancho.
+
+Verificación:
+- `npx tsc --noEmit` estricto sin errores.
+- 143 tests de frontend (19 en exploreHost.test.tsx: 5 nuevos de plegado),
+  223 de backend (sin cambios).
+- `build-extension.sh` completo (7/7) sobre `extensions_test/`.
+- Sin verificación visual en navegador — pendiente que el usuario reinicie
+  `superset_test.service` y confirme que el botón se ve, se puede
+  clickear, y recuerda el estado al volver a Explore.
+
+### 2026-09-24 (58) (copiloto de Explore: el fix de la entrada 57 no alcanzaba — el dock seguía superpuesto; se reemplaza por el mecanismo del dock de chat)
+
+Cambio realizado:
+El fix de la entrada 57 (`measureReservedTop()`, apoyar el `top` del overlay
+debajo de las barras de Superset) resolvió que el dock tapara "Guardar" y la
+barra global, pero el usuario reportó con una SEGUNDA captura que el dock
+seguía siendo un overlay `position: fixed` superpuesto al lienzo del
+gráfico y a los controles de "Añadir los valores de control..." — pidiendo
+explícitamente que se incruste reservando espacio real, "similar a como lo
+hace el widget del chat", y que se pueda cambiar de tamaño. Correcto: ese
+mecanismo ya existe, probado en producción, en el dock del widget de chat
+(`custom-src/login/mcp_widget.py`, `setupDock`/`setupDockResize`) — este
+cambio lo replica para el dock de Explore en vez de seguir iterando sobre
+un overlay.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreHost.tsx`
+  (reescrito — se elimina por completo el mecanismo de overlay de la
+  entrada 57: `measureReservedTop`, `useReservedTop`, `position: fixed`)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreHost.test.tsx`
+  (reescrito — 14 tests, ninguno hereda de la entrada 57)
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)
+- `PLAN_COPILOTO_EXPLORE.md`
+
+Que cambia o corrige:
+- `mount()` ya NO agrega un `<div>` posicionado encima de todo. Envuelve
+  `#app` (el root de React de TODA la SPA de Superset, navbar incluida) en
+  una fila flex, exactamente como hace `setupDock()` del chat: un
+  contenedor `.../main` (`flex:1 1 auto`, `overflow-y:auto`) que recibe
+  `#app` como hijo, y el dock como HERMANO con ancho propio — `#app` se
+  mueve como unidad (nunca se toca su subárbol, cero riesgo de romper el
+  reconciliado de React, mismo criterio ya documentado en el widget de
+  chat). El dock reserva espacio; nunca puede tapar nada, sin necesidad de
+  medir cuánto ocupa Superset arriba (la pregunta que la entrada 57 sí
+  tenía que responder).
+- `unmount()` restaura `#app` a su posición original exacta (mismo padre,
+  mismo hermano siguiente) y quita el wrapper — no deja rastro fuera de
+  Explore. Probado explícitamente: `#app` vuelve entre sus vecinos
+  originales, con su contenido intacto (no un clon).
+- Ancho ajustable arrastrando un handle entre el lienzo y el dock — mismo
+  patrón que `setupDockResize()` del chat: mínimo 380px, máximo 50% del
+  ancho de la ventana (recalculado en cada arrastre), ancho por defecto
+  `min(460px, 34vw)`, y el ancho elegido se guarda en `localStorage`
+  (`irex-explore-dock-width`, clave propia — no choca con la del chat) y se
+  reusa en el próximo montaje. El arrastre muta el DOM directamente (no
+  pasa por estado de React en cada `mousemove`) por la misma razón que el
+  widget de chat: evitar un re-render por frame.
+- Interacción con el dock del chat: en `/explore`, "El Don" ya está oculto
+  por `mcp_widget.py` (entrada 56), pero su propio wrapper (`.mcp-
+  dashboard-dock-wrapper`/`-main`) sigue presente en el DOM para usuarios
+  con acceso al chat (solo el panel queda con `display:none`, no el
+  wrapper). `mount()` no asume que `#app` cuelga directo de `<body>`: lee
+  su padre ACTUAL (`app.parentNode`) en el momento de montar, así que
+  envuelve correctamente sea cual sea la estructura que encuentre — probado
+  también con `#app` en una posición cualquiera del body (no solo como
+  único hijo).
+- Eliminado por completo `measureReservedTop()`/`useReservedTop()` (y sus
+  tests) de la entrada 57: ya no aplican, el dock nunca comparte espacio
+  con nada que haya que medir.
+
+Verificación:
+- `npx tsc --noEmit` estricto sin errores.
+- 138 tests de frontend (14 en exploreHost.test.tsx, todos nuevos — 0
+  heredados de la entrada 57), 223 de backend (sin cambios). Tests nuevos
+  cubren: estructura del wrap (`#app` dentro de `.../main`, dock y resizer
+  como hermanos, sin `position: fixed`), restauración exacta de `#app` al
+  desmontar, ausencia silenciosa de `#app` (no revienta), arrastre del
+  handle con clamp a mínimo/máximo, persistencia en `localStorage` y reuso
+  en el siguiente montaje, y que los listeners de `window` (mousemove/
+  mouseup) se sueltan al desmontar (arrastrar después ya no hace nada).
+- `build-extension.sh` completo (7/7) sobre `extensions_test/`.
+- Sin verificación visual en navegador — no disponible en esta sesión;
+  pendiente que el usuario reinicie `superset_test.service` y confirme que
+  el dock ahora reserva espacio en vez de superponerse, y que el resize
+  funciona.
+
+### 2026-09-24 (57) (copiloto de Explore: el dock tapaba "Guardar" y el menú de Superset — bug real reportado con capturas)
+
+Cambio realizado:
+El usuario reportó con dos capturas de pantalla (una con el dock de la
+entrada 56 montado, otra sin él) que el panel spike de `exploreHost.tsx`
+tapaba por completo la cabecera propia de Explore ("Guardar", "...") y la
+barra global de Superset (tema, idioma, Ajustes): el overlay usaba
+`position: fixed; top: 0`, asumiendo que podía empezar en el borde
+superior del viewport sin contar con que Superset ya apila ahí sus
+propias barras.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreHost.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreHost.test.tsx`
+  (+4 tests: `measureReservedTop` y el `top` real del dock montado)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/routeObserver.test.ts`
+  (fix de aislamiento entre tests, ver abajo)
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)
+
+Que cambia o corrige:
+- `measureReservedTop()` mide el borde inferior (`getBoundingClientRect().bottom`)
+  de las dos barras que Explore apila arriba, con sus propios controles
+  alineados al mismo lado derecho que el dock: `#main-menu` (barra global,
+  `id` fijo en `Menu.tsx`, presente en TODAS las páginas autenticadas) y
+  `.header-with-actions` (cabecera propia de Explore con "Guardar", de
+  `PageHeaderWithActions`, un componente COMPARTIDO — no un nombre
+  inventado para esta extensión). El dock se apoya en el `Math.max()` de
+  ambas (nunca en la más alta: eso seguiría tapando la que sobra).
+- `useReservedTop()` recalcula ese valor con el mismo patrón que ya usa
+  `usePanelHeight()` en `SqlLabAssistantPanel.tsx` para el mismo problema
+  (espacio reservado por un layout del host que esta extensión no
+  controla): `ResizeObserver` sobre `document.body` + listener de
+  `resize` + un reintento a 300ms para la carrera de montaje entre el
+  árbol de React del host y esta raíz independiente.
+- **Bug de aislamiento entre tests, encontrado escribiendo el test de este
+  fix (no en producción):** `routeObserver.ts` envuelve
+  `history.pushState`/`replaceState` una sola vez por proceso — correcto
+  en producción, donde el bundle se evalúa una vez. En Jest,
+  `jest.resetModules()` crea un módulo nuevo por test, pero
+  `window.history` (el objeto real) persiste entre los tests de un mismo
+  archivo y `_resetForTests()` solo baja el flag `installed`, sin
+  restaurar las funciones nativas: cada test envolvía OTRA capa sobre la
+  del test anterior. El nuevo test de este fix, al ser el primero en leer
+  `document.getElementById` después de un `pushState`, quedó agarrando un
+  `<div id="irex-explore-dock">` **zombi** de un test previo (reactivado
+  por su propio `pushState`) en vez del que acababa de montar — de ahí que
+  fallara con `top: 0px` incluso con `measureReservedTop()` calculado
+  aparte devolviendo 140 correctamente. Fix: ambos archivos de test
+  capturan `pushState`/`replaceState` nativos una vez al cargar el
+  archivo y los restauran en `beforeEach`, antes de `jest.resetModules()`.
+
+Verificación:
+- `npx tsc --noEmit` estricto sin errores.
+- 133 tests de frontend (4 nuevos de este fix + fix de aislamiento en
+  otros 2), 223 de backend (sin cambios, no se tocó backend).
+- `build-extension.sh` completo (7/7) sobre `extensions_test/`.
+- Sin verificación visual en navegador — no disponible en esta sesión;
+  pendiente que el usuario reinicie `superset_test.service` y confirme
+  que "Guardar"/"..." quedan visibles con el dock montado.
+
+### 2026-09-24 (56) (copiloto de Explore: Fase 0 — montaje, tema fuera del árbol de React, tab_id, y por qué el catálogo de controles no se puede compartir)
+
+Cambio realizado:
+Arranque de la Fase 0 (spike) de PLAN_COPILOTO_EXPLORE.md: tareas 1, 3, 4,
+5 y 6. **La Fase 0 NO queda cerrada** — sus dos criterios de salida
+(estado visible vs. persistido; `query_context` fiel) requieren construir
+y probar en vivo lógica que es propia de fases posteriores; esta entrada
+deja el mecanismo de base (montaje, tema, `tab_id`) y evidencia que
+resuelve QUÉ construir, verificada contra la app de test real, no solo
+leyendo código.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/hosts/routeObserver.ts` (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/hosts/themeBridge.ts` (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreHost.tsx` (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/index.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/supersetCoreMock.tsx`
+  (`theme.Theme`/`theme.ThemeProvider`, contexto real de React)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/routeObserver.test.ts` (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/themeBridge.test.ts` (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreHost.test.tsx` (nuevo)
+- `custom-src/login/mcp_widget.py` (regla de ocultar "El Don" extendida a
+  `/explore`; respaldo previo en `extensions/backups/`)
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)
+- `PLAN_COPILOTO_EXPLORE.md`
+
+Que cambia o corrige:
+- **Montaje en `/explore` (tarea 1):** sin punto de montaje oficial (no
+  hay `explore.*` ni `<ViewListExtension>` genérico fuera de SQL Lab en
+  ningún archivo de la app — verificado con un grep sobre TODA la fuente,
+  no solo Explore), `exploreHost.tsx` monta una raíz de React propia
+  (`ReactDOM.render`/`unmountComponentAtNode`) sobre un `div` agregado a
+  `document.body` al entrar a `/explore` (`routeObserver.ts`, que factoriza
+  a TypeScript el mismo mecanismo `pushState`/`replaceState`/`popstate`
+  que ya usaba, duplicado e inline, `mcp_widget.py`) y la desmonta al
+  salir. 14 tests (9 + 5): sin fugas de nodos ni listeners en ida y
+  vuelta repetida, sin remontar al navegar entre gráficos dentro de
+  Explore.
+- **Hallazgo no anticipado por el plan — el tema no se hereda fuera del
+  árbol de React:** `theme.useTheme()` es el `useTheme()` de Emotion (lee
+  `React.Context`); una raíz separada de la de SQL Lab no lo hereda, sin
+  importar que `@apache-superset/core` se resuelva en runtime contra el
+  mismo `window.superset` (Module Federation no crea relación de árbol de
+  React entre bundles). Resuelto con `themeBridge.ts`: `document
+  .getElementById('app').dataset.bootstrap` trae `common.theme
+  .{default,dark}` — **confirmado idéntico en `/explore/`, `/sqllab/` y
+  `/superset/welcome/`** contra la app de test real, no es específico de
+  SQL Lab — y `themeNs.Theme.fromConfig(cfg)` (la misma clase pública)
+  calcula los mismos tokens que vería el panel de SQL Lab, con el `antd`
+  compartido como singleton. Modo claro/oscuro vía
+  `localStorage['superset-theme-mode']` + `prefers-color-scheme`;
+  recalcula con el evento propio del proyecto
+  `superset-agent:theme-change` (ya usado para "El Don") como disparador,
+  sin depender de su payload reducido. 11 tests.
+- **Ocultar "El Don" en Explore (tarea 6):** `mcp_widget.py`, misma regla
+  que SQL Lab (entrada 50), regex extendida a
+  `/^\/(sqllab|explore)(\/|$)/`. Verificado extrayendo el snippet
+  inyectado REAL desde una respuesta HTTP de `/explore/` contra la app de
+  test y corriéndolo con Node contra 8 casos de navegación (incluida una
+  ruta trampa `/exploreX/` que no debe ocultarse): 8/8.
+- **`form_data` real (tareas 3-4) — hallazgo de `tab_id`:** contra
+  `POST`/`GET`/`PUT /api/v1/explore/form_data` reales (con RBAC de
+  verdad: `GetFormDataCommand` rechaza con 403 a un usuario sin acceso al
+  dataset, verificado). **`PUT` sin `tab_id` genera SIEMPRE una key
+  nueva** (`UpdateFormDataCommand` cachea `(sesión, tab_id, datasource,
+  chart) → key`; sin `tab_id`, o con `0`, cae siempre a `random_key()`).
+  Con el `tab_id` real de la pestaña (el mismo
+  `sessionStorage['tab_id']` que ya usa el propio Explore vía su hook
+  `useTabId()`), `PUT` sí reutiliza la misma key. Consecuencia para el
+  adaptador de Explore (Fase 1): debe leer y mandar ese `tab_id`, o
+  generaría una key huérfana en cada escritura, desincronizada del
+  autoguardado del propio Explore.
+- **Catálogo de controles (tarea 5) — por qué no hay atajo:** confirmado
+  que `shared` de Module Federation del host solo cubre
+  `react`/`react-dom`/`antd`, nunca `@superset-ui/core` (donde vive el
+  registro de `buildQuery`); no hay ningún global de depuración
+  alternativo. `chart.query_context` guardado es fiel solo hasta el
+  último "Guardar" (confirmado en `saveModalActions.ts`: al guardar, el
+  frontend arma el mismo payload que usa `/api/v1/chart/data` y lo manda
+  como `query_context`). Los tres plugins propios (`html-cards`,
+  `pivot-tableRx1`, `tableV3`) definen su propio `buildQuery.ts` (51/122/
+  392 líneas) — ninguno usa el builder genérico. `master` (sin publicar)
+  ya resolvió este mismo problema con 1139 líneas de Python
+  (`chart_helpers.py`) que cubren SOLO tipos nativos, nunca plugins de
+  terceros — y su propia lógica de resolución confirma el mismo criterio
+  ya elegido acá: sin `form_data_key` confía en el `query_context`
+  guardado sin chequeo de frescura aparte; con `form_data_key`, nunca lo
+  reusa. Recomendación para Fase 1/4: usar el `query_context` guardado
+  para gráficos sin ediciones pendientes (fidelidad total, sirve para los
+  3 plugins propios sin trabajo extra); para ediciones pendientes en
+  plugins propios, no hay atajo — es trabajo real de la Fase 6.
+- Corrección de cifra: el conteo de tests de backend citado en turnos
+  anteriores de esta conversación ("264") no se había vuelto a verificar;
+  el número real en el repo (`git status` limpio) es 223. No hay ninguna
+  regresión — no se tocó ningún archivo de backend en esta entrada.
+
+Verificación: `npx tsc --noEmit` estricto, 129 tests de frontend (25
+nuevos), 223 de backend (sin cambios), `build-extension.sh` completo sobre
+`extensions_test/`. Sin verificación visual en navegador (pendiente antes
+de cerrar la Fase 0, que sigue abierta: faltan los criterios de salida 1 y
+2, y la auditoría de layout a 1366/1920px de la tarea 2).
+
 ### 2026-09-24 (55) (plan del copiloto de Explore: correcciones de una revisión externa)
 
 Cambio realizado:

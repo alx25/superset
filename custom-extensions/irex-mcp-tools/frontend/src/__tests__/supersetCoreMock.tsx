@@ -214,4 +214,23 @@ const TOKENS: Record<string, string | number> = {
   colorWhite: '#fff',
 };
 
-export const theme = { useTheme: () => TOKENS };
+// Contexto real de React: permite probar `exploreHost.tsx`, que envuelve su
+// propia raíz en `<theme.ThemeProvider>` (no hereda el contexto del host —
+// ver `themeBridge.ts`) sin necesitar la clase `Theme`/antd real.
+const ThemeContext = React.createContext<Record<string, string | number>>(TOKENS);
+
+export const theme = {
+  useTheme: () => React.useContext(ThemeContext),
+  ThemeProvider: ({ theme: value, children }: { theme: Record<string, string | number>; children: React.ReactNode }) => (
+    <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
+  ),
+  // Fake mínimo: no reproduce el algoritmo real de antd (eso se prueba fuera
+  // de Jest, ver la entrada 56 del Registro de cambios); solo permite
+  // probar que `themeBridge.ts` LLAMA a `Theme.fromConfig(cfg).theme` con el
+  // config esperado y usa lo que devuelve.
+  Theme: {
+    fromConfig: (cfg: { token?: Record<string, string | number> } | undefined) => ({
+      theme: { ...TOKENS, ...(cfg?.token ?? {}) },
+    }),
+  },
+};

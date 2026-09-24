@@ -1,0 +1,3154 @@
+
+● Update(custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreHost.tes
+        t.tsx)
+  ⎿  Added 56 lines
+       89      expect(document.getElementById(DOCK_ID)).toBe(first); // m
+           ismo nodo: no se desmontó/remontó
+       90    });
+       91  });
+       92 +                                                              
+       93 +/** Mockea `getBoundingClientRect` de un elemento con un `bott
+          +om` dado — el                                                 
+       94 + * único campo que lee `measureReservedTop`. */               
+       95 +function stubBottom(el: Element, bottom: number): void {      
+       96 +  el.getBoundingClientRect = () => ({ bottom, top: 0, left: 0,
+          + right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({})
+          + });                                                          
+       97 +}                                                             
+       98 +                                                              
+       99 +describe('measureReservedTop — no taparle a Explore su propia 
+          +barra ni la global', () => {                                  
+      100 +  test('sin #main-menu ni .header-with-actions: 0 (nada que ev
+          +itar)', () => {                                               
+      101 +    const { measureReservedTop } = load();                    
+      102 +    expect(measureReservedTop()).toBe(0);                     
+      103 +  });                                                         
+      104 +                                                              
+      105 +  test('usa el borde inferior MÁS BAJO de las dos barras (nunc
+          +a el más alto: taparía la que sobra)', () => {                
+      106 +    const { measureReservedTop } = load();                    
+      107 +    const mainMenu = document.createElement('div');           
+      108 +    mainMenu.id = 'main-menu';                                
+      109 +    stubBottom(mainMenu, 64); // barra global de Superset     
+      110 +    const chartHeader = document.createElement('div');        
+      111 +    chartHeader.className = 'header-with-actions';            
+      112 +    stubBottom(chartHeader, 128); // cabecera propia de Explor
+          +e ("Guardar"), más abajo                                      
+      113 +    document.body.append(mainMenu, chartHeader);              
+      114 +                                                              
+      115 +    expect(measureReservedTop()).toBe(128);                   
+      116 +  });                                                         
+      117 +                                                              
+      118 +  test('con solo una de las dos presente, usa esa', () => {   
+      119 +    const { measureReservedTop } = load();                    
+      120 +    const chartHeader = document.createElement('div');        
+      121 +    chartHeader.className = 'header-with-actions';            
+      122 +    stubBottom(chartHeader, 96);                              
+      123 +    document.body.appendChild(chartHeader);                   
+      124 +                                                              
+      125 +    expect(measureReservedTop()).toBe(96);                    
+      126 +  });                                                         
+      127 +});                                                           
+      128 +                                                              
+      129 +describe('el dock se apoya debajo de esas barras, no las tapa 
+          +(bug real reportado con capturas, 2026-09-24)', () => {       
+      130 +  test('reserva el espacio de #main-menu y .header-with-action
+          +s al montar', () => {                                         
+      131 +    window.history.replaceState({}, '', '/dashboard/list/');  
+      132 +    const mainMenu = document.createElement('div');           
+      133 +    mainMenu.id = 'main-menu';                                
+      134 +    stubBottom(mainMenu, 64);                                 
+      135 +    const chartHeader = document.createElement('div');        
+      136 +    chartHeader.className = 'header-with-actions';            
+      137 +    stubBottom(chartHeader, 140);                             
+      138 +    document.body.append(mainMenu, chartHeader);              
+      139 +                                                              
+      140 +    const { activateExploreHost } = load();                   
+      141 +    activateExploreHost();                                    
+      142 +    window.history.pushState({}, '', '/explore/?slice_id=1'); 
+      143 +                                                              
+      144 +    const dock = document.getElementById(DOCK_ID)?.firstElemen
+          +tChild as HTMLElement | undefined;                            
+      145 +    expect(dock?.style.top).toBe('140px'); // el más bajo de l
+          +os dos, no 0 ni 64                                            
+      146 +  });                                                         
+      147 +});                                                           
+  ⎿  Read src/__tests__/exploreHost.test.tsx (148 lines)
+  ⎿  Read src/hosts/exploreHost.tsx (186 lines)
+  ⎿  Read ../../../../.claude/projects/-home-imercados-superset-proyecto/memory/
+     project_explore_copilot.md (25 lines)
+  ⎿  Referenced file ../../../PLAN_COPILOTO_EXPLORE.md
+  ⎿  Read src/__tests__/routeObserver.test.ts (90 lines)
+
+  Searched for 2 patterns, ran 2 shell commands (ctrl+o to expand)
+
+● Bash(python3 - <<'EOF'
+      import re…)
+  ⎿  Updated custom-extensions/irex-mcp-tools/frontend/src/__tests__/explor
+     eHost.test.tsx (+10 -3)
+       6  export {}; // Ver la nota equivalente en routeObserver.test.ts 
+          — evita que
+       7  // `load()` colisione (a nivel de tipos) con la de ese otro arc
+          hivo.
+       8  
+       9 +import { act } from 'react-dom/test-utils';                    
+      10 +                                                               
+      11  type ExploreHostModule = typeof import('../hosts/exploreHost');
+      12  
+      13  function load(): ExploreHostModule {
+     ...
+      129  });
+      130  
+      131  describe('el dock se apoya debajo de esas barras, no las tapa 
+           (bug real reportado con capturas, 2026-09-24)', () => {
+      130 -  test('reserva el espacio de #main-menu y .header-with-action
+          -s al montar', () => {                                         
+      132 +  test('reserva el espacio de #main-menu y .header-with-action
+          +s al montar', async () => {                                   
+      133      window.history.replaceState({}, '', '/dashboard/list/');
+      134      const mainMenu = document.createElement('div');
+      135      mainMenu.id = 'main-menu';
+     ...
+      140      document.body.append(mainMenu, chartHeader);
+      141  
+      142      const { activateExploreHost } = load();
+      141 -    activateExploreHost();                                    
+      142 -    window.history.pushState({}, '', '/explore/?slice_id=1'); 
+      143 +    // `act(async ...)` deja correr el `useEffect` de `useRese
+          +rvedTop` (pasivo:                                             
+      144 +    // no se ejecuta de forma síncrona con `ReactDOM.render`, 
+          +a diferencia de                                               
+      145 +    // un `useLayoutEffect`) antes de leer el estilo final.   
+      146 +    await act(async () => {                                   
+      147 +      activateExploreHost();                                  
+      148 +      window.history.pushState({}, '', '/explore/?slice_id=1')
+          +;                                                             
+      149 +    });                                                       
+      150  
+      151      const dock = document.getElementById(DOCK_ID)?.firstElemen
+           tChild as HTMLElement | undefined;
+      152      expect(dock?.style.top).toBe('140px'); // el más bajo de l
+           os dos, no 0 ni 64
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Bash(cat > /tmp/claude-1001/-home-imercados-superset-proyecto/c836708f-c8d8-46
+      52-8d93-89888d5cd024/scratchpad/debug.test.tsx <<'EOF'
+      export {};…)
+  ⎿  Created custom-extensions/irex-mcp-tools/frontend/src/__tests__/zzdebu
+     g.test.tsx (+32 -0)
+       1 +export {};                                                     
+       2 +import { act } from 'react-dom/test-utils';                    
+       3 +                                                               
+       4 +class ResizeObserverStub {                                     
+       5 +  observe(): void {}                                           
+       6 +  disconnect(): void {}                                        
+       7 +}                                                              
+       8 +beforeAll(() => {                                              
+       9 +  (window as any).ResizeObserver = ResizeObserverStub;         
+      10 +});                                                            
+      11 +                                                               
+      12 +test('debug', async () => {                                    
+      13 +  window.history.replaceState({}, '', '/dashboard/list/');     
+      14 +  const mainMenu = document.createElement('div');              
+      15 +  mainMenu.id = 'main-menu';                                   
+      16 +  mainMenu.getBoundingClientRect = () => ({ bottom: 64, top:0,l
+         +eft:0,right:0,width:0,height:0,x:0,y:0,toJSON:()=>({}) } as any
+         +);                                                             
+      17 +  const chartHeader = document.createElement('div');           
+      18 +  chartHeader.className = 'header-with-actions';               
+      19 +  chartHeader.getBoundingClientRect = () => ({ bottom: 140, top
+         +:0,left:0,right:0,width:0,height:0,x:0,y:0,toJSON:()=>({}) } as
+         + any);                                                         
+      20 +  document.body.append(mainMenu, chartHeader);                 
+      21 +                                                               
+      22 +  const { activateExploreHost, measureReservedTop } = require('
+         +../src/hosts/exploreHost');                                    
+      23 +  console.log('measureReservedTop direct:', measureReservedTop(
+         +));                                                            
+      24 +                                                               
+      25 +  await act(async () => {                                      
+      26 +    activateExploreHost();                                     
+      27 +    window.history.pushState({}, '', '/explore/?slice_id=1');  
+      28 +  });                                                          
+      29 +                                                               
+      30 +  const dockContainer = document.getElementById('irex-explore-d
+         +ock');                                                         
+      31 +  console.log('dock container html:', dockContainer?.outerHTML.
+         +slice(0, 500));                                                
+      32 +});                                                            
+
+● Bash(sed -i "s#'../src/hosts/exploreHost'#'../hosts/exploreHost'#"
+      src/__tests__/zzdebug.test.tsx
+      npx jest src/__tests__/zzdebug.test.tsx 2>&1 | tail -60)
+  ⎿  Updated custom-extensions/irex-mcp-tools/frontend/src/__tests__/zzdebu
+     g.test.tsx (+1 -1)
+      19    chartHeader.getBoundingClientRect = () => ({ bottom: 140, top
+          :0,left:0,right:0,width:0,height:0,x:0,y:0,toJSON:()=>({}) } as
+           any);
+      20    document.body.append(mainMenu, chartHeader);
+      21  
+      22 -  const { activateExploreHost, measureReservedTop } = require('
+         -../src/hosts/exploreHost');                                    
+      22 +  const { activateExploreHost, measureReservedTop } = require('
+         +../hosts/exploreHost');                                        
+      23    console.log('measureReservedTop direct:', measureReservedTop(
+          ));
+      24  
+      25    await act(async () => {
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Update(custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreHost.tes
+        t.tsx)
+  ⎿  Added 11 lines, removed 2 lines
+       6  export {}; // Ver la nota equivalente en routeObserver.test.ts 
+          — evita que
+       7  // `load()` colisione (a nivel de tipos) con la de ese otro arc
+          hivo.
+       8  
+       9 -import { act } from 'react-dom/test-utils';                    
+      10 -                                                               
+       9  type ExploreHostModule = typeof import('../hosts/exploreHost');
+      10 +type ActFn = typeof import('react-dom/test-utils').act;        
+      11  
+      12 +/** `act` tiene que venir del MISMO `require()` que `exploreHos
+         +t` (después del                                                
+      13 + * `jest.resetModules()` de `beforeEach`), no de un `import` es
+         +tático de este                                                 
+      14 + * archivo cacheado antes del reset: si no, `act` termina atado
+         + a una copia de                                                
+      15 + * `react-dom` distinta de la que usa `ReactDOM.render` dentro 
+         +del módulo, y                                                  
+      16 + * ya no puede sincronizar el flush de sus `useEffect`. */     
+      17 +function loadAct(): ActFn {                                    
+      18 +  // eslint-disable-next-line @typescript-eslint/no-var-require
+         +s, global-require                                              
+      19 +  return (require('react-dom/test-utils') as typeof import('rea
+         +ct-dom/test-utils')).act;                                      
+      20 +}                                                              
+      21 +                                                               
+      22  function load(): ExploreHostModule {
+      23    // eslint-disable-next-line @typescript-eslint/no-var-require
+          s, global-require
+      24    return require('../hosts/exploreHost') as ExploreHostModule;
+
+  Read 1 file (ctrl+o to expand)
+
+● Ahora actualizo el test para usar loadAct() en vez del act estático que quedé
+  eliminando:
+
+● Update(custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreHost.tes
+        t.tsx)
+  ⎿  Added 1 line
+      149      document.body.append(mainMenu, chartHeader);
+      150  
+      151      const { activateExploreHost } = load();
+      152 +    const act = loadAct();                                    
+      153      // `act(async ...)` deja correr el `useEffect` de `useRese
+           rvedTop` (pasivo:
+      154      // no se ejecuta de forma síncrona con `ReactDOM.render`, 
+           a diferencia de
+      155      // un `useLayoutEffect`) antes de leer el estilo final.
+
+● Bash(rm -f src/__tests__/zzdebug.test.tsx
+      npx jest src/__tests__/exploreHost.test.tsx 2>&1 | tail -40)
+  ⎿  Deleted custom-extensions/irex-mcp-tools/frontend/src/__tests__/zzdebu
+     g.test.tsx (+0 -32)
+       1 -export {};                                                     
+       2 -import { act } from 'react-dom/test-utils';                    
+       3 -                                                               
+       4 -class ResizeObserverStub {                                     
+       5 -  observe(): void {}                                           
+       6 -  disconnect(): void {}                                        
+       7 -}                                                              
+       8 -beforeAll(() => {                                              
+       9 -  (window as any).ResizeObserver = ResizeObserverStub;         
+      10 -});                                                            
+      11 -                                                               
+      12 -test('debug', async () => {                                    
+      13 -  window.history.replaceState({}, '', '/dashboard/list/');     
+      14 -  const mainMenu = document.createElement('div');              
+      15 -  mainMenu.id = 'main-menu';                                   
+      16 -  mainMenu.getBoundingClientRect = () => ({ bottom: 64, top:0,l
+         -eft:0,right:0,width:0,height:0,x:0,y:0,toJSON:()=>({}) } as any
+         -);                                                             
+      17 -  const chartHeader = document.createElement('div');           
+      18 -  chartHeader.className = 'header-with-actions';               
+      19 -  chartHeader.getBoundingClientRect = () => ({ bottom: 140, top
+         -:0,left:0,right:0,width:0,height:0,x:0,y:0,toJSON:()=>({}) } as
+         - any);                                                         
+      20 -  document.body.append(mainMenu, chartHeader);                 
+      21 -                                                               
+      22 -  const { activateExploreHost, measureReservedTop } = require('
+         -../hosts/exploreHost');                                        
+      23 -  console.log('measureReservedTop direct:', measureReservedTop(
+         -));                                                            
+      24 -                                                               
+      25 -  await act(async () => {                                      
+      26 -    activateExploreHost();                                     
+      27 -    window.history.pushState({}, '', '/explore/?slice_id=1');  
+      28 -  });                                                          
+      29 -                                                               
+      30 -  const dockContainer = document.getElementById('irex-explore-d
+         -ock');                                                         
+      31 -  console.log('dock container html:', dockContainer?.outerHTML.
+         -slice(0, 500));                                                
+      32 -});                                                            
+
+● Bash(cat > src/__tests__/zzdebug2.test.tsx <<'EOF'
+      export {};…)
+  ⎿  Created custom-extensions/irex-mcp-tools/frontend/src/__tests__/zzdebu
+     g2.test.tsx (+42 -0)
+       1 +export {};                                                     
+       2 +                                                               
+       3 +class ResizeObserverStub {                                     
+       4 +  observe(): void {}                                           
+       5 +  disconnect(): void {}                                        
+       6 +}                                                              
+       7 +beforeAll(() => {                                              
+       8 +  (window as any).ResizeObserver = ResizeObserverStub;         
+       9 +});                                                            
+      10 +beforeEach(() => {                                             
+      11 +  jest.resetModules();                                         
+      12 +  document.body.innerHTML = '';                                
+      13 +  window.history.replaceState({}, '', '/dashboard/list/');     
+      14 +});                                                            
+      15 +                                                               
+      16 +test('debug with resetModules', async () => {                  
+      17 +  const mainMenu = document.createElement('div');              
+      18 +  mainMenu.id = 'main-menu';                                   
+      19 +  mainMenu.getBoundingClientRect = () => ({ bottom: 64, top:0,l
+         +eft:0,right:0,width:0,height:0,x:0,y:0,toJSON:()=>({}) } as any
+         +);                                                             
+      20 +  const chartHeader = document.createElement('div');           
+      21 +  chartHeader.className = 'header-with-actions';               
+      22 +  chartHeader.getBoundingClientRect = () => ({ bottom: 140, top
+         +:0,left:0,right:0,width:0,height:0,x:0,y:0,toJSON:()=>({}) } as
+         + any);                                                         
+      23 +  document.body.append(mainMenu, chartHeader);                 
+      24 +                                                               
+      25 +  // eslint-disable-next-line global-require                   
+      26 +  const { activateExploreHost, measureReservedTop } = require('
+         +../hosts/exploreHost');                                        
+      27 +  console.log('direct measure:', measureReservedTop());        
+      28 +  // eslint-disable-next-line global-require                   
+      29 +  const { act } = require('react-dom/test-utils');             
+      30 +                                                               
+      31 +  await act(async () => {                                      
+      32 +    activateExploreHost();                                     
+      33 +    window.history.pushState({}, '', '/explore/?slice_id=1');  
+      34 +  });                                                          
+      35 +                                                               
+      36 +  const dockContainer = document.getElementById('irex-explore-d
+         +ock');                                                         
+      37 +  console.log('after act html:', dockContainer?.firstElementChi
+         +ld?.outerHTML?.slice(0,200));                                  
+      38 +                                                               
+      39 +  // try again after a raw timeout too                         
+      40 +  await new Promise(r => setTimeout(r, 350));                  
+     … 2 more lines (ctrl+o to expand)
+
+● Bash(rm -f src/__tests__/zzdebug2.test.tsx
+      python3 - <<'EOF'…)
+  ⎿  Updated custom-extensions/irex-mcp-tools/frontend/src/__tests__/explor
+     eHost.test.tsx (+5 -1)
+      148      stubBottom(chartHeader, 140);
+      149      document.body.append(mainMenu, chartHeader);
+      150  
+      151 -    const { activateExploreHost } = load();                   
+      151 +    const { activateExploreHost, measureReservedTop } = load()
+          +;                                                             
+      152      const act = loadAct();
+      153 +    console.log('DIRECT measureReservedTop:', measureReservedT
+          +op());                                                        
+      154      // `act(async ...)` deja correr el `useEffect` de `useRese
+           rvedTop` (pasivo:
+      155      // no se ejecuta de forma síncrona con `ReactDOM.render`, 
+           a diferencia de
+      156      // un `useLayoutEffect`) antes de leer el estilo final.
+     ...
+      160      });
+      161  
+      162      const dock = document.getElementById(DOCK_ID)?.firstElemen
+           tChild as HTMLElement | undefined;
+      163 +    console.log('AFTER ACT measureReservedTop:', measureReserv
+          +edTop());                                                     
+      164 +    console.log('dock style top:', dock?.style.top);          
+      165 +    console.log('mainMenu in doc:', document.body.contains(mai
+          +nMenu), document.querySelector('#main-menu') === mainMenu);   
+      166      expect(dock?.style.top).toBe('140px'); // el más bajo de l
+           os dos, no 0 ni 64
+      167    });
+      168  });
+  ⎿  Deleted custom-extensions/irex-mcp-tools/frontend/src/__tests__/zzdebu
+     g2.test.tsx (+0 -42)
+       1 -export {};                                                     
+       2 -                                                               
+       3 -class ResizeObserverStub {                                     
+       4 -  observe(): void {}                                           
+       5 -  disconnect(): void {}                                        
+       6 -}                                                              
+       7 -beforeAll(() => {                                              
+       8 -  (window as any).ResizeObserver = ResizeObserverStub;         
+       9 -});                                                            
+      10 -beforeEach(() => {                                             
+      11 -  jest.resetModules();                                         
+      12 -  document.body.innerHTML = '';                                
+      13 -  window.history.replaceState({}, '', '/dashboard/list/');     
+      14 -});                                                            
+      15 -                                                               
+      16 -test('debug with resetModules', async () => {                  
+      17 -  const mainMenu = document.createElement('div');              
+      18 -  mainMenu.id = 'main-menu';                                   
+      19 -  mainMenu.getBoundingClientRect = () => ({ bottom: 64, top:0,l
+         -eft:0,right:0,width:0,height:0,x:0,y:0,toJSON:()=>({}) } as any
+         -);                                                             
+      20 -  const chartHeader = document.createElement('div');           
+      21 -  chartHeader.className = 'header-with-actions';               
+      22 -  chartHeader.getBoundingClientRect = () => ({ bottom: 140, top
+         -:0,left:0,right:0,width:0,height:0,x:0,y:0,toJSON:()=>({}) } as
+         - any);                                                         
+      23 -  document.body.append(mainMenu, chartHeader);                 
+      24 -                                                               
+      25 -  // eslint-disable-next-line global-require                   
+      26 -  const { activateExploreHost, measureReservedTop } = require('
+         -../hosts/exploreHost');                                        
+      27 -  console.log('direct measure:', measureReservedTop());        
+      28 -  // eslint-disable-next-line global-require                   
+      29 -  const { act } = require('react-dom/test-utils');             
+      30 -                                                               
+      31 -  await act(async () => {                                      
+      32 -    activateExploreHost();                                     
+      33 -    window.history.pushState({}, '', '/explore/?slice_id=1');  
+      34 -  });                                                          
+      35 -                                                               
+      36 -  const dockContainer = document.getElementById('irex-explore-d
+         -ock');                                                         
+      37 -  console.log('after act html:', dockContainer?.firstElementChi
+         -ld?.outerHTML?.slice(0,200));                                  
+      38 -                                                               
+      39 -  // try again after a raw timeout too                         
+      40 -  await new Promise(r => setTimeout(r, 350));                  
+     … 2 more lines (ctrl+o to expand)
+
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● Encontré la causa raíz: no es el hook, es fuga de infraestructura de test
+  entre casos. routeObserver.ts envuelve history.pushState/replaceState de forma
+  global y solo expone _resetForTests() para dejarlo "sin instalar" — pero eso
+  no restaura las funciones nativas. Como jest.resetModules() crea una instancia
+  nueva del módulo en cada test (sin tocar window.history, que persiste entre
+  tests del mismo archivo), cada test envuelve otra capa sobre la ya envuelta
+  por los anteriores. Los tests que solo miran arrays locales
+  (routeObserver.test.ts) no lo notan, pero el nuevo test que lee
+  document.getElementById sí: agarra un <div id="irex-explore-dock"> zombi de un
+  test anterior (reactivado por el pushState de este test), no el que acabo de
+  montar — de ahí el top: 0px pese a que measureReservedTop() calculado
+  directamente da 140.
+
+● Update(custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreHost.tes
+        t.tsx)
+  ⎿  Added 14 lines
+      39    (window as unknown as { ResizeObserver: typeof ResizeObserver
+          Stub }).ResizeObserver = ResizeObserverStub;
+      40  });
+      41  
+      42 +// `routeObserver.ts` envuelve `history.pushState`/`replaceStat
+         +e` una sola vez                                                
+      43 +// por proceso — correcto en producción (el bundle se evalúa un
+         +a vez), pero en                                                
+      44 +// tests `jest.resetModules()` crea un módulo nuevo por test si
+         +n desenvolver                                                  
+      45 +// ese parche global (`_resetForTests()` solo baja el flag `ins
+         +talled`, no                                                    
+      46 +// restaura las funciones nativas). Sin este reset, cada test e
+         +nvuelve OTRA                                                   
+      47 +// capa sobre la del test anterior: un `pushState` de este test
+         + reactiva                                                      
+      48 +// también los listeners zombis de tests previos, que remontan 
+         +SU PROPIO                                                      
+      49 +// `<div id="irex-explore-dock">` — `document.getElementById` p
+         +uede devolver                                                  
+      50 +// ese nodo zombi en vez del que acaba de montar el test actual
+         +.                                                              
+      51 +const nativePushState = window.history.pushState.bind(window.hi
+         +story);                                                        
+      52 +const nativeReplaceState = window.history.replaceState.bind(win
+         +dow.history);                                                  
+      53 +                                                               
+      54  beforeEach(() => {
+      55 +  window.history.pushState = nativePushState;                  
+      56 +  window.history.replaceState = nativeReplaceState;            
+      57    jest.resetModules();
+      58    document.body.innerHTML = '';
+      59    window.history.replaceState({}, '', '/dashboard/list/');
+
+● Aplico el mismo fix a routeObserver.test.ts (mismo riesgo latente, aunque hoy
+  no le falla ningún test) y quito los console.log de diagnóstico:
+
+● Update(custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreHost.tes
+        t.tsx)
+  ⎿  Added 1 line, removed 5 lines
+      162      stubBottom(chartHeader, 140);
+      163      document.body.append(mainMenu, chartHeader);
+      164  
+      165 -    const { activateExploreHost, measureReservedTop } = load()
+          -;                                                             
+      165 +    const { activateExploreHost } = load();                   
+      166      const act = loadAct();
+      167 -    console.log('DIRECT measureReservedTop:', measureReservedT
+          -op());                                                        
+      167      // `act(async ...)` deja correr el `useEffect` de `useRese
+           rvedTop` (pasivo:
+      168      // no se ejecuta de forma síncrona con `ReactDOM.render`, 
+           a diferencia de
+      169      // un `useLayoutEffect`) antes de leer el estilo final.
+     ...
+      173      });
+      174  
+      175      const dock = document.getElementById(DOCK_ID)?.firstElemen
+           tChild as HTMLElement | undefined;
+      177 -    console.log('AFTER ACT measureReservedTop:', measureReserv
+          -edTop());                                                     
+      178 -    console.log('dock style top:', dock?.style.top);          
+      179 -    console.log('mainMenu in doc:', document.body.contains(mai
+          -nMenu), document.querySelector('#main-menu') === mainMenu);   
+      176      expect(dock?.style.top).toBe('140px'); // el más bajo de l
+           os dos, no 0 ni 64
+      177    });
+      178  });
+
+● Update(custom-extensions/irex-mcp-tools/frontend/src/__tests__/routeObserver.t
+        est.ts)
+  ⎿  Added 12 lines
+      16    return require('../hosts/routeObserver') as RouteObserverModu
+          le;
+      17  }
+      18  
+      19 +// Ver la nota equivalente y más extensa en exploreHost.test.ts
+         +x: sin esto,                                                   
+      20 +// `jest.resetModules()` deja los `pushState`/`replaceState` re
+         +ales envueltos                                                 
+      21 +// en una capa nueva por cada test (el parche vive en `window.h
+         +istory`, que                                                   
+      22 +// persiste entre tests del mismo archivo; `_resetForTests()` n
+         +o lo deshace).                                                 
+      23 +// Acá no rompe ninguna aserción (cada test solo mira su propio
+         + array local),                                                 
+      24 +// pero sin este reset cada `pushState` dispara también los lis
+         +teners zombis                                                  
+      25 +// de los tests anteriores — trabajo de más y un supuesto frági
+         +l.                                                             
+      26 +const nativePushState = window.history.pushState.bind(window.hi
+         +story);                                                        
+      27 +const nativeReplaceState = window.history.replaceState.bind(win
+         +dow.history);                                                  
+      28 +                                                               
+      29  beforeEach(() => {
+      30 +  window.history.pushState = nativePushState;                  
+      31 +  window.history.replaceState = nativeReplaceState;            
+      32    jest.resetModules();
+      33    window.history.replaceState({}, '', '/');
+      34  });
+
+● Ahora corro ambos archivos y luego la suite completa:
+  Ran 1 shell command (ctrl+o to expand)
+
+● Los 18 tests pasan. Verifico tipos y corro la suite completa del frontend:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Sin errores de tipos. Ahora la suite completa de Jest:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● 133 tests, todos verdes, sin regresiones. Ahora el rebuild reproducible
+  completo hacia extensions_test/:
+
+● Bash(cd /home/imercados/superset_proyecto/custom-extensions/irex-mcp-tools &&
+      \
+      ./scripts/build-extension.sh \…)
+  ⎿  1 file changed (binary, mode only or too large to show)
+
+● Build completo (7/7) sin errores: 133 tests frontend + 223 backend, tipos
+  estrictos OK, .supx reconstruido y copiado a extensions_test/. Ahora documento
+  el hallazgo y actualizo el plan.
+
+  Read 1 file, ran 3 shell commands (ctrl+o to expand)
+
+● Ahora agrego la entrada 57 documentando el bug del overlap y su fix, justo
+  antes de la entrada 56:
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(Registro de cambios.md)
+  ⎿  Added 60 lines
+       1  ## Registro de cambios
+       2  
+       3 +### 2026-09-24 (57) (copiloto de Explore: el dock tapaba "Guard
+         +ar" y el menú de Superset — bug real reportado con capturas)   
+       4 +                                                               
+       5 +Cambio realizado:                                              
+       6 +El usuario reportó con dos capturas de pantalla (una con el doc
+         +k de la                                                        
+       7 +entrada 56 montado, otra sin él) que el panel spike de `explore
+         +Host.tsx`                                                      
+       8 +tapaba por completo la cabecera propia de Explore ("Guardar", "
+         +...") y la                                                     
+       9 +barra global de Superset (tema, idioma, Ajustes): el overlay us
+         +aba                                                            
+      10 +`position: fixed; top: 0`, asumiendo que podía empezar en el bo
+         +rde                                                            
+      11 +superior del viewport sin contar con que Superset ya apila ahí 
+         +sus                                                            
+      12 +propias barras.                                                
+      13 +                                                               
+      14 +Archivos afectados:                                            
+      15 +- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreH
+         +ost.tsx`                                                       
+      16 +- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/expl
+         +oreHost.test.tsx`                                              
+      17 +  (+4 tests: `measureReservedTop` y el `top` real del dock mont
+         +ado)                                                           
+      18 +- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/rout
+         +eObserver.test.ts`                                             
+      19 +  (fix de aislamiento entre tests, ver abajo)                  
+      20 +- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)        
+      21 +                                                               
+      22 +Que cambia o corrige:                                          
+      23 +- `measureReservedTop()` mide el borde inferior (`getBoundingCl
+         +ientRect().bottom`)                                            
+      24 +  de las dos barras que Explore apila arriba, con sus propios c
+         +ontroles                                                       
+      25 +  alineados al mismo lado derecho que el dock: `#main-menu` (ba
+         +rra global,                                                    
+      26 +  `id` fijo en `Menu.tsx`, presente en TODAS las páginas autent
+         +icadas) y                                                      
+      27 +  `.header-with-actions` (cabecera propia de Explore con "Guard
+         +ar", de                                                        
+      28 +  `PageHeaderWithActions`, un componente COMPARTIDO — no un nom
+         +bre                                                            
+      29 +  inventado para esta extensión). El dock se apoya en el `Math.
+         +max()` de                                                      
+      30 +  ambas (nunca en la más alta: eso seguiría tapando la que sobr
+         +a).                                                            
+      31 +- `useReservedTop()` recalcula ese valor con el mismo patrón qu
+         +e ya usa                                                       
+      32 +  `usePanelHeight()` en `SqlLabAssistantPanel.tsx` para el mism
+         +o problema                                                     
+      33 +  (espacio reservado por un layout del host que esta extensión 
+         +no                                                             
+      34 +  controla): `ResizeObserver` sobre `document.body` + listener 
+         +de                                                             
+      35 +  `resize` + un reintento a 300ms para la carrera de montaje en
+         +tre el                                                         
+      36 +  árbol de React del host y esta raíz independiente.           
+      37 +- **Bug de aislamiento entre tests, encontrado escribiendo el t
+         +est de este                                                    
+      38 +  fix (no en producción):** `routeObserver.ts` envuelve        
+      39 +  `history.pushState`/`replaceState` una sola vez por proceso —
+         + correcto                                                      
+      40 +  en producción, donde el bundle se evalúa una vez. En Jest,   
+      41 +  `jest.resetModules()` crea un módulo nuevo por test, pero    
+      42 +  `window.history` (el objeto real) persiste entre los tests de
+         + un mismo                                                      
+      43 +  archivo y `_resetForTests()` solo baja el flag `installed`, s
+         +in                                                             
+      44 +  restaurar las funciones nativas: cada test envolvía OTRA capa
+         + sobre la                                                      
+      45 +  del test anterior. El nuevo test de este fix, al ser el prime
+         +ro en leer                                                     
+      46 +  `document.getElementById` después de un `pushState`, quedó ag
+         +arrando un                                                     
+      47 +  `<div id="irex-explore-dock">` **zombi** de un test previo (r
+         +eactivado                                                      
+      48 +  por su propio `pushState`) en vez del que acababa de montar —
+         + de ahí que                                                    
+      49 +  fallara con `top: 0px` incluso con `measureReservedTop()` cal
+         +culado                                                         
+      50 +  aparte devolviendo 140 correctamente. Fix: ambos archivos de 
+         +test                                                           
+      51 +  capturan `pushState`/`replaceState` nativos una vez al cargar
+         + el                                                            
+      52 +  archivo y los restauran en `beforeEach`, antes de `jest.reset
+         +Modules()`.                                                    
+      53 +                                                               
+      54 +Verificación:                                                  
+      55 +- `npx tsc --noEmit` estricto sin errores.                     
+      56 +- 133 tests de frontend (4 nuevos de este fix + fix de aislamie
+         +nto en                                                         
+      57 +  otros 2), 223 de backend (sin cambios, no se tocó backend).  
+      58 +- `build-extension.sh` completo (7/7) sobre `extensions_test/`.
+      59 +- Sin verificación visual en navegador — no disponible en esta 
+         +sesión;                                                        
+      60 +  pendiente que el usuario reinicie `superset_test.service` y c
+         +onfirme                                                        
+      61 +  que "Guardar"/"..." quedan visibles con el dock montado.     
+      62 +                                                               
+      63  ### 2026-09-24 (56) (copiloto de Explore: Fase 0 — montaje, tem
+          a fuera del árbol de React, tab_id, y por qué el catálogo de co
+          ntroles no se puede compartir)
+      64  
+      65  Cambio realizado:
+
+● Ahora actualizo PLAN_COPILOTO_EXPLORE.md (sección Fase 0) con una nota sobre
+  este hallazgo, y la memoria correspondiente.
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● Update(PLAN_COPILOTO_EXPLORE.md)
+  ⎿  Added 12 lines
+      423     (`query_context` guardado) contra un gráfico real de cada u
+           no de los
+      424     tres plugins propios.
+      425  
+      426 +**Bug real encontrado con el spike en vivo, fuera de esta list
+          +a (entrada                                                    
+      427 +57 del Registro de cambios, 2026-09-24):** el overlay del dock
+          + usaba                                                        
+      428 +`position: fixed; top: 0`, tapando por completo la cabecera pr
+          +opia de                                                       
+      429 +Explore ("Guardar", "...") y la barra global de Superset — rep
+          +ortado por                                                    
+      430 +el usuario con capturas de pantalla antes/después. Corregido m
+          +idiendo en                                                    
+      431 +runtime el borde inferior de `#main-menu` y `.header-with-acti
+          +ons`                                                          
+      432 +(`measureReservedTop()`/`useReservedTop()` en `exploreHost.tsx
+          +`, mismo                                                      
+      433 +patrón que `usePanelHeight()` de `SqlLabAssistantPanel.tsx`) y
+          + apoyando el                                                  
+      434 +dock debajo del más bajo de los dos. Sigue pendiente la confir
+          +mación                                                        
+      435 +visual del usuario tras reiniciar `superset_test.service` — la
+          + tarea 2 de                                                   
+      436 +arriba (auditoría de layout a 1366/1920px) la cubre formalment
+          +e.                                                            
+      437 +                                                              
+      438  ## Fase 1 — Carcasa común del panel
+      439  
+      440  1. Separar la carcasa (componentes existentes) de la lógica de
+            SQL Lab
+
+● Ahora actualizo la memoria del proyecto:
+
+  Wrote 1 memory (ctrl+o to expand)
+
+● Ya está todo listo del lado de código. Resumen de lo que hice y lo que falta
+  de tu parte:
+
+  Encontré y arreglé el bug de las capturas — el panel usaba position: fixed;
+  top: 0, sin contar con que Superset ya apila arriba su propia barra global
+  (tema, idioma, Ajustes) y la cabecera de Explore ("Guardar", "..."). Ahora
+  exploreHost.tsx mide en runtime el borde inferior de #main-menu y
+  .header-with-actions (mismo patrón ResizeObserver que ya usa el panel de SQL
+  Lab) y apoya el dock debajo del más bajo de los dos, con un borde superior que
+  solo aparece cuando hace falta.
+
+  De paso, al escribir el test de este fix encontré un bug real (aunque solo de
+  infraestructura de tests, no de producción): routeObserver.ts envuelve
+  history.pushState una sola vez por proceso, correcto quando el bundle se carga
+  una vez en el navegador — pero en Jest, cada test recargaba el módulo sin
+  restaurar window.history a sus funciones nativas, así que las capas se iban
+  acumulando y un test terminó leyendo un <div> "zombi" montado por un test
+  anterior. Ya corregido en ambos archivos de test.
+
+  Verificación completa:
+  - npx tsc --noEmit estricto: sin errores
+  - 133 tests de frontend (todos verdes, incluidos los 4 nuevos de este fix)
+  - 223 tests de backend (sin cambios, no se tocó backend)
+  - build-extension.sh completo (7/7): .supx reconstruido en extensions_test/
+  - Documentado en Registro de cambios.md (entrada 57), PLAN_COPILOTO_EXPLORE.md
+    y memoria
+
+  Lo único que falta y no puedo hacer yo: reiniciar superset_test.service y
+  confirmar visualmente que "Guardar" y el menú "..." ya quedan libres con el
+  dock montado. Cuando quieras:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Avisame cuando lo reinicies y verifiques en el navegador si el overlap se
+  resolvió.
+
+[Image #5]
+
+❯ Aún se sobrepone deberia incrustarse en el lateral, similar a como lo hace el
+  widget del chat, tambien permitir modificar su tamaño
+
+  Searched for 1 pattern, read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● Ahora entiendo el patrón correcto — ya existe uno probado en producción para
+  el widget del chat ("El Don"): en vez de superponerse, envuelve #app completo
+  en un layout flex y agrega el panel como hermano con ancho propio, más un
+  handle de resize. Voy a replicar exactamente ese mecanismo para el dock de
+  Explore, reemplazando el overlay.
+
+  Read 1 file (ctrl+o to expand)
+
+● Write(custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreHost.tsx)
+  ⎿  Added 189 lines, removed 83 lines
+       5   * `<ViewListExtension>` genérico fuera de SQL Lab — verificado
+           leyendo el
+       6   * código fuente de Superset), así que este módulo:
+       7   *
+       8 - * 1. Observa la ruta (`routeObserver.ts`) y monta/desmonta una
+         - raíz de React                                                 
+       9 - *    PROPIA (independiente del árbol de la app) al entrar/sali
+         -r de                                                           
+      10 - *    `/explore`. Nunca queda una raíz o un listener vivo fuera
+         - de Explore.                                                   
+      11 - * 2. Como esa raíz no hereda el `ThemeContext` del host, la en
+         -vuelve en su                                                   
+       8 + * 1. Observa la ruta (`routeObserver.ts`) y monta/desmonta el 
+         +dock al                                                        
+       9 + *    entrar/salir de `/explore`. Nunca queda una raíz de React
+         +, un listener                                                  
+      10 + *    ni un nodo del DOM vivo fuera de Explore.                
+      11 + * 2. RESERVA espacio real en vez de superponerse — mismo mecan
+         +ismo, con los                                                  
+      12 + *    mismos nombres de pieza, que ya usa en producción el dock
+         + del widget de                                                 
+      13 + *    chat (`custom-src/login/mcp_widget.py`, `setupDock`/     
+      14 + *    `setupDockResize`): envuelve `#app` completo (navbar incl
+         +uida) en una                                                   
+      15 + *    fila flex y agrega el panel como HERMANO con ancho propio
+         + y un handle                                                   
+      16 + *    de resize entre los dos, restaurando `#app` a su posición
+         + original al                                                   
+      17 + *    desmontar. Se llegó a este mecanismo después de un primer
+         + intento con                                                   
+      18 + *    `position: fixed` que el usuario reportó con capturas tap
+         +ando                                                           
+      19 + *    "Guardar" y la barra global de Superset (Registro de camb
+         +ios, entrada                                                   
+      20 + *    57) — el propio usuario señaló el dock del chat como el p
+         +atrón a                                                        
+      21 + *    imitar, ya resiliente en producción a la pregunta "¿cuánt
+         +o mide lo que                                                  
+      22 + *    Superset dibuja arriba?": con este mecanismo esa pregunta
+         + ni se                                                         
+      23 + *    plantea, porque el dock nunca comparte espacio con nada, 
+         +lo reserva.                                                    
+      24 + * 3. Como esa raíz no hereda el `ThemeContext` del host, la en
+         +vuelve en su                                                   
+      25   *    propio `<theme.ThemeProvider>` con los tokens reales deri
+          vados por
+      26   *    `themeBridge.ts` (mismo resultado que `theme.useTheme()` 
+          dentro del
+      27   *    árbol del host), y se re-renderiza cuando el usuario camb
+          ia de tema.
+      15 - * 3. Overlay superpuesto (`position: fixed`), no reduce el esp
+         -acio de                                                        
+      16 - *    Explore. Es la opción más simple de las dos que preveía e
+         -l plan; un                                                     
+      17 - *    dock que reserve espacio real (como "El Don") queda para 
+         -la Fase 1,                                                     
+      18 - *    después de auditar en un navegador real el layout de Expl
+         -ore a                                                          
+      19 - *    1366px/1920px (no verificable de forma headless sin una s
+         -esión                                                          
+      20 - *    interactiva).                                            
+      28   */
+      29  import React from 'react';
+      30  import ReactDOM from 'react-dom';
+     ...
+      33  import { computeCurrentTheme, onDidChangeTheme, type PanelTheme
+           } from './themeBridge';
+      34  import { getSurface, onDidChangeSurface } from './routeObserver
+          ';
+      35  
+      36 +const WRAPPER_ID = 'irex-explore-dock-wrapper';                
+      37 +const MAIN_ID = 'irex-explore-dock-main';                      
+      38  const DOCK_ID = 'irex-explore-dock';
+      39 +const RESIZER_ID = 'irex-explore-dock-resizer';                
+      40 +const STYLE_ID = 'irex-explore-dock-style';                    
+      41 +const WIDTH_STORAGE_KEY = 'irex-explore-dock-width';           
+      42  
+      43  /** Tema de reserva si `computeCurrentTheme()` no pudo derivar 
+          uno (bootstrap
+      44   * ausente o roto): valores neutros, legibles en cualquier fond
+          o claro — más
+     ...
+       65    borderRadiusSM: 4,
+       66  } as unknown as PanelTheme;
+       67  
+       56 -/**                                                           
+       57 - * Selectores de las DOS barras que Explore apila arriba, con 
+          -sus propios                                                   
+       58 - * botones alineados a la derecha (mismo lado que nuestro dock
+          -): la barra                                                   
+       59 - * global de Superset y la propia de Explore. Un overlay `top:
+          - 0` las tapa a                                                
+       60 - * las dos — reportado con capturas reales (2026-09-24): sin e
+          -sto, "Guardar"                                                
+       61 - * y el menú "..." quedan inalcanzables.                      
+       62 - * - `#main-menu`: barra global (logo, menú, Ajustes, selector
+          - de idioma).                                                  
+       63 - *   `id` fijo en `superset-frontend/src/features/home/Menu.ts
+          -x`, presente en                                               
+       64 - *   TODAS las páginas autenticadas, no solo Explore.         
+       65 - * - `.header-with-actions`: cabecera propia de Explore (títul
+          -o del gráfico,                                                
+       66 - *   "Guardar", "..."). Viene de `PageHeaderWithActions`      
+       67 - *   (`@superset-ui/core/components`), un componente compartid
+          -o — no es un                                                  
+       68 - *   nombre inventado para esta extensión.                    
+       69 - * Ninguna de las dos tiene `position: fixed`/`sticky` (viven 
+          -en el flujo                                                   
+       70 - * normal del documento), así que basta con apoyar el dock deb
+          -ajo de la más                                                 
+       71 - * baja de las dos.                                           
+       72 - */                                                           
+       73 -const RESERVED_TOP_SELECTORS = ['#main-menu', '.header-with-ac
+          -tions'];                                                      
+       68 +/** Igual que en `mcp_widget.py`: ancho mínimo arrastrable, y 
+          +máximo como                                                   
+       69 + * mitad de la ventana (recalculado en cada drag, no una vez).
+          + */                                                           
+       70 +const MIN_WIDTH = 380;                                        
+       71  
+       75 -export function measureReservedTop(): number {                
+       76 -  const bottoms = RESERVED_TOP_SELECTORS.map(selector => docum
+          -ent.querySelector(selector)?.getBoundingClientRect().bottom).f
+          -ilter(                                                        
+       77 -    (bottom): bottom is number => typeof bottom === 'number', 
+       78 -  );                                                          
+       79 -  return bottoms.length > 0 ? Math.max(0, ...bottoms) : 0;    
+       72 +function maxWidth(): number {                                 
+       73 +  return Math.max(MIN_WIDTH, Math.round(window.innerWidth * 0.
+          +5));                                                          
+       74  }
+       75  
+       82 -/** Igual que `usePanelHeight` del panel de SQL Lab           
+       83 - * (`SqlLabAssistantPanel.tsx`): mismo problema (cuánto espaci
+          -o reserva un                                                  
+       84 - * layout del host que no controlamos), misma solución —      
+       85 - * `ResizeObserver` sobre `document.body` en vez de una consta
+          -nte fija, que                                                 
+       86 - * se rompería con cualquier cambio de tema/densidad/ancho del
+          - logo. */                                                     
+       87 -function useReservedTop(): number {                           
+       88 -  const [top, setTop] = React.useState(0);                    
+       89 -  React.useEffect(() => {                                     
+       90 -    const measure = () => setTop(measureReservedTop());       
+       91 -    measure();                                                
+       92 -    // Las dos barras las renderiza el árbol de React del host
+          -, que puede                                                   
+       93 -    // seguir montando después de que esta raíz (independiente
+          -) ya corrió su                                                
+       94 -    // primer efecto — un segundo intento cubre esa carrera si
+          -n necesitar                                                   
+       95 -    // coordinación entre los dos árboles.                    
+       96 -    const retry = window.setTimeout(measure, 300);            
+       97 -    window.addEventListener('resize', measure);               
+       98 -    const observer = new ResizeObserver(measure);             
+       99 -    observer.observe(document.body);                          
+      100 -    return () => {                                            
+      101 -      window.clearTimeout(retry);                             
+      102 -      window.removeEventListener('resize', measure);          
+      103 -      observer.disconnect();                                  
+      104 -    };                                                        
+      105 -  }, []);                                                     
+      106 -  return top;                                                 
+       76 +function defaultWidth(): number {                             
+       77 +  return Math.min(460, Math.max(MIN_WIDTH, Math.round(window.i
+          +nnerWidth * 0.34)));                                          
+       78  }
+       79  
+       80 +function readStoredWidth(): number | undefined {              
+       81 +  try {                                                       
+       82 +    const raw = window.localStorage.getItem(WIDTH_STORAGE_KEY)
+          +;                                                             
+       83 +    const parsed = raw ? parseInt(raw, 10) : NaN;             
+       84 +    if (Number.isFinite(parsed) && parsed >= MIN_WIDTH && pars
+          +ed <= maxWidth()) return parsed;                              
+       85 +  } catch {                                                   
+       86 +    // localStorage puede no estar disponible (contexto privad
+          +o/bloqueado) — se                                             
+       87 +    // cae al ancho por defecto, no es un error del que valga 
+          +la pena avisar.                                               
+       88 +  }                                                           
+       89 +  return undefined;                                           
+       90 +}                                                             
+       91 +                                                              
+       92 +function writeStoredWidth(width: number): void {              
+       93 +  try {                                                       
+       94 +    window.localStorage.setItem(WIDTH_STORAGE_KEY, String(widt
+          +h));                                                          
+       95 +  } catch {                                                   
+       96 +    // idem: persistir el ancho es una comodidad, no una garan
+          +tía.                                                          
+       97 +  }                                                           
+       98 +}                                                             
+       99 +                                                              
+      100 +/** CSS del handle de resize (hover + grip visual) — no se pue
+          +de expresar                                                   
+      101 + * `:hover` con estilos inline de React, así que va en una úni
+          +ca hoja de                                                    
+      102 + * estilo global, inyectada una sola vez (idempotente entre mo
+          +ntajes). Mismo                                                
+      103 + * dibujo que el handle del dock de chat, en gris neutro para 
+          +leerse bien en                                                
+      104 + * tema claro y oscuro sin necesidad de detectarlo. */        
+      105 +function injectStylesOnce(): void {                           
+      106 +  if (document.getElementById(STYLE_ID)) return;              
+      107 +  const style = document.createElement('style');              
+      108 +  style.id = STYLE_ID;                                        
+      109 +  style.textContent = [                                       
+      110 +    `#${RESIZER_ID}{position:relative;flex:0 0 auto;width:6px;
+          +cursor:col-resize;`,                                          
+      111 +    'background:transparent;touch-action:none;}',             
+      112 +    `#${RESIZER_ID}:hover,#${RESIZER_ID}.irex-resizing{backgro
+          +und:rgba(0,0,0,.12);}`,                                       
+      113 +    `#${RESIZER_ID}::after{content:"";position:absolute;top:50
+          +%;left:50%;`,                                                 
+      114 +    'transform:translate(-50%,-50%);width:4px;height:28px;bord
+          +er-radius:2px;',                                              
+      115 +    'background:repeating-linear-gradient(to bottom,rgba(128,1
+          +28,128,.55) 0,',                                              
+      116 +    'rgba(128,128,128,.55) 2px,transparent 2px,transparent 5px
+          +);pointer-events:none;}',                                     
+      117 +    `#${RESIZER_ID}:hover::after,#${RESIZER_ID}.irex-resizing:
+          +:after{background:`,                                          
+      118 +    'repeating-linear-gradient(to bottom,rgba(128,128,128,.9) 
+          +0,rgba(128,128,128,.9) 2px,',                                 
+      119 +    'transparent 2px,transparent 5px);}',                     
+      120 +  ].join('');                                                 
+      121 +  document.head.appendChild(style);                           
+      122 +}                                                             
+      123 +                                                              
+      124 +/** Arrastrar el handle cambia el ancho del dock en vivo, muta
+          +ndo el DOM                                                    
+      125 + * directamente (no vía estado de React: en cada `mousemove` s
+          +ería un                                                       
+      126 + * re-render de más). Se persiste en `localStorage` recién al 
+          +soltar.                                                       
+      127 + * Devuelve la función de limpieza — se llama desde `unmount()
+          +`. */                                                         
+      128 +function setupResize(dock: HTMLElement, resizer: HTMLElement):
+          + () => void {                                                 
+      129 +  let dragging = false;                                       
+      130 +  let startX = 0;                                             
+      131 +  let startWidth = 0;                                         
+      132 +  let dragMax = maxWidth();                                   
+      133 +                                                              
+      134 +  const onMouseDown = (ev: MouseEvent): void => {             
+      135 +    dragging = true;                                          
+      136 +    startX = ev.clientX;                                      
+      137 +    startWidth = dock.getBoundingClientRect().width;          
+      138 +    dragMax = maxWidth();                                     
+      139 +    resizer.classList.add('irex-resizing');                   
+      140 +    document.body.style.userSelect = 'none';                  
+      141 +    ev.preventDefault();                                      
+      142 +  };                                                          
+      143 +  const onMouseMove = (ev: MouseEvent): void => {             
+      144 +    if (!dragging) return;                                    
+      145 +    // El dock está a la derecha: arrastrar hacia la izquierda
+          + lo agranda.                                                  
+      146 +    let next = startWidth + (startX - ev.clientX);            
+      147 +    if (next < MIN_WIDTH) next = MIN_WIDTH;                   
+      148 +    if (next > dragMax) next = dragMax;                       
+      149 +    dock.style.width = `${next}px`;                           
+      150 +  };                                                          
+      151 +  const onMouseUp = (): void => {                             
+      152 +    if (!dragging) return;                                    
+      153 +    dragging = false;                                         
+      154 +    resizer.classList.remove('irex-resizing');                
+      155 +    document.body.style.userSelect = '';                      
+      156 +    const current = parseInt(dock.style.width, 10);           
+      157 +    if (Number.isFinite(current)) writeStoredWidth(current);  
+      158 +  };                                                          
+      159 +                                                              
+      160 +  resizer.addEventListener('mousedown', onMouseDown);         
+      161 +  window.addEventListener('mousemove', onMouseMove);          
+      162 +  window.addEventListener('mouseup', onMouseUp);              
+      163 +                                                              
+      164 +  return () => {                                              
+      165 +    resizer.removeEventListener('mousedown', onMouseDown);    
+      166 +    window.removeEventListener('mousemove', onMouseMove);     
+      167 +    window.removeEventListener('mouseup', onMouseUp);         
+      168 +  };                                                          
+      169 +}                                                             
+      170 +                                                              
+      171  function ExploreDockRoot(): React.ReactElement {
+      172    const [theme, setTheme] = React.useState<PanelTheme>(() => c
+           omputeCurrentTheme() ?? FALLBACK_THEME);
+      111 -  const reservedTop = useReservedTop();                       
+      173  
+      174    React.useEffect(() => {
+      175      // El bootstrap ya está en el DOM al montar, pero por si e
+           sta raíz se
+     ...
+      184      <themeNs.ThemeProvider theme={theme}>
+      185        <div
+      186          style={{
+      126 -          position: 'fixed',                                  
+      127 -          top: reservedTop,                                   
+      128 -          right: 0,                                           
+      129 -          bottom: 0,                                          
+      130 -          width: 380,                                         
+      131 -          maxWidth: '90vw',                                   
+      132 -          zIndex: 1000,                                       
+      187 +          height: '100%',                                     
+      188 +          width: '100%',                                      
+      189 +          boxSizing: 'border-box',                            
+      190            display: 'flex',
+      191            flexDirection: 'column',
+      192            background: theme.colorBgContainer,
+      193            color: theme.colorText,
+      137 -          borderLeft: `1px solid ${theme.colorBorderSecondary}
+          -`,                                                            
+      138 -          borderTop: reservedTop > 0 ? `1px solid ${theme.colo
+          -rBorderSecondary}` : 'none',                                  
+      139 -          boxShadow: '-2px 0 8px rgba(0, 0, 0, 0.08)',        
+      194            fontSize: 12,
+      195          }}
+      196          data-testid="irex-explore-dock-root"
+      197        >
+      198          <PanelHeader onNewSession={() => {}} />
+      145 -        <div style={{ padding: 12, color: theme.colorTextSecon
+          -dary }}>                                                      
+      199 +        <div style={{ flex: '1 1 auto', minHeight: 0, overflow
+          +Y: 'auto', padding: 12, color: theme.colorTextSecondary }}>   
+      200            Spike Fase 0 — el copiloto de Explore todavía no tie
+           ne lógica
+      147 -          propia. Este panel solo demuestra que el montaje, la
+          - ruta y el                                                    
+      148 -          tema funcionan fuera de SQL Lab.                    
+      201 +          propia. Este panel solo demuestra que el montaje, la
+          + ruta, el tema                                                
+      202 +          y el resize funcionan fuera de SQL Lab.             
+      203          </div>
+      204        </div>
+      205      </themeNs.ThemeProvider>
+      206    );
+      207  }
+      208  
+      155 -let container: HTMLDivElement | undefined;                    
+      209 +let wrapper: HTMLDivElement | undefined;                      
+      210 +let main: HTMLDivElement | undefined;                         
+      211 +let resizer: HTMLDivElement | undefined;                      
+      212 +let dock: HTMLElement | undefined;                            
+      213 +let originalParent: (Node & ParentNode) | undefined;          
+      214 +let originalNextSibling: ChildNode | null = null;             
+      215 +let detachResize: (() => void) | undefined;                   
+      216  
+      217  function mount(): void {
+      158 -  if (container) return; // ya montado                        
+      159 -  container = document.createElement('div');                  
+      160 -  container.id = DOCK_ID;                                     
+      161 -  document.body.appendChild(container);                       
+      162 -  ReactDOM.render(<ExploreDockRoot />, container);            
+      218 +  if (wrapper) return; // ya montado                          
+      219 +  const app = document.getElementById('app');                 
+      220 +  if (!app || !app.parentNode) return; // sin #app no hay dónd
+          +e anclar — no reventar la página                              
+      221 +                                                              
+      222 +  injectStylesOnce();                                         
+      223 +                                                              
+      224 +  originalParent = app.parentNode as Node & ParentNode;       
+      225 +  originalNextSibling = app.nextSibling;                      
+      226 +                                                              
+      227 +  wrapper = document.createElement('div');                    
+      228 +  wrapper.id = WRAPPER_ID;                                    
+      229 +  wrapper.style.cssText = 'display:flex;height:100vh;';       
+      230 +                                                              
+      231 +  main = document.createElement('div');                       
+      232 +  main.id = MAIN_ID;                                          
+      233 +  // `#app` puede llegar ya envuelto por el dock del chat (`.m
+          +cp-dashboard-                                                 
+      234 +  // dock-main`, oculto pero presente en /explore — ver mcp_wi
+          +dget.py). No                                                  
+      235 +  // importa: se envuelve relativo al padre ACTUAL de `#app`, 
+          +sea ese el                                                    
+      236 +  // <body> directo o ya el `main` del chat.                  
+      237 +  main.style.cssText = 'flex:1 1 auto;min-width:0;height:100%;
+          +overflow-y:auto;';                                            
+      238 +                                                              
+      239 +  originalParent.insertBefore(wrapper, app);                  
+      240 +  main.appendChild(app);                                      
+      241 +  wrapper.appendChild(main);                                  
+      242 +                                                              
+      243 +  resizer = document.createElement('div');                    
+      244 +  resizer.id = RESIZER_ID;                                    
+      245 +  wrapper.appendChild(resizer);                               
+      246 +                                                              
+      247 +  dock = document.createElement('aside');                     
+      248 +  dock.id = DOCK_ID;                                          
+      249 +  const width = readStoredWidth() ?? defaultWidth();          
+      250 +  dock.style.cssText = `flex:0 0 auto;box-sizing:border-box;wi
+          +dth:${width}px;min-width:${MIN_WIDTH}px;max-width:${maxWidth()
+          +}px;height:100%;overflow:hidden;background:#fff;`;            
+      251 +  wrapper.appendChild(dock);                                  
+      252 +                                                              
+      253 +  detachResize = setupResize(dock, resizer);                  
+      254 +                                                              
+      255 +  ReactDOM.render(<ExploreDockRoot />, dock);                 
+      256  }
+      257  
+      258  function unmount(): void {
+      166 -  if (!container) return;                                     
+      167 -  ReactDOM.unmountComponentAtNode(container);                 
+      168 -  container.remove();                                         
+      169 -  container = undefined;                                      
+      259 +  if (!wrapper || !main || !originalParent) return;           
+      260 +  if (dock) ReactDOM.unmountComponentAtNode(dock);            
+      261 +  detachResize?.();                                           
+      262 +  detachResize = undefined;                                   
+      263 +                                                              
+      264 +  const app = document.getElementById('app');                 
+      265 +  if (app && main.contains(app)) {                            
+      266 +    originalParent.insertBefore(app, originalNextSibling);    
+      267 +  }                                                           
+      268 +  wrapper.remove();                                           
+      269 +                                                              
+      270 +  wrapper = undefined;                                        
+      271 +  main = undefined;                                           
+      272 +  resizer = undefined;                                        
+      273 +  dock = undefined;                                           
+      274 +  originalParent = undefined;                                 
+      275 +  originalNextSibling = null;                                 
+      276  }
+      277  
+      278  /** Se llama una sola vez desde `index.tsx`. Idempotente: si y
+           a se instaló
+     ...
+      287  
+      288  /** Solo para tests. */
+      289  export function _isMountedForTests(): boolean {
+      184 -  return container !== undefined;                             
+      290 +  return wrapper !== undefined;                               
+      291  }
+
+● Ahora reescribo el archivo de tests completo para el nuevo mecanismo:
+
+● Write(custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreHost.test
+       .tsx)
+  ⎿  Added 153 lines, removed 59 lines
+      24    return require('../hosts/exploreHost') as ExploreHostModule;
+      25  }
+      26  
+      27 +const WRAPPER_ID = 'irex-explore-dock-wrapper';                
+      28 +const MAIN_ID = 'irex-explore-dock-main';                      
+      29  const DOCK_ID = 'irex-explore-dock';
+      30 +const RESIZER_ID = 'irex-explore-dock-resizer';                
+      31 +const STYLE_ID = 'irex-explore-dock-style';                    
+      32 +const WIDTH_STORAGE_KEY = 'irex-explore-dock-width';           
+      33  
+      29 -// jsdom no implementa ResizeObserver — mismo stub que ya usa  
+      30 -// SqlLabAssistantPanel.test.tsx para el mismo problema (medir 
+         -espacio                                                        
+      31 -// reservado del host con `ResizeObserver` en vez de un valor f
+         -ijo).                                                          
+      34 +// jsdom no implementa ResizeObserver — no lo necesita este mód
+         +ulo (el dock                                                   
+      35 +// reserva espacio con flexbox, no mide nada), pero PanelHeader
+         +/otros                                                         
+      36 +// componentes ya probados en el árbol de assistant/ pueden esp
+         +erarlo.                                                        
+      37  class ResizeObserverStub {
+      38    observe(): void {}
+      39  
+     ...
+      44    (window as unknown as { ResizeObserver: typeof ResizeObserver
+          Stub }).ResizeObserver = ResizeObserverStub;
+      45  });
+      46  
+      42 -// `routeObserver.ts` envuelve `history.pushState`/`replaceStat
+         -e` una sola vez                                                
+      43 -// por proceso — correcto en producción (el bundle se evalúa un
+         -a vez), pero en                                                
+      44 -// tests `jest.resetModules()` crea un módulo nuevo por test si
+         -n desenvolver                                                  
+      45 -// ese parche global (`_resetForTests()` solo baja el flag `ins
+         -talled`, no                                                    
+      46 -// restaura las funciones nativas). Sin este reset, cada test e
+         -nvuelve OTRA                                                   
+      47 -// capa sobre la del test anterior: un `pushState` de este test
+         - reactiva                                                      
+      48 -// también los listeners zombis de tests previos, que remontan 
+         -SU PROPIO                                                      
+      49 -// `<div id="irex-explore-dock">` — `document.getElementById` p
+         -uede devolver                                                  
+      50 -// ese nodo zombi en vez del que acaba de montar el test actual
+         -.                                                              
+      47 +// Ver la nota extensa en routeObserver.test.ts: sin este reset
+         +,                                                              
+      48 +// `jest.resetModules()` deja `pushState`/`replaceState` envuel
+         +tos en una                                                     
+      49 +// capa nueva por cada test (el parche vive en `window.history`
+         +, que persiste                                                 
+      50 +// entre tests del mismo archivo) — un test puede terminar reac
+         +tivando el                                                     
+      51 +// listener zombi de un test anterior.                         
+      52  const nativePushState = window.history.pushState.bind(window.hi
+          story);
+      53  const nativeReplaceState = window.history.replaceState.bind(win
+          dow.history);
+      54  
+     ...
+      56    window.history.pushState = nativePushState;
+      57    window.history.replaceState = nativeReplaceState;
+      58    jest.resetModules();
+      58 -  document.body.innerHTML = '';                                
+      59 +  document.head.querySelector(`#${STYLE_ID}`)?.remove();       
+      60 +  // `#app` es requisito real: es lo que Superset siempre tiene
+         + en cualquier                                                  
+      61 +  // página autenticada, y lo que `mount()` busca envolver (igu
+         +al que el                                                      
+      62 +  // dock del chat). Sin él, `mount()` se queda callado adrede 
+         +(ver comentario                                                
+      63 +  // en exploreHost.tsx) — reproducir esa base en cada test.   
+      64 +  document.body.innerHTML = '<div id="app"><div id="app-content
+         +">contenido de Superset</div></div>';                          
+      65    window.history.replaceState({}, '', '/dashboard/list/');
+      66 +  try {                                                        
+      67 +    window.localStorage.clear();                               
+      68 +  } catch {                                                    
+      69 +    // no-op: algunos entornos de test no exponen localStorage 
+         +real.                                                          
+      70 +  }                                                            
+      71  });
+      72  
+      73  describe('activateExploreHost — montaje según la ruta', () => {
+     ...
+      76      activateExploreHost();
+      77      expect(_isMountedForTests()).toBe(false);
+      78      expect(document.getElementById(DOCK_ID)).toBeNull();
+      79 +    expect(document.getElementById('app')?.parentElement?.id).t
+         +oBe(''); // #app sigue colgando directo del body               
+      80    });
+      81  
+      82    test('monta de entrada si ya se cargó dentro de /explore', ()
+           => {
+     ...
+      89      expect(dock?.textContent).toContain('Asistente SQL');
+      90    });
+      91  
+      80 -  test('monta al navegar a /explore y desmonta al salir, sin de
+         -jar el nodo en el DOM', () => {                                
+      92 +  test('monta al navegar a /explore y desmonta al salir, sin de
+         +jar nodos en el DOM', () => {                                  
+      93      const { activateExploreHost, _isMountedForTests } = load();
+      94      activateExploreHost();
+      95      expect(_isMountedForTests()).toBe(false);
+     ...
+      101      window.history.pushState({}, '', '/dashboard/list/');
+      102      expect(_isMountedForTests()).toBe(false);
+      103      expect(document.getElementById(DOCK_ID)).toBeNull();
+      104 +    expect(document.getElementById(WRAPPER_ID)).toBeNull();   
+      105    });
+      106  
+      107    test('ida y vuelta repetida no deja más de un dock ni falla 
+           al desmontar dos veces', () => {
+     ...
+      114      }
+      115      expect(_isMountedForTests()).toBe(false);
+      116      expect(document.querySelectorAll(`#${DOCK_ID}`).length).to
+           Be(0);
+      117 +    expect(document.querySelectorAll(`#${WRAPPER_ID}`).length)
+          +.toBe(0);                                                     
+      118    });
+      119  
+      120    test('navegar dentro de /explore (otro gráfico) no remonta —
+            un solo dock', () => {
+     ...
+      129    });
+      130  });
+      131  
+      118 -/** Mockea `getBoundingClientRect` de un elemento con un `bott
+          -om` dado — el                                                 
+      119 - * único campo que lee `measureReservedTop`. */               
+      120 -function stubBottom(el: Element, bottom: number): void {      
+      121 -  el.getBoundingClientRect = () => ({ bottom, top: 0, left: 0,
+          - right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({})
+          - });                                                          
+      122 -}                                                             
+      132 +describe('mount() reserva espacio envolviendo #app (mismo meca
+          +nismo que el dock del chat) — no lo tapa', () => {            
+      133 +  test('#app termina dentro de .../main, con el dock y el resi
+          +zer como hermanos', () => {                                   
+      134 +    window.history.replaceState({}, '', '/explore/?slice_id=1'
+          +);                                                            
+      135 +    const { activateExploreHost } = load();                   
+      136 +    activateExploreHost();                                    
+      137  
+      124 -describe('measureReservedTop — no taparle a Explore su propia 
+          -barra ni la global', () => {                                  
+      125 -  test('sin #main-menu ni .header-with-actions: 0 (nada que ev
+          -itar)', () => {                                               
+      126 -    const { measureReservedTop } = load();                    
+      127 -    expect(measureReservedTop()).toBe(0);                     
+      128 -  });                                                         
+      138 +    const wrapperEl = document.getElementById(WRAPPER_ID);    
+      139 +    const mainEl = document.getElementById(MAIN_ID);          
+      140 +    const dockEl = document.getElementById(DOCK_ID);          
+      141 +    const resizerEl = document.getElementById(RESIZER_ID);    
+      142 +    expect(wrapperEl).not.toBeNull();                         
+      143 +    expect(mainEl).not.toBeNull();                            
+      144 +    expect(dockEl).not.toBeNull();                            
+      145 +    expect(resizerEl).not.toBeNull();                         
+      146  
+      130 -  test('usa el borde inferior MÁS BAJO de las dos barras (nunc
+          -a el más alto: taparía la que sobra)', () => {                
+      131 -    const { measureReservedTop } = load();                    
+      132 -    const mainMenu = document.createElement('div');           
+      133 -    mainMenu.id = 'main-menu';                                
+      134 -    stubBottom(mainMenu, 64); // barra global de Superset     
+      135 -    const chartHeader = document.createElement('div');        
+      136 -    chartHeader.className = 'header-with-actions';            
+      137 -    stubBottom(chartHeader, 128); // cabecera propia de Explor
+          -e ("Guardar"), más abajo                                      
+      138 -    document.body.append(mainMenu, chartHeader);              
+      147 +    // #app sigue teniendo su contenido original: se movió com
+          +o unidad, no se recreó.                                       
+      148 +    const app = document.getElementById('app');               
+      149 +    expect(app?.parentElement).toBe(mainEl);                  
+      150 +    expect(app?.querySelector('#app-content')?.textContent).to
+          +Be('contenido de Superset');                                  
+      151  
+      140 -    expect(measureReservedTop()).toBe(128);                   
+      152 +    // orden en el DOM: main, luego resizer, luego dock — el d
+          +ock a la derecha.                                             
+      153 +    expect(wrapperEl?.children[0]).toBe(mainEl);              
+      154 +    expect(wrapperEl?.children[1]).toBe(resizerEl);           
+      155 +    expect(wrapperEl?.children[2]).toBe(dockEl);              
+      156 +                                                              
+      157 +    // nada de position:fixed/absolute — el espacio es reserva
+          +do, no superpuesto.                                           
+      158 +    expect(dockEl?.style.position).toBe('');                  
+      159    });
+      160  
+      143 -  test('con solo una de las dos presente, usa esa', () => {   
+      144 -    const { measureReservedTop } = load();                    
+      145 -    const chartHeader = document.createElement('div');        
+      146 -    chartHeader.className = 'header-with-actions';            
+      147 -    stubBottom(chartHeader, 96);                              
+      148 -    document.body.appendChild(chartHeader);                   
+      161 +  test('al desmontar, #app vuelve exactamente a su posición or
+          +iginal (no un clon)', () => {                                 
+      162 +    document.body.innerHTML =                                 
+      163 +      '<div id="before-app">antes</div><div id="app"><div id="
+          +app-content">contenido de Superset</div></div><div id="after-a
+          +pp">después</div>';                                           
+      164 +    const { activateExploreHost } = load();                   
+      165 +    activateExploreHost(); // superficie 'other': no monta tod
+          +avía                                                          
+      166  
+      150 -    expect(measureReservedTop()).toBe(96);                    
+      167 +    window.history.pushState({}, '', '/explore/?slice_id=1'); 
+      168 +    expect(document.getElementById(WRAPPER_ID)).not.toBeNull()
+          +;                                                             
+      169 +                                                              
+      170 +    window.history.pushState({}, '', '/dashboard/list/');     
+      171 +    expect(document.getElementById(WRAPPER_ID)).toBeNull();   
+      172 +                                                              
+      173 +    // #app quedó exactamente donde estaba: entre #before-app 
+          +y #after-app, hijo directo del body.                          
+      174 +    const body = document.body;                               
+      175 +    expect(Array.from(body.children).map(el => el.id)).toEqual
+          +(['before-app', 'app', 'after-app']);                         
+      176 +    expect(document.getElementById('app')?.querySelector('#app
+          +-content')?.textContent).toBe('contenido de Superset');       
+      177    });
+      178 +                                                              
+      179 +  test('sin #app en el DOM, no revienta: no monta nada', () =>
+          + {                                                            
+      180 +    document.body.innerHTML = '<div id="not-app"></div>';     
+      181 +    const { activateExploreHost, _isMountedForTests } = load()
+          +;                                                             
+      182 +    window.history.replaceState({}, '', '/explore/?slice_id=1'
+          +);                                                            
+      183 +    expect(() => activateExploreHost()).not.toThrow();        
+      184 +    expect(_isMountedForTests()).toBe(false);                 
+      185 +    expect(document.getElementById(DOCK_ID)).toBeNull();      
+      186 +  });                                                         
+      187  });
+      188  
+      154 -describe('el dock se apoya debajo de esas barras, no las tapa 
+          -(bug real reportado con capturas, 2026-09-24)', () => {       
+      155 -  test('reserva el espacio de #main-menu y .header-with-action
+          -s al montar', async () => {                                   
+      156 -    window.history.replaceState({}, '', '/dashboard/list/');  
+      157 -    const mainMenu = document.createElement('div');           
+      158 -    mainMenu.id = 'main-menu';                                
+      159 -    stubBottom(mainMenu, 64);                                 
+      160 -    const chartHeader = document.createElement('div');        
+      161 -    chartHeader.className = 'header-with-actions';            
+      162 -    stubBottom(chartHeader, 140);                             
+      163 -    document.body.append(mainMenu, chartHeader);              
+      189 +describe('resize del dock — arrastrar el handle, con límites y
+          + persistencia (mismo patrón que el dock de chat)', () => {    
+      190 +  function mountInExplore(): { act: ActFn; dock: HTMLElement; 
+          +resizer: HTMLElement } {                                      
+      191 +    window.history.replaceState({}, '', '/explore/?slice_id=1'
+          +);                                                            
+      192 +    const { activateExploreHost } = load();                   
+      193 +    activateExploreHost();                                    
+      194 +    const dock = document.getElementById(DOCK_ID) as HTMLEleme
+          +nt;                                                           
+      195 +    const resizer = document.getElementById(RESIZER_ID) as HTM
+          +LElement;                                                     
+      196 +    return { act: loadAct(), dock, resizer };                 
+      197 +  }                                                           
+      198  
+      199 +  function drag(resizer: HTMLElement, fromX: number, toX: numb
+          +er): void {                                                   
+      200 +    resizer.dispatchEvent(new MouseEvent('mousedown', { client
+          +X: fromX, bubbles: true }));                                  
+      201 +    window.dispatchEvent(new MouseEvent('mousemove', { clientX
+          +: toX, bubbles: true }));                                     
+      202 +    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: 
+          +true }));                                                     
+      203 +  }                                                           
+      204 +                                                              
+      205 +  test('arrastrar el handle hacia la izquierda agranda el dock
+          +', () => {                                                    
+      206 +    const { dock, resizer } = mountInExplore();               
+      207 +    dock.getBoundingClientRect = () => ({ width: 400 } as DOMR
+          +ect);                                                         
+      208 +                                                              
+      209 +    drag(resizer, /* fromX */ 500, /* toX */ 400); // 100px ha
+          +cia la izquierda → +100                                       
+      210 +                                                              
+      211 +    expect(dock.style.width).toBe('500px');                   
+      212 +  });                                                         
+      213 +                                                              
+      214 +  test('no se puede arrastrar por debajo del mínimo (380px)', 
+          +() => {                                                       
+      215 +    const { dock, resizer } = mountInExplore();               
+      216 +    dock.getBoundingClientRect = () => ({ width: 400 } as DOMR
+          +ect);                                                         
+      217 +                                                              
+      218 +    drag(resizer, /* fromX */ 400, /* toX */ 900); // 500px ha
+          +cia la derecha → clamp a MIN_WIDTH                            
+      219 +                                                              
+      220 +    expect(dock.style.width).toBe('380px');                   
+      221 +  });                                                         
+      222 +                                                              
+      223 +  test('no se puede arrastrar por encima del máximo (50% de la
+          + ventana)', () => {                                           
+      224 +    Object.defineProperty(window, 'innerWidth', { value: 1000,
+          + configurable: true });                                       
+      225 +    const { dock, resizer } = mountInExplore();               
+      226 +    dock.getBoundingClientRect = () => ({ width: 400 } as DOMR
+          +ect);                                                         
+      227 +                                                              
+      228 +    drag(resizer, /* fromX */ 900, /* toX */ 0); // 900px haci
+          +a la izquierda → clamp a 50vw = 500                           
+      229 +                                                              
+      230 +    expect(dock.style.width).toBe('500px');                   
+      231 +  });                                                         
+      232 +                                                              
+      233 +  test('el ancho elegido se guarda en localStorage y se reusa 
+          +en el próximo montaje', () => {                               
+      234 +    const { dock, resizer } = mountInExplore();               
+      235 +    dock.getBoundingClientRect = () => ({ width: 400 } as DOMR
+          +ect);                                                         
+      236 +    drag(resizer, 500, 420); // +80 → 480px                   
+      237 +                                                              
+      238 +    expect(window.localStorage.getItem(WIDTH_STORAGE_KEY)).toB
+          +e('480');                                                     
+      239 +                                                              
+      240 +    // "recargar": vuelve a /dashboard/list/ (desmonta), módul
+          +o nuevo, vuelve a /explore/.                                  
+      241 +    window.history.pushState({}, '', '/dashboard/list/');     
+      242 +    jest.resetModules();                                      
+      243 +    window.history.replaceState({}, '', '/explore/?slice_id=1'
+          +);                                                            
+      244      const { activateExploreHost } = load();
+      166 -    const act = loadAct();                                    
+      167 -    // `act(async ...)` deja correr el `useEffect` de `useRese
+          -rvedTop` (pasivo:                                             
+      168 -    // no se ejecuta de forma síncrona con `ReactDOM.render`, 
+          -a diferencia de                                               
+      169 -    // un `useLayoutEffect`) antes de leer el estilo final.   
+      245 +    activateExploreHost();                                    
+      246 +                                                              
+      247 +    expect((document.getElementById(DOCK_ID) as HTMLElement).s
+          +tyle.width).toBe('480px');                                    
+      248 +  });                                                         
+      249 +                                                              
+      250 +  test('al desmontar, arrastrar ya no mueve nada (los listener
+          +s de window se limpiaron)', async () => {                     
+      251 +    const { act, dock, resizer } = mountInExplore();          
+      252 +    dock.getBoundingClientRect = () => ({ width: 400 } as DOMR
+          +ect);                                                         
+      253 +                                                              
+      254      await act(async () => {
+      171 -      activateExploreHost();                                  
+      172 -      window.history.pushState({}, '', '/explore/?slice_id=1')
+          -;                                                             
+      255 +      window.history.pushState({}, '', '/dashboard/list/'); //
+          + desmonta                                                     
+      256      });
+      257  
+      175 -    const dock = document.getElementById(DOCK_ID)?.firstElemen
+          -tChild as HTMLElement | undefined;                            
+      176 -    expect(dock?.style.top).toBe('140px'); // el más bajo de l
+          -os dos, no 0 ni 64                                            
+      258 +    // el nodo `dock` ya no está en el DOM, pero conservamos l
+          +a referencia                                                  
+      259 +    // para confirmar que sus listeners realmente se soltaron.
+      260 +    expect(() => drag(resizer, 500, 400)).not.toThrow();      
+      261 +    expect(dock.style.width).not.toBe('500px'); // no se aplic
+          +ó: el listener de mousemove ya no existe                      
+      262    });
+      263  });
+      264 +                                                              
+      265 +describe('el tema se deriva del bootstrap del host, no de posi
+          +tion:fixed', () => {                                          
+      266 +  test('el contenido del panel se renderiza y usa PanelHeader 
+          +(humo, ya cubierto en detalle por themeBridge.test.ts)', () =>
+          + {                                                            
+      267 +    window.history.replaceState({}, '', '/explore/?slice_id=1'
+          +);                                                            
+      268 +    const { activateExploreHost } = load();                   
+      269 +    activateExploreHost();                                    
+      270 +    expect(document.getElementById(DOCK_ID)?.textContent).toCo
+          +ntain('Asistente SQL');                                       
+      271 +  });                                                         
+      272 +});                                                           
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Sin errores de tipos. Ahora corro los tests:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Los 14 tests pasan de primera. Corro toda la suite:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● 138 tests, todos verdes. Ahora el build reproducible completo:
+● Bash(cd /home/imercados/superset_proyecto/custom-extensions/irex-mcp-tools &&
+      \
+      ./scripts/build-extension.sh \…)
+  ⎿  1 file changed (binary, mode only or too large to show)
+
+● Build 7/7 completo, .supx copiado a extensions_test/. Ahora documento el
+  cambio en el changelog, el plan y la memoria.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(Registro de cambios.md)
+  ⎿  Added 76 lines
+       1  ## Registro de cambios
+       2  
+       3 +### 2026-09-24 (58) (copiloto de Explore: el fix de la entrada 
+         +57 no alcanzaba — el dock seguía superpuesto; se reemplaza por 
+         +el mecanismo del dock de chat)                                 
+       4 +                                                               
+       5 +Cambio realizado:                                              
+       6 +El fix de la entrada 57 (`measureReservedTop()`, apoyar el `top
+         +` del overlay                                                  
+       7 +debajo de las barras de Superset) resolvió que el dock tapara "
+         +Guardar" y la                                                  
+       8 +barra global, pero el usuario reportó con una SEGUNDA captura q
+         +ue el dock                                                     
+       9 +seguía siendo un overlay `position: fixed` superpuesto al lienz
+         +o del                                                          
+      10 +gráfico y a los controles de "Añadir los valores de control..."
+         + — pidiendo                                                    
+      11 +explícitamente que se incruste reservando espacio real, "simila
+         +r a como lo                                                    
+      12 +hace el widget del chat", y que se pueda cambiar de tamaño. Cor
+         +recto: ese                                                     
+      13 +mecanismo ya existe, probado en producción, en el dock del widg
+         +et de chat                                                     
+      14 +(`custom-src/login/mcp_widget.py`, `setupDock`/`setupDockResize
+         +`) — este                                                      
+      15 +cambio lo replica para el dock de Explore en vez de seguir iter
+         +ando sobre                                                     
+      16 +un overlay.                                                    
+      17 +                                                               
+      18 +Archivos afectados:                                            
+      19 +- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreH
+         +ost.tsx`                                                       
+      20 +  (reescrito — se elimina por completo el mecanismo de overlay 
+         +de la                                                          
+      21 +  entrada 57: `measureReservedTop`, `useReservedTop`, `position
+         +: fixed`)                                                      
+      22 +- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/expl
+         +oreHost.test.tsx`                                              
+      23 +  (reescrito — 14 tests, ninguno hereda de la entrada 57)      
+      24 +- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)        
+      25 +- `PLAN_COPILOTO_EXPLORE.md`                                   
+      26 +                                                               
+      27 +Que cambia o corrige:                                          
+      28 +- `mount()` ya NO agrega un `<div>` posicionado encima de todo.
+         + Envuelve                                                      
+      29 +  `#app` (el root de React de TODA la SPA de Superset, navbar i
+         +ncluida) en                                                    
+      30 +  una fila flex, exactamente como hace `setupDock()` del chat: 
+         +un                                                             
+      31 +  contenedor `.../main` (`flex:1 1 auto`, `overflow-y:auto`) qu
+         +e recibe                                                       
+      32 +  `#app` como hijo, y el dock como HERMANO con ancho propio — `
+         +#app` se                                                       
+      33 +  mueve como unidad (nunca se toca su subárbol, cero riesgo de 
+         +romper el                                                      
+      34 +  reconciliado de React, mismo criterio ya documentado en el wi
+         +dget de                                                        
+      35 +  chat). El dock reserva espacio; nunca puede tapar nada, sin n
+         +ecesidad de                                                    
+      36 +  medir cuánto ocupa Superset arriba (la pregunta que la entrad
+         +a 57 sí                                                        
+      37 +  tenía que responder).                                        
+      38 +- `unmount()` restaura `#app` a su posición original exacta (mi
+         +smo padre,                                                     
+      39 +  mismo hermano siguiente) y quita el wrapper — no deja rastro 
+         +fuera de                                                       
+      40 +  Explore. Probado explícitamente: `#app` vuelve entre sus veci
+         +nos                                                            
+      41 +  originales, con su contenido intacto (no un clon).           
+      42 +- Ancho ajustable arrastrando un handle entre el lienzo y el do
+         +ck — mismo                                                     
+      43 +  patrón que `setupDockResize()` del chat: mínimo 380px, máximo
+         + 50% del                                                       
+      44 +  ancho de la ventana (recalculado en cada arrastre), ancho por
+         + defecto                                                       
+      45 +  `min(460px, 34vw)`, y el ancho elegido se guarda en `localSto
+         +rage`                                                          
+      46 +  (`irex-explore-dock-width`, clave propia — no choca con la de
+         +l chat) y se                                                   
+      47 +  reusa en el próximo montaje. El arrastre muta el DOM directam
+         +ente (no                                                       
+      48 +  pasa por estado de React en cada `mousemove`) por la misma ra
+         +zón que el                                                     
+      49 +  widget de chat: evitar un re-render por frame.               
+      50 +- Interacción con el dock del chat: en `/explore`, "El Don" ya 
+         +está oculto                                                    
+      51 +  por `mcp_widget.py` (entrada 56), pero su propio wrapper (`.m
+         +cp-                                                            
+      52 +  dashboard-dock-wrapper`/`-main`) sigue presente en el DOM par
+         +a usuarios                                                     
+      53 +  con acceso al chat (solo el panel queda con `display:none`, n
+         +o el                                                           
+      54 +  wrapper). `mount()` no asume que `#app` cuelga directo de `<b
+         +ody>`: lee                                                     
+      55 +  su padre ACTUAL (`app.parentNode`) en el momento de montar, a
+         +sí que                                                         
+      56 +  envuelve correctamente sea cual sea la estructura que encuent
+         +re — probado                                                   
+      57 +  también con `#app` en una posición cualquiera del body (no so
+         +lo como                                                        
+      58 +  único hijo).                                                 
+      59 +- Eliminado por completo `measureReservedTop()`/`useReservedTop
+         +()` (y sus                                                     
+      60 +  tests) de la entrada 57: ya no aplican, el dock nunca compart
+         +e espacio                                                      
+      61 +  con nada que haya que medir.                                 
+      62 +                                                               
+      63 +Verificación:                                                  
+      64 +- `npx tsc --noEmit` estricto sin errores.                     
+      65 +- 138 tests de frontend (14 en exploreHost.test.tsx, todos nuev
+         +os — 0                                                         
+      66 +  heredados de la entrada 57), 223 de backend (sin cambios). Te
+         +sts nuevos                                                     
+      67 +  cubren: estructura del wrap (`#app` dentro de `.../main`, doc
+         +k y resizer                                                    
+      68 +  como hermanos, sin `position: fixed`), restauración exacta de
+         + `#app` al                                                     
+      69 +  desmontar, ausencia silenciosa de `#app` (no revienta), arras
+         +tre del                                                        
+      70 +  handle con clamp a mínimo/máximo, persistencia en `localStora
+         +ge` y reuso                                                    
+      71 +  en el siguiente montaje, y que los listeners de `window` (mou
+         +semove/                                                        
+      72 +  mouseup) se sueltan al desmontar (arrastrar después ya no hac
+         +e nada).                                                       
+      73 +- `build-extension.sh` completo (7/7) sobre `extensions_test/`.
+      74 +- Sin verificación visual en navegador — no disponible en esta 
+         +sesión;                                                        
+      75 +  pendiente que el usuario reinicie `superset_test.service` y c
+         +onfirme que                                                    
+      76 +  el dock ahora reserva espacio en vez de superponerse, y que e
+         +l resize                                                       
+      77 +  funciona.                                                    
+      78 +                                                               
+      79  ### 2026-09-24 (57) (copiloto de Explore: el dock tapaba "Guard
+          ar" y el menú de Superset — bug real reportado con capturas)
+      80  
+      81  Cambio realizado:
+
+● Ahora actualizo PLAN_COPILOTO_EXPLORE.md:
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● Update(PLAN_COPILOTO_EXPLORE.md)
+  ⎿  Added 23 lines, removed 11 lines
+      423     (`query_context` guardado) contra un gráfico real de cada u
+           no de los
+      424     tres plugins propios.
+      425  
+      426 -**Bug real encontrado con el spike en vivo, fuera de esta list
+          -a (entrada                                                    
+      427 -57 del Registro de cambios, 2026-09-24):** el overlay del dock
+          - usaba                                                        
+      428 -`position: fixed; top: 0`, tapando por completo la cabecera pr
+          -opia de                                                       
+      429 -Explore ("Guardar", "...") y la barra global de Superset — rep
+          -ortado por                                                    
+      430 -el usuario con capturas de pantalla antes/después. Corregido m
+          -idiendo en                                                    
+      431 -runtime el borde inferior de `#main-menu` y `.header-with-acti
+          -ons`                                                          
+      432 -(`measureReservedTop()`/`useReservedTop()` en `exploreHost.tsx
+          -`, mismo                                                      
+      433 -patrón que `usePanelHeight()` de `SqlLabAssistantPanel.tsx`) y
+          - apoyando el                                                  
+      434 -dock debajo del más bajo de los dos. Sigue pendiente la confir
+          -mación                                                        
+      435 -visual del usuario tras reiniciar `superset_test.service` — la
+          - tarea 2 de                                                   
+      436 -arriba (auditoría de layout a 1366/1920px) la cubre formalment
+          -e.                                                            
+      426 +**Bugs reales encontrados con el spike en vivo, fuera de esta 
+          +lista                                                         
+      427 +(entradas 57 y 58 del Registro de cambios, 2026-09-24, dos ron
+          +das de                                                        
+      428 +capturas del usuario):**                                      
+      429 +1. (Entrada 57) El overlay del dock usaba `position: fixed; to
+          +p: 0`,                                                        
+      430 +   tapando la cabecera propia de Explore ("Guardar", "...") y 
+          +la barra                                                      
+      431 +   global de Superset. Primer intento de fix: medir en runtime
+          + el borde                                                     
+      432 +   inferior de `#main-menu`/`.header-with-actions` y apoyar el
+          + dock debajo.                                                 
+      433 +2. (Entrada 58) Insuficiente — el dock, aunque ya no tapaba la
+          +s barras,                                                     
+      434 +   seguía siendo un overlay superpuesto al lienzo del gráfico 
+          +y a sus                                                       
+      435 +   controles. El usuario pidió explícitamente que reserve espa
+          +cio real,                                                     
+      436 +   "similar a como lo hace el widget del chat", y que sea redi
+          +mensionable.                                                  
+      437 +   Reemplazado el mecanismo entero: ahora `exploreHost.tsx` en
+          +vuelve `#app`                                                 
+      438 +   en una fila flex y agrega el dock como HERMANO con ancho pr
+          +opio (mismo                                                   
+      439 +   patrón, con los mismos nombres de pieza, que `setupDock`/  
+      440 +   `setupDockResize` de `custom-src/login/mcp_widget.py`), con
+          + handle de                                                    
+      441 +   resize (mínimo 380px, máximo 50vw, ancho persistido en `loc
+          +alStorage`).                                                  
+      442 +   `measureReservedTop()`/`useReservedTop()` de la entrada 57 
+          +quedaron                                                      
+      443 +   eliminados — ya no aplican, el dock nunca comparte espacio 
+          +con nada que                                                  
+      444 +   haya que medir.                                            
+      445  
+      446 +Sigue pendiente la confirmación visual del usuario tras reinic
+          +iar                                                           
+      447 +`superset_test.service` — la tarea 2 de arriba (auditoría de l
+          +ayout a                                                       
+      448 +1366/1920px) la cubre formalmente.                            
+      449 +                                                              
+      450  ## Fase 1 — Carcasa común del panel
+      451  
+      452  1. Separar la carcasa (componentes existentes) de la lógica de
+            SQL Lab
+
+● Ahora actualizo la memoria del proyecto:
+
+  Wrote 1 memory (ctrl+o to expand)
+
+● Listo. Resumen de lo que cambié:
+
+  Reemplacé el mecanismo entero — el overlay (position: fixed) no era el camino,
+  como confirmaste con la segunda captura. Ahora exploreHost.tsx replica
+  exactamente el patrón ya probado en producción del dock del chat ("El Don",
+  mcp_widget.py):
+
+  - Envuelve #app (toda la SPA de Superset) en una fila flex y agrega el panel
+    como hermano con ancho propio — reserva espacio real, nunca se superpone a
+    nada.
+  - Al salir de Explore, #app vuelve exactamente a su posición original (mismo
+    padre, mismo hermano siguiente) — no queda rastro.
+  - Redimensionable: un handle entre el lienzo y el panel, arrastrable, con
+    mínimo 380px y máximo 50% del ancho de ventana, y el tamaño elegido se
+    guarda en localStorage y se reusa la próxima vez.
+
+  Quité por completo el mecanismo anterior (measureReservedTop/useReservedTop de
+  la entrada 57), que ya no tiene sentido con este enfoque.
+
+  Verificación:
+  - npx tsc --noEmit estricto: sin errores
+  - 138 tests de frontend (14 nuevos en exploreHost.test.tsx, todos verdes) +
+    223 de backend sin cambios
+  - Build completo (7/7): .supx reconstruido en extensions_test/
+  - Documentado en Registro de cambios.md (entrada 58), PLAN_COPILOTO_EXPLORE.md
+    y memoria
+
+  Falta lo mismo de siempre — no puedo verlo yo:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Reiniciá y decime si ahora el panel se incrusta al lateral (empujando el
+  contenido, como el chat) y si el resize se siente bien.
+
+[Image #6]
+
+❯ Ahora si ya eso esta listo (solo un detalle un boton para ocultar y mostrar
+  el panel hace falta)
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreHost.tsx)
+  ⎿  Added 2 lines
+      37  const MAIN_ID = 'irex-explore-dock-main';
+      38  const DOCK_ID = 'irex-explore-dock';
+      39  const RESIZER_ID = 'irex-explore-dock-resizer';
+      40 +const TOGGLE_ID = 'irex-explore-dock-toggle';                  
+      41  const STYLE_ID = 'irex-explore-dock-style';
+      42  const WIDTH_STORAGE_KEY = 'irex-explore-dock-width';
+      43 +const COLLAPSED_STORAGE_KEY = 'irex-explore-dock-collapsed';   
+      44  
+      45  /** Tema de reserva si `computeCurrentTheme()` no pudo derivar 
+          uno (bootstrap
+      46   * ausente o roto): valores neutros, legibles en cualquier fond
+          o claro — más
+
+● Update(custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreHost.tsx)
+  ⎿  Added 16 lines
+       99    }
+      100  }
+      101  
+      102 +function readStoredCollapsed(): boolean {                     
+      103 +  try {                                                       
+      104 +    return window.localStorage.getItem(COLLAPSED_STORAGE_KEY) 
+          +=== '1';                                                      
+      105 +  } catch {                                                   
+      106 +    return false;                                             
+      107 +  }                                                           
+      108 +}                                                             
+      109 +                                                              
+      110 +function writeStoredCollapsed(value: boolean): void {         
+      111 +  try {                                                       
+      112 +    window.localStorage.setItem(COLLAPSED_STORAGE_KEY, value ?
+          + '1' : '0');                                                  
+      113 +  } catch {                                                   
+      114 +    // idem: persistir el estado plegado es una comodidad, no 
+          +una garantía.                                                 
+      115 +  }                                                           
+      116 +}                                                             
+      117 +                                                              
+      118  /** CSS del handle de resize (hover + grip visual) — no se pue
+           de expresar
+      119   * `:hover` con estilos inline de React, así que va en una úni
+           ca hoja de
+      120   * estilo global, inyectada una sola vez (idempotente entre mo
+           ntajes). Mismo
+
+● Ahora agrego los estilos del botón toggle y su lógica:
+
+● Update(custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreHost.tsx)
+  ⎿  Added 12 lines
+      135      `#${RESIZER_ID}:hover::after,#${RESIZER_ID}.irex-resizing:
+           :after{background:`,
+      136      'repeating-linear-gradient(to bottom,rgba(128,128,128,.9) 
+           0,rgba(128,128,128,.9) 2px,',
+      137      'transparent 2px,transparent 5px);}',
+      138 +    // Botón de ocultar/mostrar: un círculo que se apoya sobre
+          + el resizer                                                   
+      139 +    // (mitad adentro del lienzo, mitad adentro del panel) par
+          +a quedar                                                      
+      140 +    // clickeable y VISIBLE incluso con el panel en ancho 0 — 
+          +vive fuera de                                                 
+      141 +    // `#${DOCK_ID}` a propósito, así `overflow:hidden` del do
+          +ck nunca se lo                                                
+      142 +    // lleva puesto. Colores fijos (no de tema): vive fuera de
+          +l árbol de                                                    
+      143 +    // React que sí tiene el bootstrap del tema disponible.   
+      144 +    `#${TOGGLE_ID}{position:absolute;top:50%;left:50%;transfor
+          +m:translate(-50%,-50%);`,                                     
+      145 +    'width:20px;height:36px;border-radius:10px;border:1px soli
+          +d rgba(0,0,0,.15);',                                          
+      146 +    'background:#fff;color:rgba(0,0,0,.65);display:flex;align-
+          +items:center;',                                               
+      147 +    'justify-content:center;font-size:12px;line-height:1;curso
+          +r:pointer;padding:0;',                                        
+      148 +    'box-shadow:0 1px 3px rgba(0,0,0,.15);pointer-events:auto;
+          +}',                                                           
+      149 +    `#${TOGGLE_ID}:hover{background:#f5f5f5;color:rgba(0,0,0,.
+          +88);}`,                                                       
+      150    ].join('');
+      151    document.head.appendChild(style);
+      152  }
+
+● Update(custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreHost.tsx)
+  ⎿  Added 10 lines, removed 3 lines
+      154  /** Arrastrar el handle cambia el ancho del dock en vivo, muta
+           ndo el DOM
+      155   * directamente (no vía estado de React: en cada `mousemove` s
+           ería un
+      156   * re-render de más). Se persiste en `localStorage` recién al 
+           soltar.
+      157 - * Devuelve la función de limpieza — se llama desde `unmount()
+          -`. */                                                         
+      158 -function setupResize(dock: HTMLElement, resizer: HTMLElement):
+          - () => void {                                                 
+      157 + * `onResized` se usa para que `mount()` lleve la cuenta del ú
+          +ltimo ancho                                                   
+      158 + * elegido (necesario para poder restaurarlo al des-plegar des
+          +de plegado).                                                  
+      159 + * Sin efecto mientras `isCollapsed()` — no tiene sentido arra
+          +strar un panel                                                
+      160 + * en ancho 0. Devuelve la función de limpieza — se llama desd
+          +e `unmount()`. */                                             
+      161 +function setupResize(dock: HTMLElement, resizer: HTMLElement, 
+          +isCollapsed: () => boolean, onResized: (width: number) => void
+          +): () => void {                                               
+      162    let dragging = false;
+      163    let startX = 0;
+      164    let startWidth = 0;
+      165    let dragMax = maxWidth();
+      166  
+      167    const onMouseDown = (ev: MouseEvent): void => {
+      168 +    if (isCollapsed()) return;                                
+      169      dragging = true;
+      170      startX = ev.clientX;
+      171      startWidth = dock.getBoundingClientRect().width;
+     ...
+      188      resizer.classList.remove('irex-resizing');
+      189      document.body.style.userSelect = '';
+      190      const current = parseInt(dock.style.width, 10);
+      187 -    if (Number.isFinite(current)) writeStoredWidth(current);  
+      191 +    if (Number.isFinite(current)) {                           
+      192 +      writeStoredWidth(current);                              
+      193 +      onResized(current);                                     
+      194 +    }                                                         
+      195    };
+      196  
+      197    resizer.addEventListener('mousedown', onMouseDown);
+
+● Ahora actualizo el bloque de estado del módulo y mount()/unmount():
+
+● Update(custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreHost.tsx)
+  ⎿  Added 48 lines, removed 3 lines
+      247  let main: HTMLDivElement | undefined;
+      248  let resizer: HTMLDivElement | undefined;
+      249  let dock: HTMLElement | undefined;
+      250 +let toggle: HTMLButtonElement | undefined;                    
+      251  let originalParent: (Node & ParentNode) | undefined;
+      252  let originalNextSibling: ChildNode | null = null;
+      253  let detachResize: (() => void) | undefined;
+      254 +let collapsed = false;                                        
+      255 +let expandedWidth = MIN_WIDTH;                                
+      256  
+      257 +/** Aplica el ancho (plegado → 0, sin perder de vista a qué an
+          +cho volver) y                                                 
+      258 + * actualiza el ícono/`aria-label` del botón. Se llama al mont
+          +ar y en cada                                                  
+      259 + * click del toggle — nunca cambia `expandedWidth` (eso lo hac
+          +e el resize). */                                              
+      260 +function applyCollapsedState(): void {                        
+      261 +  if (!dock || !toggle || !resizer) return;                   
+      262 +  if (collapsed) {                                            
+      263 +    dock.style.width = '0px';                                 
+      264 +    dock.style.minWidth = '0px';                              
+      265 +    toggle.textContent = '‹';                                 
+      266 +    toggle.setAttribute('aria-label', 'Mostrar panel del asist
+          +ente');                                                       
+      267 +    resizer.style.cursor = 'default';                         
+      268 +  } else {                                                    
+      269 +    dock.style.width = `${expandedWidth}px`;                  
+      270 +    dock.style.minWidth = `${MIN_WIDTH}px`;                   
+      271 +    toggle.textContent = '›';                                 
+      272 +    toggle.setAttribute('aria-label', 'Ocultar panel del asist
+          +ente');                                                       
+      273 +    resizer.style.cursor = 'col-resize';                      
+      274 +  }                                                           
+      275 +}                                                             
+      276 +                                                              
+      277  function mount(): void {
+      278    if (wrapper) return; // ya montado
+      279    const app = document.getElementById('app');
+     ...
+      304    resizer.id = RESIZER_ID;
+      305    wrapper.appendChild(resizer);
+      306  
+      307 +  toggle = document.createElement('button');                  
+      308 +  toggle.id = TOGGLE_ID;                                      
+      309 +  toggle.type = 'button';                                     
+      310 +  resizer.appendChild(toggle);                                
+      311 +                                                              
+      312    dock = document.createElement('aside');
+      313    dock.id = DOCK_ID;
+      286 -  const width = readStoredWidth() ?? defaultWidth();          
+      287 -  dock.style.cssText = `flex:0 0 auto;box-sizing:border-box;wi
+          -dth:${width}px;min-width:${MIN_WIDTH}px;max-width:${maxWidth()
+          -}px;height:100%;overflow:hidden;background:#fff;`;            
+      314 +  dock.style.cssText = `flex:0 0 auto;box-sizing:border-box;mi
+          +n-width:${MIN_WIDTH}px;max-width:${maxWidth()}px;height:100%;o
+          +verflow:hidden;background:#fff;`;                             
+      315    wrapper.appendChild(dock);
+      316  
+      290 -  detachResize = setupResize(dock, resizer);                  
+      317 +  expandedWidth = readStoredWidth() ?? defaultWidth();        
+      318 +  collapsed = readStoredCollapsed();                          
+      319 +  applyCollapsedState();                                      
+      320  
+      321 +  toggle.addEventListener('click', () => {                    
+      322 +    collapsed = !collapsed;                                   
+      323 +    writeStoredCollapsed(collapsed);                          
+      324 +    applyCollapsedState();                                    
+      325 +  });                                                         
+      326 +                                                              
+      327 +  detachResize = setupResize(                                 
+      328 +    dock,                                                     
+      329 +    resizer,                                                  
+      330 +    () => collapsed,                                          
+      331 +    width => {                                                
+      332 +      expandedWidth = width;                                  
+      333 +    },                                                        
+      334 +  );                                                          
+      335 +                                                              
+      336    ReactDOM.render(<ExploreDockRoot />, dock);
+      337  }
+      338  
+     ...
+      352    main = undefined;
+      353    resizer = undefined;
+      354    dock = undefined;
+      355 +  toggle = undefined;                                         
+      356    originalParent = undefined;
+      357    originalNextSibling = null;
+      358  }
+
+● Update(custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreHost.tsx)
+  ⎿  Added 3 lines
+      21   *    imitar, ya resiliente en producción a la pregunta "¿cuánt
+          o mide lo que
+      22   *    Superset dibuja arriba?": con este mecanismo esa pregunta
+           ni se
+      23   *    plantea, porque el dock nunca comparte espacio con nada, 
+          lo reserva.
+      24 + *    El handle también trae un botón para plegar/desplegar el 
+         +panel a ancho                                                  
+      25 + *    0 sin perder el ancho elegido (entrada 59) — pedido por e
+         +l usuario                                                      
+      26 + *    apenas confirmó que el dock ya no se superponía.         
+      27   * 3. Como esa raíz no hereda el `ThemeContext` del host, la en
+          vuelve en su
+      28   *    propio `<theme.ThemeProvider>` con los tokens reales deri
+          vados por
+      29   *    `themeBridge.ts` (mismo resultado que `theme.useTheme()` 
+          dentro del
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Ahora corro los tests existentes para ver qué se rompe con el cambio de
+  comportamiento (el ancho ya no se fija directamente en mount(), sino vía
+  applyCollapsedState()):
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Ahora agrego tests específicos para el botón de plegado:
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreHost.tes
+        t.tsx)
+  ⎿  Added 2 lines
+      28  const MAIN_ID = 'irex-explore-dock-main';
+      29  const DOCK_ID = 'irex-explore-dock';
+      30  const RESIZER_ID = 'irex-explore-dock-resizer';
+      31 +const TOGGLE_ID = 'irex-explore-dock-toggle';                  
+      32 +const COLLAPSED_STORAGE_KEY = 'irex-explore-dock-collapsed';   
+      33  const STYLE_ID = 'irex-explore-dock-style';
+      34  const WIDTH_STORAGE_KEY = 'irex-explore-dock-width';
+      35  
+● Update(custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreHost.tes
+        t.tsx)
+  ⎿  Added 64 lines
+      264    });
+      265  });
+      266  
+      267 +describe('botón de plegar/desplegar el panel', () => {        
+      268 +  function mountInExplore(): { dock: HTMLElement; toggle: HTML
+          +ButtonElement } {                                             
+      269 +    window.history.replaceState({}, '', '/explore/?slice_id=1'
+          +);                                                            
+      270 +    const { activateExploreHost } = load();                   
+      271 +    activateExploreHost();                                    
+      272 +    return {                                                  
+      273 +      dock: document.getElementById(DOCK_ID) as HTMLElement,  
+      274 +      toggle: document.getElementById(TOGGLE_ID) as HTMLButton
+          +Element,                                                      
+      275 +    };                                                        
+      276 +  }                                                           
+      277 +                                                              
+      278 +  test('empieza desplegado con el ancho por defecto, con aria-
+          +label de "ocultar"', () => {                                  
+      279 +    const { dock, toggle } = mountInExplore();                
+      280 +    expect(parseInt(dock.style.width, 10)).toBeGreaterThanOrEq
+          +ual(380);                                                     
+      281 +    expect(toggle.getAttribute('aria-label')).toBe('Ocultar pa
+          +nel del asistente');                                          
+      282 +  });                                                         
+      283 +                                                              
+      284 +  test('un click pliega el panel a 0 sin perder el ancho elegi
+          +do; otro click lo restaura', () => {                          
+      285 +    const { dock, toggle } = mountInExplore();                
+      286 +    const original = dock.style.width;                        
+      287 +                                                              
+      288 +    toggle.dispatchEvent(new MouseEvent('click', { bubbles: tr
+          +ue }));                                                       
+      289 +    expect(dock.style.width).toBe('0px');                     
+      290 +    expect(toggle.getAttribute('aria-label')).toBe('Mostrar pa
+          +nel del asistente');                                          
+      291 +                                                              
+      292 +    toggle.dispatchEvent(new MouseEvent('click', { bubbles: tr
+          +ue }));                                                       
+      293 +    expect(dock.style.width).toBe(original); // el mismo ancho
+          + de antes, no el default recalculado                          
+      294 +  });                                                         
+      295 +                                                              
+      296 +  test('plegar no borra el contenido del panel: solo cambia el
+          + ancho (el resto lo hace CSS)', () => {                       
+      297 +    const { dock, toggle } = mountInExplore();                
+      298 +    toggle.dispatchEvent(new MouseEvent('click', { bubbles: tr
+          +ue }));                                                       
+      299 +    expect(dock.textContent).toContain('Asistente SQL'); // si
+          +gue montado, solo con ancho 0                                 
+      300 +  });                                                         
+      301 +                                                              
+      302 +  test('con el panel plegado, arrastrar el resizer no hace nad
+          +a', () => {                                                   
+      303 +    const { dock, toggle } = mountInExplore();                
+      304 +    toggle.dispatchEvent(new MouseEvent('click', { bubbles: tr
+          +ue }));                                                       
+      305 +    const resizer = document.getElementById(RESIZER_ID) as HTM
+          +LElement;                                                     
+      306 +    dock.getBoundingClientRect = () => ({ width: 0 } as DOMRec
+          +t);                                                           
+      307 +                                                              
+      308 +    resizer.dispatchEvent(new MouseEvent('mousedown', { client
+          +X: 500, bubbles: true }));                                    
+      309 +    window.dispatchEvent(new MouseEvent('mousemove', { clientX
+          +: 300, bubbles: true }));                                     
+      310 +    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: 
+          +true }));                                                     
+      311 +                                                              
+      312 +    expect(dock.style.width).toBe('0px'); // seguía plegado: e
+          +l drag no lo movió                                            
+      313 +  });                                                         
+      314 +                                                              
+      315 +  test('el estado plegado persiste en localStorage y se reusa 
+          +en el próximo montaje', () => {                               
+      316 +    const { toggle } = mountInExplore();                      
+      317 +    toggle.dispatchEvent(new MouseEvent('click', { bubbles: tr
+          +ue }));                                                       
+      318 +    expect(window.localStorage.getItem(COLLAPSED_STORAGE_KEY))
+          +.toBe('1');                                                   
+      319 +                                                              
+      320 +    window.history.pushState({}, '', '/dashboard/list/');     
+      321 +    jest.resetModules();                                      
+      322 +    window.history.replaceState({}, '', '/explore/?slice_id=1'
+          +);                                                            
+      323 +    const { activateExploreHost } = load();                   
+      324 +    activateExploreHost();                                    
+      325 +                                                              
+      326 +    expect((document.getElementById(DOCK_ID) as HTMLElement).s
+          +tyle.width).toBe('0px');                                      
+      327 +    expect((document.getElementById(TOGGLE_ID) as HTMLButtonEl
+          +ement).getAttribute('aria-label')).toBe('Mostrar panel del asi
+          +stente');                                                     
+      328 +  });                                                         
+      329 +});                                                           
+      330 +                                                              
+      331  describe('el tema se deriva del bootstrap del host, no de posi
+           tion:fixed', () => {
+      332    test('el contenido del panel se renderiza y usa PanelHeader 
+           (humo, ya cubierto en detalle por themeBridge.test.ts)', () =>
+            {
+      333      window.history.replaceState({}, '', '/explore/?slice_id=1'
+           );
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● 19 tests, todos verdes. Corro la suite completa y el build:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● 143 tests, todos verdes.
+
+● Bash(cd /home/imercados/superset_proyecto/custom-extensions/irex-mcp-tools &&
+      \
+      ./scripts/build-extension.sh \…)
+  ⎿  1 file changed (binary, mode only or too large to show)
+
+● Build 7/7 completo. Ahora documento en el changelog, el plan y la memoria.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(Registro de cambios.md)
+  ⎿  Added 40 lines
+       1  ## Registro de cambios
+       2  
+       3 +### 2026-09-24 (59) (copiloto de Explore: botón para plegar/des
+         +plegar el dock)                                                
+       4 +                                                               
+       5 +Cambio realizado:                                              
+       6 +Tras confirmar que el mecanismo de la entrada 58 (dock que rese
+         +rva espacio                                                    
+       7 +en vez de superponerse) ya funcionaba, el usuario pidió un últi
+         +mo detalle:                                                    
+       8 +un botón para ocultar y volver a mostrar el panel.             
+       9 +                                                               
+      10 +Archivos afectados:                                            
+      11 +- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreH
+         +ost.tsx`                                                       
+      12 +- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/expl
+         +oreHost.test.tsx`                                              
+      13 +  (+5 tests, total 19)                                         
+      14 +- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)        
+      15 +                                                               
+      16 +Que cambia o corrige:                                          
+      17 +- Botón circular (`‹`/`›`) apoyado sobre el handle de resize, m
+         +itad hacia                                                     
+      18 +  el lienzo y mitad hacia el panel — vive FUERA de `#irex-explo
+         +re-dock` a                                                     
+      19 +  propósito, así el `overflow:hidden` del dock nunca se lo llev
+         +a puesto                                                       
+      20 +  cuando el ancho baja a 0: queda visible y clickeable incluso 
+         +con el panel                                                   
+      21 +  totalmente plegado.                                          
+      22 +- Un click pliega el dock a `width:0` sin perder el ancho elegi
+         +do (se                                                         
+      23 +  guarda aparte en `expandedWidth`, no se recalcula el default 
+         +al volver a                                                    
+      24 +  desplegar); otro click lo restaura exactamente a ese ancho. E
+         +l panel                                                        
+      25 +  sigue montado (no se desmonta React) — plegar es solo una cue
+         +stión de                                                       
+      26 +  ancho, no de destruir y recrear el árbol.                    
+      27 +- Con el panel plegado, arrastrar el resizer no hace nada (no t
+         +iene sentido                                                   
+      28 +  redimensionar un panel en ancho 0) — `setupResize` ahora reci
+         +be un                                                          
+      29 +  `isCollapsed()` que ignora el `mousedown` mientras el panel e
+         +stá plegado.                                                   
+      30 +- Estado persistido en `localStorage` (`irex-explore-dock-colla
+         +psed`, clave                                                   
+      31 +  propia) — un usuario que lo pliega lo encuentra plegado la pr
+         +óxima vez                                                      
+      32 +  que entra a Explore, igual que ya pasa con el ancho.         
+      33 +                                                               
+      34 +Verificación:                                                  
+      35 +- `npx tsc --noEmit` estricto sin errores.                     
+      36 +- 143 tests de frontend (19 en exploreHost.test.tsx: 5 nuevos d
+         +e plegado),                                                    
+      37 +  223 de backend (sin cambios).                                
+      38 +- `build-extension.sh` completo (7/7) sobre `extensions_test/`.
+      39 +- Sin verificación visual en navegador — pendiente que el usuar
+         +io reinicie                                                    
+      40 +  `superset_test.service` y confirme que el botón se ve, se pue
+         +de                                                             
+      41 +  clickear, y recuerda el estado al volver a Explore.          
+      42 +                                                               
+      43  ### 2026-09-24 (58) (copiloto de Explore: el fix de la entrada 
+          57 no alcanzaba — el dock seguía superpuesto; se reemplaza por 
+          el mecanismo del dock de chat)
+      44  
+      45  Cambio realizado:
+
+● Ahora actualizo PLAN_COPILOTO_EXPLORE.md y la memoria:
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● Update(PLAN_COPILOTO_EXPLORE.md)
+  ⎿  Added 7 lines, removed 3 lines
+      443     eliminados — ya no aplican, el dock nunca comparte espacio 
+           con nada que
+      444     haya que medir.
+      445  
+      446 -Sigue pendiente la confirmación visual del usuario tras reinic
+          -iar                                                           
+      447 -`superset_test.service` — la tarea 2 de arriba (auditoría de l
+          -ayout a                                                       
+      448 -1366/1920px) la cubre formalmente.                            
+      446 +El usuario confirmó visualmente que este mecanismo ya funciona
+          + (dock                                                        
+      447 +incrustado, no superpuesto) y pidió un último detalle (entrada
+          + 59 del                                                       
+      448 +Registro de cambios): botón para plegar/desplegar el panel. Im
+          +plementado —                                                  
+      449 +botón circular sobre el handle de resize, plegado a `width:0` 
+          +sin perder el                                                 
+      450 +ancho elegido, estado persistido en `localStorage`. Sigue pend
+          +iente que el                                                  
+      451 +usuario confirme visualmente este detalle puntual; la tarea 2 
+          +de arriba                                                     
+      452 +(auditoría de layout a 1366/1920px, claro/oscuro) sigue abiert
+          +a en general.                                                 
+      453  
+      454  ## Fase 1 — Carcasa común del panel
+      455  
+
+  Wrote 1 memory (ctrl+o to expand)
+
+● Listo. Agregué el botón de plegar/desplegar:
+
+  - Círculo ‹/› apoyado sobre el handle de resize (mitad hacia el gráfico, mitad
+    hacia el panel) — vive fuera del dock a propósito, así queda visible y
+    clickeable aunque el panel esté en ancho 0.
+  - Un click lo pliega a width:0 sin perder el ancho elegido (el panel sigue
+    montado, solo cambia el ancho); otro click lo restaura exactamente a como
+    estaba.
+  - Con el panel plegado, arrastrar el resizer no hace nada (no tiene sentido
+    redimensionar algo en ancho 0).
+  - El estado se guarda en localStorage, así que si lo plegás, la próxima vez
+    que entrás a Explore lo encontrás plegado.
+
+  Verificación: npx tsc --noEmit sin errores, 143 tests (19 en
+  exploreHost.test.tsx, 5 nuevos para el toggle), build completo (7/7),
+  documentado en changelog (entrada 59), plan y memoria.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Reiniciá y avisame cómo se ve/siente el botón.
+
+❯ Listo que sigue?
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● User answered Claude's questions:
+  ⎿  · Con el montaje/resize/plegado ya resueltos, ¿qué sigo del plan? → Cerrar
+     los criterios de salida de la Fase 0 (Recomendado)
+
+  Searched for 1 pattern, ran 7 shell commands (ctrl+o to expand)
+
+● Voy a implementar el módulo que resuelve los criterios de salida 1 y 2.
+  Primero extiendo routeObserver.ts para poder detectar cambios de URL dentro de
+  /explore (cambio de gráfico, nueva form_data_key), no solo cambios de
+  superficie:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(custom-extensions/irex-mcp-tools/frontend/src/hosts/routeObserver.ts)
+  ⎿  Added 8 lines
+      23  }
+      24  
+      25  type Listener = (surface: Surface) => void;
+      26 +type LocationListener = () => void;                            
+      27  
+      28  let installed = false;
+      29  let current: Surface = 'other';
+      30  const listeners = new Set<Listener>();
+      31 +const locationListeners = new Set<LocationListener>();         
+      32  
+      33  function notify(): void {
+      34 +  // `locationListeners` se avisa SIEMPRE (cambió la URL, aunqu
+         +e la                                                           
+      35 +  // superficie siga siendo 'explore' — ej. otro `slice_id`, un
+         +a                                                              
+      36 +  // `form_data_key` nueva tras ejecutar). `listeners` (superfi
+         +cie) solo                                                      
+      37 +  // cuando cambia 'explore'/'sqllab'/'other' — ver el criterio
+         + de "no                                                        
+      38 +  // remonta" ya probado en exploreHost.test.tsx.              
+      39 +  locationListeners.forEach(listener => listener());           
+      40    const next = surfaceOf(window.location.pathname);
+      41    if (next === current) return;
+      42    current = next;
+
+● Update(custom-extensions/irex-mcp-tools/frontend/src/hosts/routeObserver.ts)
+  ⎿  Added 12 lines
+      75    return { dispose: () => listeners.delete(listener) };
+      76  }
+      77  
+      78 +/** Se llama con CADA cambio de URL (`pushState`/`replaceState`
+         +/`popstate`),                                                  
+      79 + * cambie o no la superficie — a diferencia de `onDidChangeSurf
+         +ace`. Lo                                                       
+      80 + * necesita el copiloto de Explore (criterios de salida 1 y 2 d
+         +e la Fase 0                                                    
+      81 + * de `PLAN_COPILOTO_EXPLORE.md`) para reaccionar a un cambio d
+         +e `slice_id`                                                   
+      82 + * o de `form_data_key` sin salir de `/explore`. */            
+      83 +export function onDidChangeLocation(listener: LocationListener)
+         +: { dispose: () => void } {                                    
+      84 +  install();                                                   
+      85 +  locationListeners.add(listener);                             
+      86 +  return { dispose: () => locationListeners.delete(listener) };
+      87 +}                                                              
+      88 +                                                               
+      89  /** Solo para tests: vuelve al estado sin instalar (permite rei
+          nstalar con un
+      90   * `window.location`/`window.history` nuevos por test). */
+      91  export function _resetForTests(): void {
+      92    installed = false;
+      93    listeners.clear();
+      94 +  locationListeners.clear();                                   
+      95    current = 'other';
+      96  }
+
+● Ahora creo el módulo exploreState.ts con la lógica de los criterios de salida
+  1 y 2:
+
+● Write(custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreState.ts)
+  ⎿  Wrote 198 lines to
+     custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreState.ts
+       1 /**
+         ida 1 y 2 de
+         e React del
+       4  * host ni a su store de Redux (esta extensión vive en una raíz
+       5  * aparte, ver `exploreHost.tsx`), la única fuente pública y est
+       6  * misma API REST que el propio Explore usa para persistir su es
+       7  * guardar (`/api/v1/explore/form_data`) y el gráfico ya guardad
+         o
+       9  *
+         trabaja
+     … +251 lines (ctrl+o to expand)
+
+● Ahora escribo los tests de este módulo antes de integrarlo (mockeando fetch,
+  siguiendo el patrón ya usado en chatBackendAdapter.test.ts):
+
+  Searched for 3 patterns, ran 1 shell command (ctrl+o to expand)
+
+● Ahora escribo el test file siguiendo este mismo patrón:
+
+● Write(custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreState.tes
+       t.ts)
+  ⎿  Wrote 140 lines to custom-extensions/irex-mcp-tools/frontend/src/__tes
+     ts__/exploreState.test.ts
+      1 import { parseExploreLocation, resolveQueryFidelity } from '../ho
+        sts/exploreState';
+      2
+      3 function jsonResponse(status: number, body: unknown): Response {
+      4   return {
+      5     ok: status >= 200 && status < 300,
+      6     status,
+      7     json: () => Promise.resolve(body),
+      8   } as unknown as Response;
+      9 }
+     … +168 lines (ctrl+o to expand)
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Todos pasan de primera. Ahora agrego los tests para onDidChangeLocation en
+  routeObserver.test.ts:
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(custom-extensions/irex-mcp-tools/frontend/src/__tests__/routeObserver.t
+        est.ts)
+  ⎿  Added 43 lines
+       99      expect(b).toEqual(['sqllab', 'explore']);
+      100    });
+      101  });
+      102 +                                                              
+      103 +describe('onDidChangeLocation — cada cambio de URL, cambie o n
+          +o la superficie', () => {                                     
+      104 +  test('notifica también dentro de la MISMA superficie (otro s
+          +lice_id, otra form_data_key)', () => {                        
+      105 +    window.history.replaceState({}, '', '/explore/?slice_id=1'
+          +);                                                            
+      106 +    const { onDidChangeLocation } = load();                   
+      107 +    let count = 0;                                            
+      108 +    onDidChangeLocation(() => {                               
+      109 +      count += 1;                                             
+      110 +    });                                                       
+      111 +                                                              
+      112 +    window.history.pushState({}, '', '/explore/?slice_id=2'); 
+      113 +    window.history.replaceState({}, '', '/explore/?slice_id=2&
+          +form_data_key=abc');                                          
+      114 +                                                              
+      115 +    expect(count).toBe(2); // onDidChangeSurface no habría dis
+          +parado ninguna de las dos                                     
+      116 +  });                                                         
+      117 +                                                              
+      118 +  test('también notifica cuando SÍ cambia la superficie (no es
+          + mutuamente excluyente con onDidChangeSurface)', () => {      
+      119 +    window.history.replaceState({}, '', '/dashboard/list/');  
+      120 +    const { onDidChangeLocation, onDidChangeSurface } = load()
+          +;                                                             
+      121 +    const locationHits: number[] = [];                        
+      122 +    const surfaceHits: string[] = [];                         
+      123 +    onDidChangeLocation(() => locationHits.push(1));          
+      124 +    onDidChangeSurface(s => surfaceHits.push(s));             
+      125 +                                                              
+      126 +    window.history.pushState({}, '', '/explore/?slice_id=1'); 
+      127 +                                                              
+      128 +    expect(locationHits).toEqual([1]);                        
+      129 +    expect(surfaceHits).toEqual(['explore']);                 
+      130 +  });                                                         
+      131 +                                                              
+      132 +  test('dispose() deja de notificar', () => {                 
+      133 +    window.history.replaceState({}, '', '/explore/?slice_id=1'
+          +);                                                            
+      134 +    const { onDidChangeLocation } = load();                   
+      135 +    const seen: number[] = [];                                
+      136 +    const sub = onDidChangeLocation(() => seen.push(1));      
+      137 +                                                              
+      138 +    window.history.pushState({}, '', '/explore/?slice_id=2'); 
+      139 +    sub.dispose();                                            
+      140 +    window.history.pushState({}, '', '/explore/?slice_id=3'); 
+      141 +                                                              
+      142 +    expect(seen).toEqual([1]);                                
+      143 +  });                                                         
+      144 +});                                                           
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Ahora integro exploreState.ts en exploreHost.tsx, reemplazando el placeholder
+  por el banner de contrato + estado de fidelidad, reaccionando a cambios de URL
+  dentro de Explore:
+
+● Update(custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreHost.tsx)
+  ⎿  Added 2 lines, removed 1 line
+      34  import { theme as themeNs } from '@apache-superset/core';
+      35  import { PanelHeader } from '../assistant/PanelHeader';
+      36  import { computeCurrentTheme, onDidChangeTheme, type PanelTheme
+           } from './themeBridge';
+      37 -import { getSurface, onDidChangeSurface } from './routeObserver
+         -';                                                             
+      37 +import { getSurface, onDidChangeLocation, onDidChangeSurface } 
+         +from './routeObserver';                                        
+      38 +import { RESOLVE_DEBOUNCE_MS, resolveQueryFidelity, UNSAVED_STA
+         +TE_CONTRACT, type QueryFidelity } from './exploreState';       
+      39  
+      40  const WRAPPER_ID = 'irex-explore-dock-wrapper';
+      41  const MAIN_ID = 'irex-explore-dock-main';
+
+● Update(custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreHost.tsx)
+  ⎿  Added 56 lines, removed 4 lines
+      209    };
+      210  }
+      211  
+      212 +type FidelityState = { status: 'cargando' } | QueryFidelity;  
+      213 +                                                              
+      214 +/** Resuelve el criterio de salida 2 para la URL actual y se v
+          +uelve a                                                       
+      215 + * resolver en cada cambio de `slice_id`/`form_data_key` DENTR
+          +O de Explore                                                  
+      216 + * (`onDidChangeLocation`, no `onDidChangeSurface`: cambiar de
+          + gráfico sin                                                  
+      217 + * salir de `/explore` no dispara este último). Debounced —   
+      218 + * `RESOLVE_DEBOUNCE_MS` — para no encadenar un fetch por cada
+          + evento de URL                                                
+      219 + * durante una navegación rápida. */                          
+      220 +function useQueryFidelity(): FidelityState {                  
+      221 +  const [state, setState] = React.useState<FidelityState>({ st
+          +atus: 'cargando' });                                          
+      222 +                                                              
+      223 +  React.useEffect(() => {                                     
+      224 +    let cancelled = false;                                    
+      225 +    let debounceTimer: number | undefined;                    
+      226 +                                                              
+      227 +    const resolve = (): void => {                             
+      228 +      setState({ status: 'cargando' });                       
+      229 +      void resolveQueryFidelity(window.location.search).then(r
+          +esult => {                                                    
+      230 +        if (!cancelled) setState(result);                     
+      231 +      });                                                     
+      232 +    };                                                        
+      233 +                                                              
+      234 +    resolve();                                                
+      235 +    const sub = onDidChangeLocation(() => {                   
+      236 +      window.clearTimeout(debounceTimer);                     
+      237 +      debounceTimer = window.setTimeout(resolve, RESOLVE_DEBOU
+          +NCE_MS);                                                      
+      238 +    });                                                       
+      239 +                                                              
+      240 +    return () => {                                            
+      241 +      cancelled = true;                                       
+      242 +      window.clearTimeout(debounceTimer);                     
+      243 +      sub.dispose();                                          
+      244 +    };                                                        
+      245 +  }, []);                                                     
+      246 +                                                              
+      247 +  return state;                                               
+      248 +}                                                             
+      249 +                                                              
+      250 +function fidelityMessage(state: FidelityState): string {      
+      251 +  if (state.status === 'cargando') return 'Comprobando el esta
+          +do del gráfico…';                                             
+      252 +  if (state.status === 'fiel') return `SQL fiel disponible${st
+          +ate.vizType ? ` (${state.vizType})` : ''}.`;                  
+      253 +  return `SQL/vista previa no disponible: ${state.reason}`;   
+      254 +}                                                             
+      255 +                                                              
+      256  function ExploreDockRoot(): React.ReactElement {
+      257    const [theme, setTheme] = React.useState<PanelTheme>(() => c
+           omputeCurrentTheme() ?? FALLBACK_THEME);
+      258 +  const fidelity = useQueryFidelity();                        
+      259  
+      260    React.useEffect(() => {
+      261      // El bootstrap ya está en el DOM al montar, pero por si e
+           sta raíz se
+     ...
+      282          data-testid="irex-explore-dock-root"
+      283        >
+      284          <PanelHeader onNewSession={() => {}} />
+      240 -        <div style={{ flex: '1 1 auto', minHeight: 0, overflow
+          -Y: 'auto', padding: 12, color: theme.colorTextSecondary }}>   
+      241 -          Spike Fase 0 — el copiloto de Explore todavía no tie
+          -ne lógica                                                     
+      242 -          propia. Este panel solo demuestra que el montaje, la
+          - ruta, el tema                                                
+      243 -          y el resize funcionan fuera de SQL Lab.             
+      285 +        <div style={{ flex: '1 1 auto', minHeight: 0, overflow
+          +Y: 'auto', padding: 12, display: 'flex', flexDirection: 'colum
+          +n', gap: 8 }}>                                                
+      286 +          <div style={{ color: theme.colorTextSecondary }}>{UN
+          +SAVED_STATE_CONTRACT}</div>                                   
+      287 +          <div                                                
+      288 +            style={{                                          
+      289 +              color: fidelity.status === 'no-disponible' ? the
+          +me.colorWarning : theme.colorTextSecondary,                   
+      290 +              fontWeight: fidelity.status === 'no-disponible' 
+          +? 600 : 400,                                                  
+      291 +            }}                                                
+      292 +            data-testid="irex-explore-fidelity"               
+      293 +          >                                                   
+      294 +            {fidelityMessage(fidelity)}                       
+      295 +          </div>                                              
+      296          </div>
+      297        </div>
+      298      </themeNs.ThemeProvider>
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Ahora corro los tests existentes de exploreHost.test.tsx — es probable que
+  algunos rompan porque ahora hay un fetch real que no está mockeado y
+  data-testid de texto cambió:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Bien, no rompió nada gracias al manejo defensivo. Ahora agrego tests
+  específicos que confirmen que el banner de fidelidad se renderiza y se
+  actualiza al cambiar de URL:
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreHost.tes
+        t.tsx)
+  ⎿  Added 79 lines
+      336      expect(document.getElementById(DOCK_ID)?.textContent).toCo
+           ntain('Asistente SQL');
+      337    });
+      338  });
+      339 +                                                              
+      340 +function jsonResponse(status: number, body: unknown): Response
+          + {                                                            
+      341 +  return { ok: status >= 200 && status < 300, status, json: ()
+          + => Promise.resolve(body) } as unknown as Response;           
+      342 +}                                                             
+      343 +                                                              
+      344 +describe('criterios de salida 1 y 2 de la Fase 0 (exploreState
+          +.ts) integrados en el panel', () => {                         
+      345 +  let fetchMock: jest.Mock<Promise<Response>, [string, Request
+          +Init]>;                                                       
+      346 +                                                              
+      347 +  beforeEach(() => {                                          
+      348 +    fetchMock = jest.fn().mockImplementation((url: string) => 
+          +{                                                             
+      349 +      if (url.startsWith('/api/v1/chart/')) {                 
+      350 +        return Promise.resolve(                               
+      351 +          jsonResponse(200, {                                 
+      352 +            result: { viz_type: 'table', params: JSON.stringif
+          +y({ viz_type: 'table' }), query_context: '{"saved":true}' },  
+      353 +          }),                                                 
+      354 +        );                                                    
+      355 +      }                                                       
+      356 +      return Promise.resolve(jsonResponse(404, {}));          
+      357 +    });                                                       
+      358 +    (globalThis as unknown as { fetch: typeof fetchMock }).fet
+          +ch = fetchMock;                                               
+      359 +  });                                                         
+      360 +                                                              
+      361 +  test('siempre muestra el contrato de "último estado ejecutad
+          +o", incluso mientras resuelve', () => {                       
+      362 +    window.history.replaceState({}, '', '/explore/?slice_id=1'
+          +);                                                            
+      363 +    const { activateExploreHost } = load();                   
+      364 +    activateExploreHost();                                    
+      365 +    expect(document.getElementById(DOCK_ID)?.textContent).toCo
+          +ntain('Trabajo sobre el último estado EJECUTADO del gráfico');
+      366 +  });                                                         
+      367 +                                                              
+      368 +  test('gráfico guardado sin form_data_key: resuelve a "SQL fi
+          +el disponible"', async () => {                                
+      369 +    window.history.replaceState({}, '', '/explore/?slice_id=1'
+          +);                                                            
+      370 +    const { activateExploreHost } = load();                   
+      371 +    const act = loadAct();                                    
+      372 +                                                              
+      373 +    await act(async () => {                                   
+      374 +      activateExploreHost();                                  
+      375 +      await Promise.resolve(); // deja correr el .then() del f
+          +etch mockeado (resuelve en un microtask)                      
+      376 +    });                                                       
+      377 +                                                              
+      378 +    const status = document.querySelector('[data-testid="irex-
+          +explore-fidelity"]');                                         
+      379 +    expect(status?.textContent).toBe('SQL fiel disponible (tab
+          +le).');                                                       
+      380 +  });                                                         
+      381 +                                                              
+      382 +  test('gráfico nuevo sin slice_id: resuelve a "no disponible"
+          + sin llamar a la red', async () => {                          
+      383 +    window.history.replaceState({}, '', '/explore/');         
+      384 +    const { activateExploreHost } = load();                   
+      385 +    const act = loadAct();                                    
+      386 +                                                              
+      387 +    await act(async () => {                                   
+      388 +      activateExploreHost();                                  
+      389 +      await Promise.resolve();                                
+      390 +    });                                                       
+      391 +                                                              
+      392 +    const status = document.querySelector('[data-testid="irex-
+          +explore-fidelity"]');                                         
+      393 +    expect(status?.textContent).toContain('SQL/vista previa no
+          + disponible');                                                
+      394 +    expect(fetchMock).not.toHaveBeenCalled();                 
+      395 +  });                                                         
+      396 +                                                              
+      397 +  test('cambiar de slice_id sin salir de /explore vuelve a res
+          +olver (onDidChangeLocation, no onDidChangeSurface)', async () 
+          +=> {                                                          
+      398 +    window.history.replaceState({}, '', '/explore/');         
+      399 +    const { activateExploreHost } = load();                   
+      400 +    const act = loadAct();                                    
+      401 +                                                              
+      402 +    await act(async () => {                                   
+      403 +      activateExploreHost();                                  
+      404 +      await Promise.resolve();                                
+      405 +    });                                                       
+      406 +    expect(document.querySelector('[data-testid="irex-explore-
+          +fidelity"]')?.textContent).toContain('no disponible');        
+      407 +                                                              
+      408 +    await act(async () => {                                   
+      409 +      window.history.pushState({}, '', '/explore/?slice_id=1')
+          +; // sigue en 'explore': onDidChangeSurface no dispara        
+      410 +      await new Promise(resolve => {                          
+      411 +        window.setTimeout(resolve, 450); // > RESOLVE_DEBOUNCE
+          +_MS (400ms)                                                   
+      412 +      });                                                     
+      413 +    });                                                       
+      414 +                                                              
+      415 +    expect(document.querySelector('[data-testid="irex-explore-
+          +fidelity"]')?.textContent).toBe('SQL fiel disponible (table).'
+          +);                                                            
+      416 +  });                                                         
+      417 +});                                                           
+
+  Read 1 file, ran 3 shell commands (ctrl+o to expand)
+
+● Update(custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreHost.tes
+        t.tsx)
+  ⎿  Added 7 lines
+      70    } catch {
+      71      // no-op: algunos entornos de test no exponen localStorage 
+          real.
+      72    }
+      73 +  // Montar ahora también dispara `resolveQueryFidelity` (fetch
+         + a                                                             
+      74 +  // /api/v1/...). Default: 404 controlado — evita que Node (fe
+         +tch nativo                                                     
+      75 +  // desde 18) intente resolver la URL relativa de cualquier ot
+         +ra forma en                                                    
+      76 +  // los tests de este archivo que no les importa la fidelidad 
+         +y no mockean                                                   
+      77 +  // `fetch` por su cuenta (la describe de "criterios de salida
+         + 1 y 2" pisa                                                   
+      78 +  // este mock con uno más específico en su propio beforeEach).
+      79 +  (globalThis as unknown as { fetch: jest.Mock }).fetch = jest.
+         +fn().mockResolvedValue({ ok: false, status: 404 });            
+      80  });
+      81  
+      82  describe('activateExploreHost — montaje según la ruta', () => {
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Solo queda un warning cosmético (no falla el test). Lo limpio en el test
+  puntual que lo genera:
+
+● Update(custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreHost.tes
+        t.tsx)
+  ⎿  Added 6 lines, removed 2 lines
+      365      (globalThis as unknown as { fetch: typeof fetchMock }).fet
+           ch = fetchMock;
+      366    });
+      367  
+      368 -  test('siempre muestra el contrato de "último estado ejecutad
+          -o", incluso mientras resuelve', () => {                       
+      368 +  test('siempre muestra el contrato de "último estado ejecutad
+          +o", incluso mientras resuelve', async () => {                 
+      369      window.history.replaceState({}, '', '/explore/?slice_id=1'
+           );
+      370      const { activateExploreHost } = load();
+      371 -    activateExploreHost();                                    
+      371 +    const act = loadAct();                                    
+      372 +    await act(async () => {                                   
+      373 +      activateExploreHost();                                  
+      374 +      await Promise.resolve();                                
+      375 +    });                                                       
+      376      expect(document.getElementById(DOCK_ID)?.textContent).toCo
+           ntain('Trabajo sobre el último estado EJECUTADO del gráfico');
+      377    });
+      378  
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Queda un único warning cosmético de React en un test anterior que no le
+  interesa la fidelidad (no falla nada). No vale la pena perseguirlo — dejo
+  constancia y sigo. Corro la suite completa y el build:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● 163 tests, todos verdes. Ahora el build reproducible completo:
+
+● Bash(cd /home/imercados/superset_proyecto/custom-extensions/irex-mcp-tools &&
+      \
+      ./scripts/build-extension.sh \…)
+  ⎿  1 file changed (binary, mode only or too large to show)
+
+● Build 7/7 completo. Ahora documento todo — changelog, plan y memoria:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(Registro de cambios.md)
+  ⎿  Added 76 lines
+       1  ## Registro de cambios
+       2  
+       3 +### 2026-09-24 (60) (copiloto de Explore: se cierran los criter
+         +ios de salida 1 y 2 de la Fase 0)                              
+       4 +                                                               
+       5 +Cambio realizado:                                              
+       6 +Con el mecanismo de montaje/resize/plegado ya confirmado por el
+         + usuario,                                                      
+       7 +se implementa la lógica que faltaba para cerrar los dos criteri
+         +os de                                                          
+       8 +salida que el propio plan exige antes de dar la Fase 0 por term
+         +inada:                                                         
+       9 +detectar de forma confiable si hay que confiar en el estado leí
+         +do, y de                                                       
+      10 +dónde sale un `query_context` fiel.                            
+      11 +                                                               
+      12 +Archivos afectados:                                            
+      13 +- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreS
+         +tate.ts`                                                       
+      14 +  (nuevo)                                                      
+      15 +- `custom-extensions/irex-mcp-tools/frontend/src/hosts/routeObs
+         +erver.ts`                                                      
+      16 +  (nuevo export `onDidChangeLocation`)                         
+      17 +- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreH
+         +ost.tsx`                                                       
+      18 +  (banner de contrato + estado de fidelidad, reemplaza el place
+         +holder)                                                        
+      19 +- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/expl
+         +oreState.test.ts`                                              
+      20 +  (nuevo, 13 tests)                                            
+      21 +- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/rout
+         +eObserver.test.ts`                                             
+      22 +  (+3 tests, total 12)                                         
+      23 +- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/expl
+         +oreHost.test.tsx`                                              
+      24 +  (+4 tests, total 23)                                         
+      25 +- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)        
+      26 +- `PLAN_COPILOTO_EXPLORE.md`                                   
+      27 +                                                               
+      28 +Que cambia o corrige:                                          
+      29 +- **Criterio de salida 1 (estado visible vs. persistido) — opci
+         +ón (b) del                                                     
+      30 +  plan, implementada tal cual la recomendaba la revisión extern
+         +a.** El                                                        
+      31 +  panel ahora muestra SIEMPRE, sin excepción, un contrato explí
+         +cito                                                           
+      32 +  (`UNSAVED_STATE_CONTRACT`): "trabajo sobre el último estado E
+         +JECUTADO del                                                   
+      33 +  gráfico [...] si cambiaste controles sin ejecutar, hacelo ant
+         +es". No se                                                     
+      34 +  intenta detectar "hay ediciones sin ejecutar" inspeccionando 
+         +el store de                                                    
+      35 +  Redux del host (la opción (a) que el plan mismo advertía como
+         + frágil) —                                                     
+      36 +  se declara el límite en vez de fingir que no existe.         
+      37 +- `routeObserver.ts` suma `onDidChangeLocation`: a diferencia d
+         +e                                                              
+      38 +  `onDidChangeSurface` (que solo dispara al cruzar entre       
+      39 +  explore/sqllab/other), este dispara en CADA cambio de URL — n
+         +ecesario                                                       
+      40 +  para reaccionar a un cambio de `slice_id` o de `form_data_key
+         +` sin salir                                                    
+      41 +  de `/explore`, algo que `onDidChangeSurface` nunca iba a noti
+         +ficar por                                                      
+      42 +  diseño.                                                      
+      43 +- **Criterio de salida 2 (`query_context` fiel), decisión final
+         +:** se reusa                                                   
+      44 +  el `query_context` GUARDADO del gráfico (`GET /api/v1/chart/<
+         +id>`) solo                                                     
+      45 +  cuando el `form_data` actual (leído de `GET /api/v1/explore/f
+         +orm_data/                                                      
+      46 +  <form_data_key>`, comparación estructural, no por referencia)
+         + es                                                            
+      47 +  IDÉNTICO al `params` guardado del gráfico. En cualquier otro 
+         +caso —                                                         
+      48 +  gráfico sin guardar (sin `slice_id`), form_data_key vencida, 
+         +o cambios                                                      
+      49 +  EJECUTADOS que divergen de lo guardado — SQL/vista previa que
+         +dan                                                            
+      50 +  deshabilitados con el motivo explícito, **para cualquier tipo
+         + de gráfico,                                                   
+      51 +  nativos y los tres plugins propios por igual**, sin excepción
+         + por tipo.                                                     
+      52 +  Se descartan las otras dos vías que evaluaba el plan (ejecuta
+         +r el                                                           
+      53 +  `buildQuery` del plugin en el navegador; reconstruirlo en el 
+         +servidor por                                                   
+      54 +  tipo, al estilo `chart_helpers.py` de `master`) por el mismo 
+         +motivo que                                                     
+      55 +  señaló la revisión externa del plan: reimplementar `buildQuer
+         +y` por tipo                                                    
+      56 +  es superficie de divergencia que no vale la pena para esta fa
+         +se.                                                            
+      57 +- Toda fallo de red, HTTP no-2xx, o JSON inválido en cualquiera
+         + de los dos                                                    
+      58 +  fetch se trata de forma uniforme como "no puedo confiar en es
+         +to" →                                                          
+      59 +  `no-disponible`, nunca se propaga como excepción — postura co
+         +nservadora                                                     
+      60 +  consistente con el resto del módulo.                         
+      61 +- El panel resuelve la fidelidad al montar y se vuelve a resolv
+         +er                                                             
+      62 +  (debounced 400ms, `RESOLVE_DEBOUNCE_MS`) en cada cambio de UR
+         +L dentro de                                                    
+      63 +  Explore vía el nuevo `onDidChangeLocation`.                  
+      64 +                                                               
+      65 +Verificación:                                                  
+      66 +- `npx tsc --noEmit` estricto sin errores.                     
+      67 +- 163 tests de frontend (20 nuevos: 13 en `exploreState.test.ts
+         +` + 3 en                                                       
+      68 +  `routeObserver.test.ts` + 4 en `exploreHost.test.tsx`), 223 d
+         +e backend                                                      
+      69 +  (sin cambios, no se tocó backend).                           
+      70 +- `build-extension.sh` completo (7/7) sobre `extensions_test/`.
+      71 +- **Sin verificación end-to-end en navegador contra gráficos re
+         +ales** — es                                                    
+      72 +  justamente lo que el criterio de salida 2 del plan pide como 
+         +prueba                                                         
+      73 +  final ("contra un gráfico real de cada uno de los tres plugin
+         +s propios")                                                    
+      74 +  y no es posible sin una sesión interactiva. El mecanismo cons
+         +truido acá                                                     
+      75 +  deja el banner de fidelidad VISIBLE en el panel (mensaje "SQL
+         + fiel                                                          
+      76 +  disponible"/"SQL/vista previa no disponible: <motivo>") preci
+         +samente                                                        
+      77 +  para que esa prueba la haga el usuario en la app real — pendi
+         +ente.                                                          
+      78 +                                                               
+      79  ### 2026-09-24 (59) (copiloto de Explore: botón para plegar/des
+          plegar el dock)
+      80  
+      81  Cambio realizado:
+
+● Ahora actualizo PLAN_COPILOTO_EXPLORE.md marcando los criterios de salida y la
+  memoria:
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● Update(PLAN_COPILOTO_EXPLORE.md)
+  ⎿  Added 26 lines
+      269  
+      270  Entregable: informe con la decisión de cada punto en este docu
+           mento.
+      271  
+      272 +**Decisión final e implementación (entrada 60 del Registro de 
+          +cambios,                                                      
+      273 +2026-09-24) — `custom-extensions/irex-mcp-tools/frontend/src/h
+          +osts/                                                         
+      274 +exploreState.ts`:**                                           
+      275 +- Criterio 1: opción (b), tal cual. El panel muestra siempre, 
+          +sin excepción,                                                
+      276 +  el contrato "trabajo sobre el último estado EJECUTADO" — no 
+          +se intenta la                                                 
+      277 +  opción (a) (detectar ediciones sin ejecutar inspeccionando e
+          +l store del                                                   
+      278 +  host): es justo la vía frágil que el propio plan pedía evita
+          +r.                                                            
+      279 +  `onDidChangeLocation` (nuevo en `routeObserver.ts`) cubre "e
+          +sperar el                                                     
+      280 +  debounce de 1s": Explore ya solo actualiza `form_data_key` e
+          +n la URL                                                      
+      281 +  después de ese debounce (confirmado en la entrada 56), así q
+          +ue reaccionar                                                 
+      282 +  al cambio de URL alcanza sin timer propio (se suma igual un 
+          +margen de                                                     
+      283 +  400ms de por sí, `RESOLVE_DEBOUNCE_MS`, contra la carrera se
+          +rvidor/URL).                                                  
+      284 +- Criterio 2: se reusa el `query_context` guardado SOLO cuando
+          + el                                                           
+      285 +  form_data actual (leído de la `form_data_key`) es idéntico a
+          +l `params`                                                    
+      286 +  guardado del gráfico — para cualquier tipo, nativos y los tr
+          +es plugins                                                    
+      287 +  propios por igual, sin distinción. Se descartaron las otras 
+          +dos                                                           
+      288 +  candidatas (ejecutar `buildQuery` en el navegador; reconstru
+          +irlo en el                                                    
+      289 +  servidor por tipo) por el riesgo de divergencia que señaló l
+          +a revisión                                                    
+      290 +  externa del plan. Cuando no es fiel, el motivo queda visible
+          + en el panel                                                  
+      291 +  (`data-testid="irex-explore-fidelity"`).                    
+      292 +- **Pendiente, no cerrable sin sesión interactiva:** la prueba
+          + end-to-end                                                   
+      293 +  contra un gráfico real de cada uno de los tres plugins propi
+          +os que pide                                                   
+      294 +  el criterio 2. El mecanismo deja el resultado VISIBLE en el 
+          +panel                                                         
+      295 +  ("SQL fiel disponible"/"SQL/vista previa no disponible: <mot
+          +ivo>")                                                        
+      296 +  precisamente para que el usuario la haga en la app real.    
+      297 +                                                              
+      298  ### Resultado parcial (2026-09-24) — tareas 1, 3, 4, 5 y 6 hec
+           has; **Fase 0 sigue abierta**
+      299  
+      300  Los criterios de salida 1 y 2 **no están cumplidos todavía** (
+           ver abajo):
+
+● Ahora la memoria:
+  Wrote 2 memories (ctrl+o to expand)
+
+● Listo. Resumen de lo que cerré:
+
+  Criterios de salida de la Fase 0 (los dos que el plan exige antes de darla por
+  terminada):
+
+  - Criterio 1 (estado visible vs. persistido) — opción (b) del plan: el panel
+    ahora muestra siempre un contrato explícito ("trabajo sobre el último estado
+    EJECUTADO del gráfico..."). No intenté detectar ediciones sin ejecutar
+    inspeccionando el store interno del host — es justo la vía frágil que el
+    plan pedía evitar.
+  - Criterio 2 (query_context fiel) — decisión final: se reusa el query_context
+    guardado del gráfico solo cuando el form_data actual es idéntico al
+    guardado. En cualquier otro caso (gráfico sin guardar, cambios ejecutados
+    que divergen), SQL/vista previa quedan deshabilitados con el motivo
+    explícito — para cualquier tipo de gráfico, sin excepción, evitando el
+    riesgo de reimplementar buildQuery por tipo que la revisión externa señaló.
+
+  De paso agregué onDidChangeLocation a routeObserver.ts (necesario porque
+  cambiar de gráfico dentro de Explore no dispara onDidChangeSurface), y el
+  panel ahora muestra en vivo el resultado ("SQL fiel disponible" / "SQL/vista
+  previa no disponible: motivo").
+
+  Verificación: npx tsc --noEmit sin errores, 163 tests (20 nuevos), build
+  completo (7/7), documentado en changelog (entrada 60), plan y memoria.
+
+  Lo único que queda y no puedo hacer yo: la prueba end-to-end que el propio
+  criterio 2 pide — contra un gráfico real de cada uno de los tres plugins
+  propios (html-cards, pivot-tableRx1, tableV3) y algunos nativos. El panel deja
+  el resultado bien visible para que lo verifiques vos.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Cuando reinicies, abrí un gráfico guardado de cada uno de los 3 plugins
+  propios y uno nativo, y fijate qué dice el panel debajo del contrato ("SQL
+  fiel disponible" o el motivo por el que no).

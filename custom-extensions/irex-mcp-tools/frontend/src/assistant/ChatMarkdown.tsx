@@ -20,6 +20,48 @@ const HR_RE = /^(?:-{3,}|\*{3,}|_{3,})$/;
 const BLOCKQUOTE_RE = /^>\s?/;
 
 /**
+ * Marca "1) "/"2. " en medio de una oración, no al inicio de línea — lo que
+ * escribe el modelo cuando enumera sugerencias sin usar saltos de línea de
+ * verdad (reportado por el usuario con captura: "1) ... 2) ... 3) ..." todo
+ * pegado en un solo párrafo denso). `NUMBERED_RE` de arriba no lo detecta
+ * porque exige el marcador al INICIO de línea — acá se busca la misma
+ * secuencia en medio del texto.
+ */
+const INLINE_NUMBERED_MARKER_RE = /(?:^|\s)(\d+)[.)]\s+/g;
+
+/**
+ * Si `line` tiene 2+ marcadores numéricos SEGUIDOS empezando en 1 (1), 2),
+ * 3)...), la separa en un párrafo introductorio (lo que precede al primer
+ * marcador) y una lista — igual que si el modelo hubiera usado saltos de
+ * línea reales. Exigir la secuencia completa desde 1 evita falsos
+ * positivos sobre prosa común (una sola mención suelta como "a las 3) horas"
+ * nunca junta dos marcadores consecutivos, así que no dispara esto).
+ */
+function splitInlineEnumeration(line: string): { intro: string; items: string[] } | undefined {
+  const matches: RegExpExecArray[] = [];
+  INLINE_NUMBERED_MARKER_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  // eslint-disable-next-line no-cond-assign
+  while ((match = INLINE_NUMBERED_MARKER_RE.exec(line))) {
+    matches.push(match);
+  }
+  if (matches.length < 2) return undefined;
+  const numbers = matches.map(m => Number(m[1]));
+  if (numbers[0] !== 1) return undefined;
+  for (let i = 1; i < numbers.length; i += 1) {
+    if (numbers[i] !== numbers[i - 1] + 1) return undefined;
+  }
+  const firstMatch = matches[0];
+  const intro = line.slice(0, firstMatch.index).trim();
+  const items = matches.map((match, index) => {
+    const start = match.index! + match[0].length;
+    const end = index + 1 < matches.length ? matches[index + 1].index! : line.length;
+    return line.slice(start, end).trim();
+  });
+  return { intro, items };
+}
+
+/**
  * Subconjunto de Markdown para las respuestas del asistente: encabezados
  * (#..######), párrafos, listas, blockquotes, línea horizontal, bloques de
  * código con ```, negrita/itálica e inline code. No es un parser Markdown
@@ -74,6 +116,19 @@ function parseBlocks(text: string): Block[] {
         i += 1;
       }
       blocks.push({ kind: 'blockquote', lines: quoteLines });
+      continue;
+    }
+
+    // Se chequea ANTES que el numerado de inicio-de-línea de abajo: una
+    // línea que arranca "1) Uno. 2) Dos. 3) Tres." también matchea
+    // `NUMBERED_RE` (arranca con "1) "), y sin esta prioridad ese chequeo
+    // se quedaría con TODO el resto de la línea como un único ítem "Uno.
+    // 2) Dos. 3) Tres." en vez de partirlo en tres.
+    const inlineFromLineStart = splitInlineEnumeration(line);
+    if (inlineFromLineStart) {
+      if (inlineFromLineStart.intro) blocks.push({ kind: 'paragraph', lines: [inlineFromLineStart.intro] });
+      blocks.push({ kind: 'list', ordered: true, items: inlineFromLineStart.items });
+      i += 1;
       continue;
     }
 

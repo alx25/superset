@@ -150,6 +150,63 @@ Antes de cambiar código:
   `big_number`). No cubre los plugins propios ni el form_data real de cada
   `viz_type`: hay que construir un catálogo propio.
 
+### Corrección del 2026-09-24: prueba real de fidelidad en Explore
+
+La validación visual del usuario mostró `SQL/vista previa no disponible` en
+cualquier gráfico editado. La comparación exacta entre el `form_data` del
+historial y `chart.params` no separa cambios del usuario de transformaciones
+normales de Explore. En la metadata SQLite de test se compararon 13 estados
+reales de `form_data_key` con su gráfico guardado: los 13 diferían; aun
+ignorando `slice_id`, `dashboards` y `dashboardId`, ninguno coincidía.
+Entre los campos distintos hay controles que pueden alterar la consulta.
+
+Por lo tanto, la afirmación anterior de que el criterio de salida 2 estaba
+cerrado queda **revocada**. La igualdad exacta todavía permite reutilizar
+el `query_context` guardado; la desigualdad solo significa **fidelidad no
+verificada**. No se debe afirmar que el usuario hizo cambios sin guardar ni
+ignorar todas las diferencias para forzar el estado `fiel`.
+
+**Avance experimental (entrada 62):** la extensión observa únicamente el
+`POST /api/v1/chart/data` que Explore ya ejecuta, conserva su body (el
+`query_context` producido por el `buildQuery` del plugin) cuando responde 200
+y lo reusa solo si el `form_data` del request coincide con el estado leído de
+`form_data_key` tras quitar los tres campos de transporte (`force`,
+`result_format`, `result_type`). Si hay `url_params` con valores, o cualquier
+otra diferencia, se mantiene `fidelidad no verificada`. El observador se
+instala antes del montaje de Explore y se elimina al salir de la página.
+
+**Pendiente para cerrar la Fase 0:** validar el flujo en navegador real con
+un gráfico nativo y con cada plugin propio, incluidos cambios de controles,
+navegación y respuestas asíncronas. El capturador cubre la API v1; los tipos
+que usen `/superset/explore_json/` permanecen no verificables. Tampoco hay
+todavía vista previa/SQL en el panel: esta fase solo obtiene su contexto fiel.
+
+### Corrección del 2026-09-24: fuente del último estado ejecutado
+
+La prueba del usuario con el gráfico 682 mostró que el criterio de la entrada
+62 seguía rechazando el `query_context`. Al ejecutar, Superset construye el
+request de `/api/v1/chart/data` desde los controles normalizados
+(`controlsBasedFormData`), mientras `form_data_key` persiste la forma cruda
+`explore.form_data`; la igualdad entre ambas representaciones no es un
+invariante. En la metadata de test del gráfico 682 también se observó que el
+`slice_id` persistido en `chart.params`/`chart.query_context` era 1187,
+aunque el gráfico abierto es 682, así que ese contexto guardado no sirve
+como fuente para la vista actual.
+
+La fuente del **último estado ejecutado** pasa a ser el último `POST
+/api/v1/chart/data` con respuesta HTTP 200, `result_type=full` y
+`result_format=json` observado para el `slice_id` abierto. Es el mismo
+`query_context` que usó Superset para el gráfico mostrado. No se iguala con
+el estado crudo de la URL; este último sigue siendo útil para leer controles
+y detectar cambios posteriores, sin pretender que sea el payload SQL.
+
+La validación real del gráfico 682 (`table_v3`) quedó aprobada tras el
+reinicio de `superset_test.service` y una pulsación de «Actualizar gráfico»:
+el panel mostró «SQL del estado ejecutado disponible (table_v3).» La Fase 0
+sigue abierta hasta validar otros tipos nativos y los plugins `html-cards`
+y `pivot-tableRx1`. La captura solo cubre la API v1 y no sustituye la vista
+previa/SQL de fases posteriores.
+
 ## Arquitectura
 
 Mismo patrón que el asistente de SQL Lab: **el MCP solo lee y propone; quien
@@ -269,6 +326,214 @@ no es el del gráfico.
 
 Entregable: informe con la decisión de cada punto en este documento.
 
+**Decisión final e implementación (entrada 60 del Registro de cambios,
+2026-09-24) — `custom-extensions/irex-mcp-tools/frontend/src/hosts/
+exploreState.ts`:**
+- Criterio 1: opción (b), tal cual. El panel muestra siempre, sin excepción,
+  el contrato "trabajo sobre el último estado EJECUTADO" — no se intenta la
+  opción (a) (detectar ediciones sin ejecutar inspeccionando el store del
+  host): es justo la vía frágil que el propio plan pedía evitar.
+  `onDidChangeLocation` (nuevo en `routeObserver.ts`) cubre "esperar el
+  debounce de 1s": Explore ya solo actualiza `form_data_key` en la URL
+  después de ese debounce (confirmado en la entrada 56), así que reaccionar
+  al cambio de URL alcanza sin timer propio (se suma igual un margen de
+  400ms de por sí, `RESOLVE_DEBOUNCE_MS`, contra la carrera servidor/URL).
+- Criterio 2: se reusa el `query_context` guardado SOLO cuando el
+  form_data actual (leído de la `form_data_key`) es idéntico al `params`
+  guardado del gráfico — para cualquier tipo, nativos y los tres plugins
+  propios por igual, sin distinción. Se descartaron las otras dos
+  candidatas (ejecutar `buildQuery` en el navegador; reconstruirlo en el
+  servidor por tipo) por el riesgo de divergencia que señaló la revisión
+  externa del plan. Cuando no es fiel, el motivo queda visible en el panel
+  (`data-testid="irex-explore-fidelity"`).
+- **Pendiente, no cerrable sin sesión interactiva:** la prueba end-to-end
+  contra un gráfico real de cada uno de los tres plugins propios que pide
+  el criterio 2. El mecanismo deja el resultado VISIBLE en el panel
+  ("SQL fiel disponible"/"SQL/vista previa no disponible: <motivo>")
+  precisamente para que el usuario la haga en la app real.
+
+### Resultado parcial (2026-09-24) — tareas 1, 3, 4, 5 y 6 hechas; **Fase 0 sigue abierta**
+
+Los criterios de salida 1 y 2 **no están cumplidos todavía** (ver abajo):
+esta entrada deja evidencia y un mecanismo de base para resolverlos, pero
+falta construir y probar en vivo la lógica que los cierra (eso implica leer
+form_data real con avisos de estado pendiente, y una tool de vista previa —
+trabajo de Fase 1/4/5, no de un spike). Lo que sí quedó **hecho, probado y
+en el `.supx` de test**:
+
+**Tarea 1 — montaje en `/explore` (código nuevo, con tests):**
+- `frontend/src/hosts/routeObserver.ts`: observador de ruta reutilizable
+  (antes esta lógica solo existía, duplicada, como script inline en
+  `mcp_widget.py` para ocultar "El Don"). Envuelve `history.pushState`/
+  `replaceState` una sola vez por proceso y escucha `popstate`. 9 tests.
+- `frontend/src/hosts/exploreHost.tsx`: monta una raíz de React PROPIA
+  (`ReactDOM.render`/`unmountComponentAtNode`, API de React 17) en un `div`
+  fijo agregado a `document.body` al entrar a `/explore`, y la desmonta al
+  salir — nunca queda un nodo ni un listener vivo fuera de Explore
+  (verificado con 5 tests: montaje inicial, entrada/salida, doble
+  ida-y-vuelta sin fugas, y que navegar entre gráficos dentro de `/explore`
+  NO remonta). Cableado desde `index.tsx`.
+- **Hallazgo no anticipado por el plan — el panel de SQL Lab no sirve de
+  modelo aquí:** `theme.useTheme()` (que usa toda la carcasa compartida) es
+  literalmente el `useTheme()` de Emotion — lee `React.Context`, así que
+  SOLO funciona dentro del árbol de React que tiene un `<ThemeProvider>`
+  ancestro. El panel de SQL Lab lo hereda porque `sqllab.rightSidebar` lo
+  monta DENTRO del árbol del host; una raíz separada (sin punto de montaje
+  en Explore) no hereda nada, sin importar que `@apache-superset/core` se
+  resuelva en runtime contra el mismo `window.superset` que usa el host
+  (`externalsType: "window"` en `webpack.config.js`) — Module Federation no
+  crea ninguna relación de árbol de React entre bundles.
+- **Solución, verificada contra la app de test real:**
+  `frontend/src/hosts/themeBridge.ts`. `document.getElementById('app')
+  .dataset.bootstrap` trae `common.theme.{default,dark}` (`{algorithm,
+  token}`, `algorithm` serializado como string `"default"`/`"dark"`) —
+  **confirmado idéntico en `/explore/`, `/sqllab/` y `/superset/welcome/`**
+  (no es específico de SQL Lab, es el bootstrap genérico de cualquier
+  página autenticada). `themeNs.Theme.fromConfig(cfg)` (la misma clase
+  pública, vía `window.superset`) sabe deserializar ese formato y calcula
+  los tokens con el `antd` compartido como singleton — mismo resultado que
+  `useTheme()` dentro del árbol del host, sin reimplementar el algoritmo. El
+  modo claro/oscuro se lee de `localStorage['superset-theme-mode']` (con
+  `prefers-color-scheme` para `'system'`), y `ThemeAgentBridge.tsx`
+  (customización propia del proyecto, ya usada para "El Don") dispara
+  `window` `CustomEvent('superset-agent:theme-change')` en cada cambio —
+  se usa solo como disparador para recalcular, no se consume su `detail`
+  (trae un subconjunto reducido de tokens, insuficiente para los
+  componentes que reutiliza este panel). 11 tests; sin verificación visual
+  con navegador real (queda pendiente, igual que la Fase 0 en general).
+- Dock actual: `position: fixed` superpuesto (380px, borde y sombra),
+  **no reduce el espacio real de Explore**. Es la opción simple entre las
+  dos que preveía la tarea 2; un dock que reserve espacio de verdad (como
+  "El Don") queda para la Fase 1, después de auditar en un navegador real
+  el layout de Explore a 1366px/1920px — no verificable de forma headless
+  sin una sesión interactiva autenticada.
+
+**Tarea 6 — ocultar "El Don" en Explore:** `mcp_widget.py` (regla de la
+entrada 50, extendida): `/^\/sqllab(\/|$)/` → `/^\/(sqllab|explore)(\/|$)/`.
+Verificado en dos niveles: (a) extraído el snippet inyectado real desde una
+respuesta HTTP real de `/explore/` contra la app de test — 8 casos de
+navegación con el código real (`pushState`/`replaceState`/`popstate`,
+incluida una ruta trampa `/exploreX/` que NO debe ocultarse) — 8/8; (b) no
+afecta a SQL Lab (mismo patrón, sin cambios ahí).
+
+**Tareas 3 y 4 — `form_data` real, con un hallazgo importante sobre
+`tab_id`:** contra la app de test real (`POST`/`GET`/`PUT`
+`/api/v1/explore/form_data`, con RBAC de verdad —
+`GetFormDataCommand`/`UpdateFormDataCommand` llaman
+`security_manager`/`check_access` sobre el dataset o el gráfico, no son
+solo caché):
+- `GET` respeta el acceso al dataset (un usuario sin acceso al datasource
+  del form_data recibe 403, verificado).
+- **`PUT /form_data/<key>` genera una key NUEVA en cada llamada si no se
+  manda `tab_id` — no actualiza "en el lugar".** `UpdateFormDataCommand`
+  cachea `(sesión, tab_id, datasource, chart) → key`; sin `tab_id` (o con
+  `tab_id=0`) siempre llama a `random_key()`. Con el `tab_id` real de la
+  pestaña (el mismo `sessionStorage['tab_id']` que ya usa el propio
+  Explore — `useTabId()`, un contador por pestaña con `BroadcastChannel`
+  para no colisionar entre pestañas), `PUT` SÍ reutiliza la misma key en
+  llamadas sucesivas — verificado con 3 `PUT` seguidos con el mismo
+  `tab_id` (misma key todas) y un `PUT` con `tab_id` distinto (key nueva,
+  no pisa la otra pestaña). **Consecuencia para el adaptador de Explore
+  (Fase 1): tiene que leer y mandar el `tab_id` real de
+  `sessionStorage`, igual que el propio Explore, para no generar una key
+  huérfana en cada escritura, desincronizada del ciclo de autoguardado
+  (`updateHistory`, debounce 1s) que Explore sigue haciendo en paralelo.**
+  Ningún dato de esto estaba en la investigación previa del plan.
+- El body de la request SIEMPRE devuelve el `key` real a usar (nunca
+  asumir que es el mismo que se mandó): coincide con lo que el plan ya
+  preveía ("escribir un form_data nuevo y recargar con esa key"), ahora
+  con evidencia de POR QUÉ hace falta ese cuidado.
+
+**Tarea 5 — catálogo de controles, evidencia que endurece la Fase 0/6:**
+- Confirmado (código): `shared` de Module Federation del host solo incluye
+  `react`/`react-dom`/`antd` — `@superset-ui/core` (donde vive
+  `getChartBuildQueryRegistry()`) NO se comparte; `window.superset` (el
+  surface de `@apache-superset/core` que SÍ es external) tampoco lo expone.
+  No hay ningún otro global de depuración con el registro. Vía de acceso al
+  registro real del host: **no existe**, para ningún tipo de gráfico.
+- **`chart.query_context` guardado es fiel, pero solo hasta el último
+  "Guardar":** confirmado en `saveModalActions.ts` — al guardar, el
+  frontend llama al mismo `buildV1ChartDataPayload` que usa
+  `/api/v1/chart/data` y lo manda como `query_context` en el propio
+  request de guardado. Es la fuente MÁS barata y de MAYOR fidelidad para
+  el caso "gráfico guardado, sin ediciones pendientes".
+- **Los tres plugins propios definen su propio `buildQuery.ts`** (51 líneas
+  en `html-cards`, 122 en `pivot-tableRx1`, 392 en `tableV3`) — ninguno usa
+  el builder genérico por defecto. Descarta cualquier reconstrucción
+  server-side "genérica" para ellos.
+- **`master` (aún sin publicar) ya se topó con este mismo problema:**
+  `superset/mcp_service/chart/tool/get_chart_sql.py` +
+  `chart_helpers.py` (1139 líneas) reconstruyen `query_context` en Python
+  por tipo de gráfico — pero **solo para tipos nativos de Superset**
+  (treemap, gantt, deck_gl, big_number, mixed_timeseries…); no puede ni
+  podrá cubrir plugins de terceros como los propios. Su propia lógica de
+  resolución (`_resolve_effective_form_data`) confirma el mismo criterio
+  del criterio de salida 1: sin `form_data_key` explícito, confía
+  ciegamente en el `query_context` guardado (sin chequeo de frescura
+  aparte); CON `form_data_key`, nunca reusa el guardado — siempre
+  reconstruye desde form_data. Valida que "pedir `form_data_key` siempre
+  que pueda haber ediciones sin guardar" es el patrón correcto, no una
+  ocurrencia nuestra.
+- **Recomendación para cerrar el criterio de salida 2 (a implementar en
+  Fase 1/4, no en este spike):** para gráficos guardados sin ediciones
+  pendientes (form_data actual == `chart.params`), usar el
+  `query_context` guardado — fidelidad total, cero reimplementación, sirve
+  para los tres plugins propios sin trabajo extra. Para ediciones
+  pendientes en tipos NATIVOS, evaluar puntualmente si conviene portar
+  una versión acotada de la lógica de `master` (con el riesgo de
+  divergencia ya señalado). Para ediciones pendientes en los tres plugins
+  propios, no hay atajo: es el trabajo real de la Fase 6, con tests
+  contra cada `buildQuery.ts`. Hasta entonces, la vista previa/SQL de un
+  gráfico con ediciones sin guardar en un plugin propio debe responder
+  "no puedo generar el SQL fiel para esto todavía" en vez de adivinar.
+
+**Verificación de todo lo anterior:** `npx tsc --noEmit` estricto, 129
+tests de frontend (25 nuevos: 9 + 11 + 5), 223 tests de backend (sin
+cambios — cifra corregida: turnos anteriores de esta conversación citaron
+"264" de memoria sin volver a verificar; `git status` limpio confirma que
+223 es el número real del código en el repo), `build-extension.sh`
+completo sobre `extensions_test/`. Sin verificación visual en navegador
+(no hay sesión interactiva disponible en esta sesión) — pendiente antes de
+dar por cerrada la Fase 0.
+
+**Pendiente para cerrar la Fase 0 (no hecho en esta entrada):**
+1. Verificación visual real (navegador) del dock y del tema derivado, en
+   claro/oscuro, a 1366px y 1920px.
+2. Construir y probar en vivo el aviso de "hay cambios sin ejecutar" (o
+   documentar formalmente la opción (b) del criterio de salida 1 como la
+   elegida) — la mecánica de `tab_id` ya está resuelta, falta la UX.
+3. Una prueba end-to-end de la ruta recomendada del criterio de salida 2
+   (`query_context` guardado) contra un gráfico real de cada uno de los
+   tres plugins propios.
+
+**Bugs reales encontrados con el spike en vivo, fuera de esta lista
+(entradas 57 y 58 del Registro de cambios, 2026-09-24, dos rondas de
+capturas del usuario):**
+1. (Entrada 57) El overlay del dock usaba `position: fixed; top: 0`,
+   tapando la cabecera propia de Explore ("Guardar", "...") y la barra
+   global de Superset. Primer intento de fix: medir en runtime el borde
+   inferior de `#main-menu`/`.header-with-actions` y apoyar el dock debajo.
+2. (Entrada 58) Insuficiente — el dock, aunque ya no tapaba las barras,
+   seguía siendo un overlay superpuesto al lienzo del gráfico y a sus
+   controles. El usuario pidió explícitamente que reserve espacio real,
+   "similar a como lo hace el widget del chat", y que sea redimensionable.
+   Reemplazado el mecanismo entero: ahora `exploreHost.tsx` envuelve `#app`
+   en una fila flex y agrega el dock como HERMANO con ancho propio (mismo
+   patrón, con los mismos nombres de pieza, que `setupDock`/
+   `setupDockResize` de `custom-src/login/mcp_widget.py`), con handle de
+   resize (mínimo 380px, máximo 50vw, ancho persistido en `localStorage`).
+   `measureReservedTop()`/`useReservedTop()` de la entrada 57 quedaron
+   eliminados — ya no aplican, el dock nunca comparte espacio con nada que
+   haya que medir.
+
+El usuario confirmó visualmente que este mecanismo ya funciona (dock
+incrustado, no superpuesto) y pidió un último detalle (entrada 59 del
+Registro de cambios): botón para plegar/desplegar el panel. Implementado —
+botón circular sobre el handle de resize, plegado a `width:0` sin perder el
+ancho elegido, estado persistido en `localStorage`. Sigue pendiente que el
+usuario confirme visualmente este detalle puntual; la tarea 2 de arriba
+(auditoría de layout a 1366/1920px, claro/oscuro) sigue abierta en general.
+
 ## Fase 1 — Carcasa común del panel
 
 1. Separar la carcasa (componentes existentes) de la lógica de SQL Lab
@@ -280,6 +545,52 @@ Entregable: informe con la decisión de cada punto en este documento.
    (nuevo, Fase 0).
 4. Encabezado y modos por superficie. En Explore: "Explicar", "Mejorar
    gráfico", "Métricas"; el control segmentado se reutiliza.
+
+### Avance de Fase 1 (2026-09-24, entrada 64)
+
+Se creó `frontend/src/adapters/exploreAdapter.ts` como frontera de lectura
+para Explore: entrega por separado `form_data_key`/`form_data` persistidos y
+`query_context` de la ejecución observada, y avisa por separado cambios de
+URL y capturas del gráfico. El indicador del dock usa la lectura ligera para
+no repetir peticiones REST en cada actualización. El encabezado común acepta
+título y subtítulo por superficie: Explore dice «Asistente de gráficos» y no
+muestra «Limpiar» hasta que exista una conversación; SQL Lab conserva su
+encabezado y su sesión. El paquete está compilado en `extensions_test/`.
+
+Quedan pendientes de la Fase 1 la interfaz de acciones/deshacer, los modos de
+Explore y el panel de conversación. La Fase 0 todavía requiere validación
+visual de los tipos que figuran arriba; esta entrega no la declara cerrada.
+
+### Avance de Fase 1 (2026-09-24, entrada 70) — el panel ya se conecta al chat
+
+El usuario confirmó con una captura que el dock solo mostraba diagnóstico,
+sin forma de escribirle al asistente ("¿aún no puedo interactuar con el
+chat?"). Se construyó `assistant/ExploreAssistantPanel.tsx` (orquestación:
+lee contexto, arma y manda el pedido, muestra respuesta/aclaraciones/
+diagnósticos, "Nueva sesión") y `assistant/ExploreConversation.tsx`
+(composer + los 3 modos de Explore: "Explicar"/"Mejorar gráfico"/
+"Métricas"). **Decisión sobre el punto 1 de esta fase:** no se generalizó
+`SqlLabAssistantPanel.tsx`/`Conversation.tsx` para cubrir ambos casos —
+`Conversation.tsx` está atado a los 4 modos de SQL Lab y a diagnósticos con
+`line`/`column` (posición en SQL), que no tienen sentido para los
+diagnósticos de Explore (apuntan a un `control` del formulario). Se
+reusaron sin tocarlas las piezas realmente genéricas (`WorkingIndicator`,
+`UserTurn`, `EarlierTurns`, exportadas de forma aditiva) y se escribió
+`ExploreConversation.tsx` aparte, mismo lenguaje visual. Los 189 tests
+previos de SQL Lab/Explore siguen pasando sin tocarse (solo 1 aserción de
+`exploreHost.test.tsx` se actualizó a propósito: "Nueva sesión" ahora SÍ
+debe aparecer).
+
+Acciones (`patch_form_data`, `add_adhoc_metric`, etc.) se describen en una
+tarjeta de solo lectura, sin botón "Aplicar" — aplicar de verdad exige
+validar catálogo y key vigente inmediatamente antes (contrato v1), y hoy
+`irex.get_viz_controls`/`irex.validate_expression` no existen todavía, así
+que el backend descarta esas acciones de la respuesta de cualquier forma.
+Sigue pendiente de esta fase: interfaz de deshacer (no aplica todavía,
+nada se puede aplicar) y la extracción real de una carcasa COMPARTIDA
+entre SQL Lab y Explore (por ahora son dos árboles de componentes
+paralelos, no uno solo parametrizado — más simple y seguro hoy, pero es
+duplicación real que convendría revisar si diverge mucho más).
 
 ## Fase 2 — Permisos
 
@@ -339,6 +650,60 @@ Reglas: nada se aplica solo; las operaciones sobre controles inexistentes
 en el catálogo se rechazan en el frontend; las expresiones deben venir
 validadas (Fase 4).
 
+### Avance de Fases 2 y 3 (2026-09-24, entrada 65)
+
+El usuario incorporó el contrato del backend de chat en
+`custom-extensions/irex-mcp-tools/docs/explore-assistant-contract.md`. La
+extensión ya tiene tipos y validación del sobre Explore v1; el adaptador
+construye el body solo con `form_data_key`, `form_data` y `query_context`
+fieles, y toma el datasource de este último. El código no envía el body ni
+habilita acciones todavía.
+
+Auditoría de permisos de la metadata SQLite usada con `superset_config_test.py`
+(`~/.superset/superset.db`, lectura solamente): Admin, Alpha, Gamma y Solo PNS
+tienen `can_read` sobre Chart y Dataset. Admin, Alpha y Gamma tienen
+`can_explore` sobre Superset; Solo PNS no. El rol `acceso chat` no otorga
+ninguno de esos permisos por sí solo y tiene 1 usuario asignado en esta
+metadata. La entrada web propuesta para Explore exige sesión, rol del chat,
+`can_explore` y lectura de Chart/Dataset; cada tool MCP deberá además
+comprobar acceso real al dataset. Admin para escrituras de dataset sigue
+siendo una verificación del servidor y de la tool, nunca del body del
+navegador. No se creó endpoint de escritura ni se habilitó chat.
+
+**Bloqueo del proxy:** la revisión automática rechazó añadir el endpoint
+`/assistant/explore` que reenviaría identidad y `form_data` a
+`CHAT_WIDGET_API_URL` porque ese destino no está autorizado explícitamente
+para ese payload. La operación rechazada no dejó cambios parciales. El
+contrato local y las pruebas no hacen peticiones de red. Para conectar el
+transporte hace falta autorización explícita de ese envío al backend de chat
+configurado en test; producción requiere su propia autorización de despliegue.
+`irex.get_explore_state` sigue pendiente, así que el backend del chat devolvería
+503 incluso tras conectar el proxy.
+
+### Integración autorizada en test (2026-09-24, entrada 66)
+
+El usuario autorizó explícitamente que el proxy de test envíe identidad,
+rol Admin verificado y `form_data` a `CHAT_WIDGET_API_URL`. Se añadió
+`POST /extensions/irex/irex-mcp-tools/assistant/explore` en la vista propia
+de la extensión (`csrf_exempt=False`), que reenvía SSE/JSON al endpoint fijo
+`/api/explore-assistant`. Antes del relay exige sesión, rol del chat,
+`can_explore` en Superset, lectura de Chart y Dataset y acceso real al
+dataset declarado. El proxy sustituye cualquier `X-Superset-Is-Admin`,
+`user.is_admin` o `mcp_url` enviados por el navegador por valores de la
+sesión/configuración de Superset. Si falta `MCP_WIDGET_URL`, responde 503.
+El transporte frontend usa únicamente esta REST; un 404 no cae al proxy
+legacy. El panel aún no envía pedidos: falta `irex.get_explore_state` y la
+validación restante de Fase 0.
+
+La autorización cubre la integración y el paquete **de test**. Build 7/7
+aprobado (188 tests frontend, 229 backend). El paquete está en
+`extensions_test/`. El usuario reinició `superset_test.service`: la ruta
+respondió 400 sin CSRF a POST, 405 a GET y una ruta inexistente 404;
+`/health` respondió 200. Falta una prueba autenticada y `irex.get_explore_state`.
+No se cambia ni reinicia producción. El proxy bloqueado en la
+entrada 65 se implementó ahora con esta autorización; las tools MCP de la
+Fase 4 siguen pendientes.
+
 ## Fase 4 — Tools MCP (solo lectura)
 
 Todas con tag `irex`, RBAC por tool, RLS, límites estrictos y sin exponer
@@ -371,6 +736,101 @@ credenciales. Paso 6 de `CLAUDE.md`: agregarlas a `always_visible`.
    usuario con RLS obtiene un plan y un perfil de nulos que respetan su
    filtro; un usuario sin acceso al dataset es rechazado aunque tenga acceso
    a la base.
+
+### Avance de Fase 4 (2026-09-24, entrada 67)
+
+Se implementó `irex.get_explore_state` como primera tool MCP de solo lectura.
+Lee la caché `form_data_key` bajo identidad MCP, exige `can_read Chart`,
+`can_explore`, `can_read Dataset` y el `check_access` nativo al dataset y
+al gráfico. Devuelve `slice_id` del `chart_id` cacheado, no del posible
+`slice_id` obsoleto dentro de `form_data` (caso real 682/1187), y `is_admin`
+del `security_manager` del usuario. Informa `state_kind=last_persisted`:
+la caché no demuestra ejecución. La prueba de permisos, estado vencido,
+JSON inválido, tipo de datasource y el caso de ID obsoleto pasó.
+
+El agente del backend informó que ya acepta `last_persisted` para lectura
+y reserva SQL, resultados y preview hasta verificar independientemente el
+`query_context` ejecutado. El adaptador de la extensión ya puede construir
+la solicitud de lectura desde `form_data` persistido sin exigir SQL capturado. El build 7/7 pasó (188 frontend, 237 backend) y el `.supx` de test contiene
+la tool registrada. El usuario reinició `superset_mcp_test.service` y el
+journal confirmó `irex.get_explore_state` como tool protegida; falta invocarla
+con una sesión autorizada y confirmar integración real con el backend de chat.
+No se habilita el chat del panel hasta completar las otras tools y pruebas
+de RLS.
+
+**Actualización — el chat del panel SÍ se habilitó (entrada 70) y se probó
+en vivo (entrada 71):** modo "Explicar" contra un gráfico guardado funcionó
+de punta a punta (el modelo llamó a `get_explore_state` y respondió bien).
+"Mejorar gráfico" con un gráfico sin guardar falló del lado del backend del
+chat (su verificación previa no maneja `slice_id: null` — reportado, no es
+un bug de esta extensión).
+
+### Avance de Fase 4 (2026-09-24, entrada 72) — `irex.explain_chart`/`irex.preview_chart`
+
+Implementadas las dos tools que le faltaban al punto 2 de esta fase (el
+punto 5 usa una variante de estas mismas, ver abajo). Mismo pipeline real
+que ya usa `irex.chart_option` en producción
+(`QueryContextFactory`/`ChartDataCommand`) — el `query_context` no se
+reconstruye ni se adivina: es el que capturó el navegador al observar la
+ejecución real (`exploreQueryCapture.ts`), y la "verificación independiente"
+que pedía la revisión externa del plan es la RE-EJECUCIÓN misma
+(`ChartDataCommand.validate()` → `raise_for_access()`, mismo RLS/RBAC que
+cualquier ejecución real) — no un chequeo de forma aparte.
+
+- `irex.explain_chart`: `result_type=query` — SQL generado, sin ejecutar
+  contra la base (ni siquiera EXPLAIN). Cubre la mitad "SQL" del punto 2 de
+  arriba (`rowcount`/duración/caché quedan para cuando se necesiten, no
+  están en esta entrega).
+- `irex.preview_chart`: `result_type=full`, `row_limit` acotado (1-5000,
+  nunca mayor al que ya traía el `query_context` capturado) — resultado
+  real, nunca `samples`.
+- Se extendió el contrato (`docs/explore-assistant-contract.md`,
+  `chart.query_context` en el body) para que el `query_context` capturado
+  por el navegador llegue hasta el modelo, que se lo pasa tal cual a estas
+  dos tools — sin este campo no había nada que verificar.
+- El punto 5 de esta fase (diagnóstico ligado al gráfico, `explain_query`/
+  `check_query_nulls` sin SQL libre) queda cubierto en el mismo espíritu por
+  `explain_chart` (ya genera el SQL del gráfico con RLS), pero **sigue sin
+  existir un equivalente de `check_query_nulls`** (perfil de nulos en
+  JOINs) — pendiente.
+- Sigue pendiente `irex.get_viz_controls` (punto 3) y `irex.validate_expression`
+  (punto 4) — sin esas dos, "Mejorar gráfico"/"Métricas" no pueden proponer
+  acciones válidas (`ExploreActionCard` del panel ya está listo para
+  mostrarlas, solo falta que el backend las pueda construir y validar).
+
+### Avance de Fase 4 (2026-09-24, entrada 78) — `irex.get_viz_controls`
+
+Implementada. El usuario preguntó si, dado que la mayoría de los tipos de
+gráfico comparten controles, se podía hacer algo genérico en vez de un
+catálogo completo por tipo (lo que parecía una tarea enorme: los
+`controlPanel.tsx` de los 3 plugins propios son código React/TS ejecutable
+con lógica dinámica, no configuración parseable — 1567+1156+139 líneas).
+Confirmado que sí: Superset mismo ya reusa un registro de "controles
+compartidos" (`@superset-ui/chart-controls`, `sharedControls.tsx`) en la
+mayoría de sus tipos nativos — verificado leyendo el `controlPanel.tsx` real
+de `mixed_timeseries`. Diseño de dos niveles, nunca mezclados:
+- `source: "specific"` — solo `table_v3`/`html_cards`/`pivot_table_rx1`:
+  lista EXACTA (41/15/47 controles), extraída leyendo el código fuente real
+  de cada uno.
+- `source: "generic"` — cualquier otro `viz_type` (todos los nativos, sin
+  excepción por ahora): el catálogo `sharedControls` de Superset (47
+  nombres), marcado explícitamente como no verificado para ese tipo.
+
+No incluye tipo/valores válidos/default/descripción por control — solo
+nombres, suficiente para el uso inmediato del contrato ("¿existe este
+control para este tipo?"). Sigue pendiente `irex.validate_expression`
+(punto 4) — sin ella, aunque el nombre de un control exista, no se puede
+validar una expresión de métrica/columna nueva contra el dataset.
+
+**⚠️ Regresión encontrada y corregida (entrada 73, 2026-09-24):** la primera
+prueba real de `chart.query_context` rompió "Explicar" — el backend del
+chat valida `chart` con un modelo que no acepta campos extra (422
+`extra_forbidden`, tumba la solicitud entera antes de llegar al modelo).
+Se desactivó el envío del lado de la extensión (`SEND_QUERY_CONTEXT_IN_REQUEST
+= false` en `exploreAdapter.ts`) — "Explicar" vuelve a funcionar como en la
+entrada 71. Las tools quedan construidas y listas; falta que el backend del
+chat agregue el campo a su schema y avise para reactivar el envío (aviso ⚠️
+detallado en `docs/explore-assistant-contract.md`).
 
 ## Fase 5 — Nivel 1: lectura y diagnóstico
 

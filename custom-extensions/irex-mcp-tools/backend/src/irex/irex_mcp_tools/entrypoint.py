@@ -32,6 +32,9 @@ from . import export_excel  # noqa: F401,E402
 from . import sql_analysis  # noqa: F401,E402
 from . import rank_partitions  # noqa: F401,E402
 from . import sql_schema_context  # noqa: F401,E402
+from . import get_explore_state  # noqa: F401,E402
+from . import get_viz_controls  # noqa: F401,E402
+from . import explore_chart_diagnostics  # noqa: F401,E402
 from . import explain_query  # noqa: F401,E402
 from . import check_query_nulls  # noqa: F401,E402
 from .auth_bridge import install_auth_bridge  # noqa: E402

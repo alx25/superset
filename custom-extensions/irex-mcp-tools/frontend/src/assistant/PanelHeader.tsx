@@ -6,11 +6,13 @@ import { buttonGhost, buttonIcon, FONT, MONO, readableOn } from './ui';
 
 export interface PanelHeaderProps {
   sessionId?: string;
-  onNewSession: () => void;
+  onNewSession?: () => void;
+  title?: string;
+  subtitle?: string;
 }
 
-/** Header compacto del panel: una sola línea (título + sesión + "Limpiar"). */
-export function PanelHeader({ sessionId, onNewSession }: PanelHeaderProps): React.ReactElement {
+/** Encabezado común, configurable por superficie; "Limpiar" solo existe si hay sesión. */
+export function PanelHeader({ sessionId, onNewSession, title = 'Asistente SQL', subtitle = 'Pestaña activa · con confirmación' }: PanelHeaderProps): React.ReactElement {
   const theme = themeNs.useTheme();
   const [copyState, setCopyState] = React.useState<'idle' | 'copied' | 'failed'>('idle');
   const copySessionId = (id: string) => {
@@ -47,7 +49,7 @@ export function PanelHeader({ sessionId, onNewSession }: PanelHeaderProps): Reac
         <Icon name="sparkles" size={13} />
       </span>
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        <span style={{ fontSize: FONT.title, fontWeight: 600, lineHeight: 1.3 }}>Asistente SQL</span>
+        <span style={{ fontSize: FONT.title, fontWeight: 600, lineHeight: 1.3 }}>{title}</span>
         <span
           style={{
             display: 'flex',
@@ -87,20 +89,22 @@ export function PanelHeader({ sessionId, onNewSession }: PanelHeaderProps): Reac
               )}
             </>
           ) : (
-            <span>Pestaña activa · con confirmación</span>
+            <span>{subtitle}</span>
           )}
         </span>
       </div>
-      <button
-        type="button"
-        style={buttonGhost(theme)}
-        onClick={onNewSession}
-        aria-label="Nueva sesión"
-        title="Vacía esta conversación y sus propuestas. No modifica el SQL ya aplicado en el editor."
-      >
-        <Icon name="reset" size={12} />
-        Limpiar
-      </button>
+      {onNewSession && (
+        <button
+          type="button"
+          style={buttonGhost(theme)}
+          onClick={onNewSession}
+          aria-label="Nueva sesión"
+          title="Vacía esta conversación y sus propuestas. No modifica el SQL ya aplicado en el editor."
+        >
+          <Icon name="reset" size={12} />
+          Limpiar
+        </button>
+      )}
     </div>
   );
 }

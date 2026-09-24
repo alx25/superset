@@ -120,7 +120,9 @@ function SegmentedControl({
  * evento `status`/`activity` del SSE se acumula como un paso (✓ los
  * terminados, ○ el que sigue en curso), igual que el widget de dashboards.
  */
-function WorkingIndicator({ steps, elapsedSeconds }: { steps: string[]; elapsedSeconds?: number }): React.ReactElement {
+/** Exportado (además de usarse acá abajo) para que `ExploreConversation.tsx`
+ * lo reuse tal cual: no depende de ningún tipo específico de SQL Lab. */
+export function WorkingIndicator({ steps, elapsedSeconds }: { steps: string[]; elapsedSeconds?: number }): React.ReactElement {
   const theme = themeNs.useTheme();
   const [tick, setTick] = React.useState(0);
   React.useEffect(() => {
@@ -355,7 +357,9 @@ function ResultDetails({
 // Conversación
 // ---------------------------------------------------------------------------
 
-function UserTurn({ text }: { text: string }): React.ReactElement {
+/** Exportado por el mismo motivo que `WorkingIndicator`: solo depende de
+ * `ConversationMessage` (genérico), lo reusa `ExploreConversation.tsx`. */
+export function UserTurn({ text }: { text: string }): React.ReactElement {
   const theme = themeNs.useTheme();
   return (
     <div
@@ -377,7 +381,8 @@ function UserTurn({ text }: { text: string }): React.ReactElement {
   );
 }
 
-function EarlierTurns({ messages }: { messages: ConversationMessage[] }): React.ReactElement {
+/** Exportado por el mismo motivo que `WorkingIndicator`/`UserTurn`. */
+export function EarlierTurns({ messages }: { messages: ConversationMessage[] }): React.ReactElement {
   const theme = themeNs.useTheme();
   return (
     <details className="irex-details" style={{ ...card(theme), background: 'transparent' }}>
