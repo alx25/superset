@@ -1,5 +1,36 @@
 ## Registro de cambios
 
+### 2026-09-24 (54) (plan del copiloto de gráficos en Explore)
+
+Cambio realizado:
+Plan de implementación del copiloto de Explore, a partir de la
+investigación del 2026-09-23 y de tres decisiones del usuario.
+
+Archivos afectados:
+- `PLAN_COPILOTO_EXPLORE.md` (nuevo)
+- `Registro de cambios.md`
+
+Que cambia o corrige:
+- Decisiones: (1) solo Admin modifica datasets desde el asistente, como
+  excepción acotada a la regla "no modificar Superset desde el chat": solo
+  agregar métricas y columnas calculadas, verificado en el servidor, sin
+  borrar ni modificar existentes; (2) panel propio en Explore reutilizando
+  el de SQL Lab, con "El Don" oculto ahí; (3) plugins propios desde la
+  Fase 6.
+- Hallazgos técnicos que condicionan el diseño (código real de 6.1 y
+  master):
+  - no hay API pública de Explore ni punto de montaje, pero la extensión se
+    carga en todas las páginas;
+  - Explore persiste el estado sin guardar en `/api/v1/explore/form_data`;
+  - el `PUT` de datasets borra lo que no viene en la lista;
+  - la duración de la consulta no se expone;
+  - `get_chart_type_schema` no cubre los plugins propios.
+- Fases 0–10: spike, carcasa común, permisos, contrato, tools de solo
+  lectura, lectura/diagnóstico, cambios al gráfico, dataset Admin, pruebas,
+  despliegue y migración a las APIs oficiales futuras.
+
+No hay cambios de código en esta entrada.
+
 ### 2026-09-23 (53) (fix: los botones "Copiar" del asistente de SQL Lab no funcionaban)
 
 Cambio realizado:
