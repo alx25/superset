@@ -34,6 +34,7 @@ import {
   initTableInteractions,
   TableInteractionStore,
 } from '../../utils/tableInteractions';
+import { initDynamicActions } from '../../utils/dynamicActions';
 
 export interface HandlebarsViewerProps {
   templateSource: string;
@@ -84,10 +85,17 @@ export const HandlebarsViewer = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const interactionStoreRef = useRef<TableInteractionStore>(new Map());
 
-  useLayoutEffect(
-    () => initTableInteractions(containerRef.current, interactionStoreRef.current),
-    [renderedTemplate],
-  );
+  useLayoutEffect(() => {
+    const disposeTable = initTableInteractions(
+      containerRef.current,
+      interactionStoreRef.current,
+    );
+    const disposeActions = initDynamicActions(containerRef.current);
+    return () => {
+      disposeTable();
+      disposeActions();
+    };
+  }, [renderedTemplate]);
 
   if (error) {
     return <ErrorContainer>{error}</ErrorContainer>;

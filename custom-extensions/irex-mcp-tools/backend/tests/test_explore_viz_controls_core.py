@@ -35,7 +35,16 @@ class TestPluginsPropios:
         result = resolve_viz_controls(viz_type)
         assert result["source"] == "specific"
         assert result["viz_type"] == viz_type
-        assert "note" not in result
+        if viz_type == "html_cards":
+            # Única excepción: la ayuda de interactividad declarativa
+            # (data-hc-on/data-hc-action) no entra en el presupuesto de
+            # 2000 caracteres de control_info.handlebarsTemplate, así que
+            # viaja en "note" en vez de description -- ver
+            # _HTML_CARDS_INTERACTIVITY_HELP.
+            assert "note" in result
+            assert "data-hc-on" in result["note"]
+        else:
+            assert "note" not in result
 
     def test_table_v3_incluye_sus_controles_propios_y_no_los_genericos_ajenos(self):
         result = resolve_viz_controls("table_v3")
@@ -318,6 +327,11 @@ class TestControlInfo:
         assert "division" in tooltip_keys
 
         description = CUSTOM_PLUGIN_CONTROL_INFO["html_cards"]["handlebarsTemplate"]["description"]
+        # data-hc-sort/data-hc-resize y data-hc-on/data-hc-action/
+        # data-hc-target viven en el "note" del resultado (no en esta
+        # description) -- no entraban en el presupuesto de 2000 caracteres,
+        # ver _HTML_CARDS_INTERACTIVITY_HELP.
+        note = resolve_viz_controls("html_cards")["note"]
         # 'width / height' y 'scopeId / scopeSelector' son claves compuestas
         # del tooltip (dos nombres en un solo key) — se listan por separado
         # en control_info, así que se dividen antes de comparar.
@@ -325,8 +339,10 @@ class TestControlInfo:
         for key in tooltip_keys:
             expanded.update(part.strip() for part in key.split("/"))
 
-        missing = sorted(name for name in expanded if name not in description)
-        assert missing == [], f"El tooltip de la UI menciona helpers ausentes de control_info: {missing}"
+        missing = sorted(
+            name for name in expanded if name not in description and name not in note
+        )
+        assert missing == [], f"El tooltip de la UI menciona helpers ausentes de control_info/note: {missing}"
 
     def test_styletemplate_documenta_las_variables_css_del_tema_real_y_no_colores_de_navegador(self):
         # Reportado por el usuario (sesión explore-d362e3c9..., 2026-09-28):
@@ -435,6 +451,73 @@ class TestControlInfo:
         assert "container-name: html-cards-chart" in description
         assert "NO @media" in description
         assert "viewport" in description
+
+    def test_note_de_html_cards_documenta_todas_las_acciones_reales_de_dynamicactions_ts(self):
+        # Cruza contra el registro ACTIONS real de dynamicActions.ts (2026-09-29,
+        # generalización de data-hc-sort/data-hc-resize a un vocabulario
+        # declarativo de interactividad) -- si se agrega una acción nueva al
+        # plugin sin documentarla acá, esta prueba lo detecta.
+        import re
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parents[4]
+        actions_path = (
+            repo_root
+            / "custom-plugins"
+            / "plugin-chart-html-cards"
+            / "src"
+            / "utils"
+            / "dynamicActions.ts"
+        )
+        assert actions_path.is_file(), f"No se encontró {actions_path}"
+        source = actions_path.read_text(encoding="utf-8")
+
+        match = re.search(r"const ACTIONS: Record<string, ActionHandler> = \{(.*?)\n\};", source, re.S)
+        assert match, "No se encontró el registro ACTIONS en dynamicActions.ts"
+        # Exactamente 2 espacios de indentación -- son las claves de
+        # PRIMER NIVEL del objeto ACTIONS; con \s* también matchearían
+        # claves anidadas dentro del cuerpo de cada handler (ej. el
+        # `behavior:`/`block:` del scrollIntoView({...}) de scrollTo).
+        action_names = set(re.findall(r"^  ([A-Za-z]+):", match.group(1), re.M))
+        assert action_names >= {"toggleClass", "scrollTo", "copyText", "countUp"}  # sanity check
+
+        note = resolve_viz_controls("html_cards")["note"]
+        missing = sorted(name for name in action_names if name not in note)
+        assert missing == [], f"Acciones reales de dynamicActions.ts sin documentar en note: {missing}"
+
+    def test_note_de_html_cards_documenta_los_eventos_reales_de_dynamicactions_ts(self):
+        import re
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parents[4]
+        actions_path = (
+            repo_root
+            / "custom-plugins"
+            / "plugin-chart-html-cards"
+            / "src"
+            / "utils"
+            / "dynamicActions.ts"
+        )
+        source = actions_path.read_text(encoding="utf-8")
+        match = re.search(r"const ALLOWED_EVENTS = new Set\(\[(.*?)\]\);", source, re.S)
+        assert match, "No se encontró ALLOWED_EVENTS en dynamicActions.ts"
+        events = set(re.findall(r"'([a-z]+)'", match.group(1)))
+        assert events == {"click", "dblclick", "mouseenter", "mouseleave", "change", "submit", "load"}
+
+        note = resolve_viz_controls("html_cards")["note"]
+        missing = sorted(name for name in events if name not in note)
+        assert missing == [], f"Eventos reales de dynamicActions.ts sin documentar en note: {missing}"
+
+    def test_note_de_html_cards_advierte_no_usar_script_inline_pese_a_html_sanitization_off(self):
+        # El hallazgo clave que motiva este mecanismo: con
+        # HTML_SANITIZATION=False (confirmado en este deployment), un
+        # <script>/onClick= inline en handlebarsTemplate SÍ ejecutaría --
+        # sin ningún compilador de por medio, a diferencia del bug de
+        # calculated_columns. El "note" debe dejar esto explícito para que
+        # el modelo prefiera las acciones declarativas en vez de HTML crudo.
+        note = resolve_viz_controls("html_cards")["note"]
+        assert "script" in note.lower()
+        assert "HTML_SANITIZATION" in note
 
     def test_styletemplate_container_name_y_umbrales_coinciden_con_htmlcards_tsx_real(self):
         # Cotejo contra el código real (recomendación del backend del chat,

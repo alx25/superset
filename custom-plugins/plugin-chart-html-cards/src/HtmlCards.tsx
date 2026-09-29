@@ -57,6 +57,11 @@ table[data-hc-sort] thead th[aria-sort="descending"]::after {
   font-size: 0.75em;
   color: var(--html-cards-theme-color-primary);
 }
+
+[data-hc-on="click"],
+[data-hc-on="dblclick"] {
+  cursor: pointer;
+}
 `;
 
 const Styles = styled.div<HtmlCardsStylesProps>`

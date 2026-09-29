@@ -664,6 +664,49 @@ CUSTOM_PLUGIN_CONTROL_INFO: dict[str, dict[str, dict[str, str]]] = {
 }
 
 
+_HTML_CARDS_INTERACTIVITY_HELP = (
+    "Interactividad SIN escribir JS (handlebarsTemplate) — dos mecanismos declarativos, ambos "
+    "resueltos por código ya auditado del plugin, NUNCA por texto del modelo ejecutado como código "
+    "(ver hallazgo de seguridad 2026-09-29 en calculated_columns: nunca eval()/new Function() sobre "
+    "texto que escribe el modelo — acá el modelo solo escribe NOMBRES de acción y argumentos de "
+    "texto plano, parseados con split(), jamás interpretados como expresión):\n\n"
+    "1) data-hc-sort / data-hc-resize, en un <table>: agregan orden por click en el header y ancho "
+    "ajustable por drag, sin ninguna otra configuración. data-hc-resize requiere un <colgroup> con "
+    "una <col> por columna. Para desactivar en una columna puntual, poner data-hc-sort=\"false\" o "
+    "data-hc-resize=\"false\" en su <th>.\n\n"
+    "2) data-hc-on + data-hc-action (+ data-hc-target opcional), en CUALQUIER elemento: "
+    "data-hc-on=\"click\" (también dblclick/mouseenter/mouseleave/change/submit/load — cualquier "
+    "otro valor se ignora) dispara data-hc-action=\"nombreAccion:arg1,arg2\" — varias acciones "
+    "encadenadas con \";\": data-hc-action=\"toggleClass:open; scrollTo:smooth\". "
+    "data-hc-on=\"load\" es especial: NO espera ninguna interacción, corre apenas se renderiza la "
+    "tarjeta (y de nuevo en cada re-render, ej. si cambian los datos) — usarlo para animaciones "
+    "automáticas como countUp al cargar. Por defecto la acción se aplica al propio elemento; con "
+    "data-hc-target=\"#id\" o cualquier selector CSS se aplica a OTRO elemento del mismo gráfico "
+    "(ej. un botón que abre un panel distinto). "
+    "Vocabulario de acciones disponibles hoy: "
+    "toggleClass:clase1 clase2 (separadas por espacio) — alterna una o más clases; "
+    "addClass:clases / removeClass:clases — igual pero sin alternar; "
+    "toggleAttr:nombreAtributo; "
+    "scrollTo:smooth|auto (default smooth) — hace scroll hasta el elemento objetivo; "
+    "setStyleVar:nombreVariable,valor — fija una variable CSS custom (--nombreVariable) en el "
+    "elemento objetivo, útil combinada con styleTemplate; "
+    "copyText — copia al portapapeles el atributo data-hc-copy-value del elemento objetivo, o su "
+    "texto visible si no hay data-hc-copy-value; "
+    "countUp:valorDestino,duraciónMs,sufijo (duración default 800, sufijo opcional ej. \"%\") — "
+    "anima el PROPIO texto numérico del elemento objetivo desde data-hc-count-from (o su texto "
+    "actual) hasta valorDestino; con data-hc-on=\"load\" anima automáticamente al renderizarse. "
+    "Ejemplo interacción: <button data-hc-on=\"click\" data-hc-action=\"toggleClass:open\" "
+    "data-hc-target=\"#detail-{{id}}\">Ver más</button>. Ejemplo animación al cargar: "
+    "<strong data-hc-on=\"load\" data-hc-action=\"countUp:{{pct}},1200,%\" "
+    "data-hc-count-from=\"0\">0%</strong>. Un nombre de acción que no está en este "
+    "listado se ignora (no rompe el resto de la cadena, no ejecuta nada) — no inventar acciones "
+    "nuevas, solo las de esta lista existen hoy. Si hace falta un comportamiento que no está acá, "
+    "avisarlo en vez de intentar simularlo con onClick=/<script> inline (HTML_SANITIZATION puede "
+    "estar desactivado en esta instalación, así que eso SÍ ejecutaría, pero corre sin el control ni "
+    "la auditoría de estas acciones — evitarlo)."
+)
+
+
 def control_info_for(viz_type: str, control_names: Sequence[str]) -> dict[str, dict[str, str]]:
     """Arma el mapa control→descripción para la respuesta: primero la
     específica del plugin (si existe), si no la genérica — nunca las dos a
@@ -700,12 +743,15 @@ def resolve_viz_controls(viz_type: str) -> dict[str, object]:
     specific = CUSTOM_PLUGIN_CONTROLS.get(viz_type)
     if specific is not None:
         controls = sorted(specific)
-        return {
+        result: dict[str, object] = {
             "viz_type": viz_type,
             "controls": controls,
             "source": "specific",
             "control_info": control_info_for(viz_type, controls),
         }
+        if viz_type == "html_cards":
+            result["note"] = _HTML_CARDS_INTERACTIVITY_HELP
+        return result
     if viz_type in KNOWN_VIZ_TYPES:
         controls = sorted(COMMON_CONTROLS)
         return {

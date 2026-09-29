@@ -137,6 +137,16 @@ const HandlebarsTemplateControl = (
       descKey:
         'Subset of Superset theme tokens also exposed as CSS variables on the chart container.',
     },
+    {
+      key: 'data-hc-sort / data-hc-resize',
+      descKey:
+        'Add to a <table> (with a <colgroup>/<col> per column for resize) to enable click-to-sort headers and drag-to-resize columns, no JS needed. Per-column opt-out: data-hc-sort="false" / data-hc-resize="false" on a <th>.',
+    },
+    {
+      key: 'data-hc-on / data-hc-action / data-hc-target',
+      descKey:
+        'Declarative interactivity, no raw <script>/onClick=. data-hc-on="click" (also dblclick/mouseenter/mouseleave/change/submit/load) + data-hc-action="name:arg1,arg2" runs a built-in action on the element (or on data-hc-target="#id"/selector if given). Chain several with ";". "load" is special: fires immediately on render (and again on re-render), no interaction needed — use it for automatic animations. Actions: toggleClass/addClass/removeClass:names (space-separated), toggleAttr:name, scrollTo:smooth|auto, setStyleVar:varName,value, copyText (reads data-hc-copy-value or the text), countUp:toValue,durationMs,suffix (animates the element\'s own number text, from data-hc-count-from or its current text; suffix optional, e.g. "%"). Example: <button data-hc-on="click" data-hc-action="toggleClass:open" data-hc-target="#detail-{{id}}">Ver más</button>. Animate-on-load example: <strong data-hc-on="load" data-hc-action="countUp:{{pct}},1200,%" data-hc-count-from="0">0%</strong>. An unknown action name is ignored (console warning), never executed as code.',
+    },
   ];
 
   const helpersTooltipContent = `
