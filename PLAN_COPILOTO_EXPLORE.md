@@ -534,6 +534,32 @@ ancho elegido, estado persistido en `localStorage`. Sigue pendiente que el
 usuario confirme visualmente este detalle puntual; la tarea 2 de arriba
 (auditoría de layout a 1366/1920px, claro/oscuro) sigue abierta en general.
 
+**Bug real encontrado meses después, del mismo mecanismo de lectura
+(entrada 90 del Registro de cambios, 2026-09-25):** el criterio de salida
+1 ("lee el último `form_data_key` de la URL") daba por sentado que esa key
+siempre existe para cualquier gráfico guardado — falso para uno recién
+abierto sin tocar ningún control todavía (Explore solo la genera al
+primer cambio). El asistente fallaba sin generar ningún log del backend
+del chat (el pedido nunca llegaba a mandarse). Resuelto: `readExploreContext`
+ahora SIEMBRA una key con la configuración ya guardada del gráfico
+(`POST /api/v1/explore/form_data`, la misma operación que hace Explore
+solo con tocar un control) cuando hace falta — con `tab_id` esta vez, a
+diferencia de "Aplicar" (Fase 6), para que quede asociada a la pestaña y
+no se cree una key nueva en cada turno.
+
+**El fix de arriba seguía sin andar (entrada 91):** el `tab_id` iba en el
+body del POST, pero el endpoint real
+(`superset/explore/form_data/api.py::post`) lo lee EXCLUSIVAMENTE de la
+query string (`request.args.get("tab_id")`) — `FormDataPostSchema` no
+declara ese campo, así que Marshmallow lo rechazaba con 400 en todos los
+casos. Encontrado recién cuando el usuario compartió la consola del
+navegador (`Failed to load resource: ... 400`) — hasta ahí, varias horas
+de diagnóstico por logs/base de datos no habían dado con la causa porque
+el error nunca llegaba a generar ningún log del lado del servidor
+(Marshmallow devuelve el 400 antes de que el código de la extensión se
+entere). Corregido: `tab_id` ahora va como `?tab_id=...` en la URL, nunca
+en el body.
+
 ## Fase 1 — Carcasa común del panel
 
 1. Separar la carcasa (componentes existentes) de la lógica de SQL Lab
@@ -822,6 +848,36 @@ control para este tipo?"). Sigue pendiente `irex.validate_expression`
 (punto 4) — sin ella, aunque el nombre de un control exista, no se puede
 validar una expresión de métrica/columna nueva contra el dataset.
 
+**Respuesta del backend del chat + fix (2026-09-25, entrada 79):** el
+backend ya consulta `get_viz_controls` antes de aceptar propuestas en
+"Mejorar gráfico"/"Métricas", y encontró un hueco real: "para cambiar a
+otro tipo, generic no basta — el MCP también lo devuelve para nombres de
+tipo inventados" (cualquier string caía a `source: "generic"` como si
+fuera un tipo real). Corregido: `KNOWN_VIZ_TYPES` (el enum `VizType`
+completo de este Superset, 50 tipos) y un tercer nivel `source: "unknown"`
+para lo que no es ninguno de los dos — el backend ya puede rechazar un
+`change_viz_type` a un tipo inventado directamente. También confirmó que
+`chart.query_context` ya no da 422 (agregó el campo a su schema) — se
+reactivó del lado de la extensión, aunque el backend todavía no lo pasa
+al modelo por decisión propia (quiere verificar la captura antes de
+confiar en ella).
+
+### Avance de Fase 4 (2026-09-25, entrada 80) — `irex.validate_expression`, ÚLTIMA tool pendiente
+
+Implementada. El usuario, revisando una sesión real, notó que el modelo se
+negó a proponer una métrica sobre una columna nueva ("cuota") porque "no
+tengo una validación de la expresión" — exactamente el hueco que dejaba
+pendiente el punto 4 de esta fase. Ejecuta la expresión DE VERDAD contra la
+base (`row_limit: 1`, mismo pipeline `QueryContextFactory`/`ChartDataCommand`
+con RLS que `explain_chart`/`preview_chart`) — `result_type=query` (solo
+generar SQL) no alcanzaba, porque una columna inexistente recién falla al
+ejecutarse. Devuelve `{"valid", "dataset_id", "expression"}` +`"error"` si
+falla; nunca filas. **Con esto quedan las 4 tools de lectura de la Fase 4
+implementadas** (`get_explore_state`, `explain_chart`/`preview_chart`,
+`get_viz_controls`, `validate_expression`). Sigue pendiente
+`irex.check_chart_nulls` (mencionada en "Tools MCP requeridas" del
+contrato, no en la lista original de 4 puntos de esta fase).
+
 **⚠️ Regresión encontrada y corregida (entrada 73, 2026-09-24):** la primera
 prueba real de `chart.query_context` rompió "Explicar" — el backend del
 chat valida `chart` con un modelo que no acepta campos extra (422
@@ -831,6 +887,26 @@ Se desactivó el envío del lado de la extensión (`SEND_QUERY_CONTEXT_IN_REQUES
 entrada 71. Las tools quedan construidas y listas; falta que el backend del
 chat agregue el campo a su schema y avise para reactivar el envío (aviso ⚠️
 detallado en `docs/explore-assistant-contract.md`).
+
+### Avance de Fase 4 (2026-09-25, entrada 87) — `irex.get_dataset_catalog`, quinta tool (no prevista en el plan original)
+
+Implementada a pedido del agente del backend del chat, que diagnosticó el
+hueco con precisión: `get_explore_state` da el estado del gráfico pero no
+el catálogo de columnas del dataset, y `validate_expression` solo confirma
+UNA expresión a la vez — sin catálogo, el modelo pregunta por columnas que
+ya existen (sesión real, dataset 5: el usuario ya había mencionado "cuota"
+y el modelo volvió a preguntar qué la representaba). Input
+`{"form_data_key": "key-1"}` — misma key que `get_explore_state`, reusa
+`verified_explore_state` sin modificarla (mismo `state_kind:
+"last_persisted"`, mismos permisos, mismo comportamiento con `slice_id:
+null`). Devuelve `columns[]` (nombre, tipo, label/descripción si el
+dataset los tiene, marca de columna calculada/temporal) y `metrics[]`
+(solo las GUARDADAS del dataset, con su expresión SQL real) — nunca filas.
+`truncated: true` explícito si se llega al tope (300 columnas/200
+métricas), nunca en silencio. Contrato completo con ejemplo de respuesta
+en `docs/explore-assistant-contract.md`. 13 tests nuevos, 298 backend
+total. Pendiente: que el backend del chat lo conecte del lado del modelo
+y confirme.
 
 ## Fase 5 — Nivel 1: lectura y diagnóstico
 
@@ -854,6 +930,197 @@ detallado en `docs/explore-assistant-contract.md`).
    `tableV3`, con tests de un cambio real sobre cada uno.
 5. El gráfico nunca se guarda desde el asistente: guarda el usuario con el
    botón normal de Superset.
+
+### Avance de Fase 6 (2026-09-25, entrada 84) — puntos 1, 2, 3 y 5
+
+Implementados, a pedido explícito del usuario de priorizar esta fase sobre
+la 5 ("Adelante con la fase 6, queda pendiente la 5, pero primero avanza
+con la 6"). `ExploreActionCard` (Fase 1/2, hasta ahora de solo lectura)
+gana un flujo real: "Ver cambio" relee `form_data` fresco y la key vigente
+de la URL, calcula el resultado y el diff control-por-control (punto 1),
+"Aplicar" escribe con `POST /api/v1/explore/form_data` y recarga Explore
+con la nueva key (punto 2, `exploreApplyAdapter.ts`). Cubre las 4 acciones
+de Nivel 2 del contrato (`patch_form_data`, `add_adhoc_metric`,
+`add_adhoc_column`, `change_viz_type` — punto 3); `add_dataset_metric` y
+`add_calculated_column` siguen sin botón (son Fase 7, Admin). El punto 5
+se respeta por diseño: el POST escribe form_data, nunca llama al guardado
+de Superset — guardar sigue siendo un acto explícito del usuario con el
+botón normal.
+
+Detalle no anticipado en el plan, encontrado leyendo
+`superset/commands/explore/form_data/create.py`: el POST se manda **sin**
+`tab_id` — con él, Superset REUSA la key existente de la pestaña en vez de
+generar una nueva (`contextual_key`), lo que habría pisado la key anterior
+y hecho imposible volver atrás. Sin `tab_id` siempre sale una key nueva,
+lo que permitió agregar "Deshacer" (`exploreUndo.ts`, un solo nivel vía
+`sessionStorage`, no un plan del contrato original pero necesario porque
+aplicar recarga la página entera y pierde cualquier estado de React).
+
+Pendiente de esta fase: **punto 4** (tests de un cambio real sobre cada uno
+de los 3 plugins propios — `html-cards`, `pivot-tableRx1`, `tableV3`; lo
+construido hasta acá es genérico por control/operación, no específico por
+plugin). Verificación con datos reales (reiniciar `superset_test.service`
+y aplicar una propuesta real de punta a punta) también pendiente del
+usuario — ver entrada 84 del registro de cambios.
+
+### Avance de Fase 6 (2026-09-25, entrada 85) — feedback de la primera prueba real
+
+El usuario probó "Aplicar" por primera vez: funcionó de punta a punta, con
+dos observaciones de UX.
+
+1. **Diff técnico/confuso (resuelto):** el diff mostraba el JSON crudo de
+   cada control. `formatControlValue` (`exploreApplyAdapter.ts`) reconoce
+   las formas reales de `AdhocMetric`/`AdhocColumn` (SQL con label,
+   `aggregate`+`column`, columna simple, métrica guardada) y muestra algo
+   reconocible (`SUM(planv)`, `Cuota`) en vez del objeto entero.
+
+2. **"¿Es posible aplicar sin recargar la página?" — NO, límite estructural
+   de esta versión de Superset, no una tarea pendiente.** Verificado
+   leyendo el `.d.ts` completo de `@apache-superset/core`: ningún módulo
+   (`views`, `commands`, `menus`, `theme`, `extensions`) expone acceso al
+   store de Redux ni al árbol de React de Explore — `views.registerView`
+   ni siquiera pasa props al provider que registra. La única forma de
+   actualizar el gráfico en vivo sin recarga sería importar
+   `superset-frontend/src/explore/...` directamente (acciones de Redux,
+   el store real) — exactamente lo que la regla de CLAUDE.md prohíbe
+   ("solo APIs públicas, nunca internals"). **No reabrir esta pregunta sin
+   que Superset publique una API nueva para Explore.** Lo que sí se
+   resolvió, que era el dolor real: la conversación del chat ya no se
+   pierde con el reload — `exploreUndo.ts` guarda una instantánea
+   (`conversationKey`/`sessionId`/`mode`/`history`) junto con la key para
+   deshacer, y `ExploreAssistantPanel` la restaura al montar mientras el
+   aviso de "Deshacer" siga vigente (mismo ciclo de vida que él).
+
+### Avance de Fase 6 (2026-09-25, entrada 88) — "Aplicar todo"
+
+El feedback de la entrada 85 resolvía el reload en sí, pero dejó a la
+vista otro problema al probar una propuesta con VARIOS cambios
+relacionados (agrupar por 3 columnas + 3 métricas, un solo resultado
+coherente): aplicar la primera tarjeta recargaba la página y hacía
+desaparecer las otras — "no creo que sea adecuado tener que aplicar uno a
+uno". Resuelto con `applyExploreActions` (encadena N acciones de la misma
+propuesta en un solo `form_data`) y `ExploreApplyAllBar` (aparece con 2+
+acciones aplicables, un solo diff combinado, un solo POST/reload). Las
+tarjetas individuales se mantienen para cherry-picking, con un aviso
+cuando hay hermanas. El flujo prepare→diff→confirm→aplicar se extrajo a
+un hook compartido (`usePreparedApply`) para no duplicarlo entre el caso
+de una acción y el de varias.
+
+### Avance de Fase 6 (2026-09-25, entrada 89) — rediseño del punto anterior + formato legible
+
+El usuario sintió compleja la solución de la entrada 88 y en particular
+rechazó el aviso "si aplicás 1 sola, las demás se pierden". Rediseñado:
+`ExploreApplyAllBar` (una tarjeta aparte) se reemplaza por
+`ExploreProposalChecklist` — UNA sola tarjeta con casilleros, todos
+tildados por defecto; lo que el usuario destilda nunca entra al paquete,
+así que no hace falta avisar que "se pierde" nada. Con 0 o 1 acción
+aplicable sigue siendo la tarjeta simple de antes.
+
+Además, verificando una sesión real que aplicaba un formato
+(`column_config`/`d3NumberFormat`) confirmó el pedido del usuario de que
+"también debería actuar sobre la personalización" — la propuesta era
+válida (verificado contra el código fuente real del plugin `table_v3`),
+pero el diff la mostraba como JSON crudo: `formatControlValue` no tenía
+un caso para el mapa `{columna: ajustes}` que arma `column_config`. Nuevo
+`formatControlDiffValue(control, value)` lo resuelve.
+
+**Hallazgo lateral, para el backend del chat (sin cambio de código acá):**
+esa misma sesión mostró el turno que propuso el `column_config` SIN
+ninguna llamada a `irex.get_viz_controls` — el control resultó válido por
+acierto del modelo, no por verificación. Reportado como ejemplo concreto
+del punto que ya advertía el contrato.
+
+### Avance de Fase 6 (2026-09-25, entrada 92) — validar fórmulas de `calculated_columns`, primer paso del punto 4
+
+El usuario pidió explícitamente que el asistente pueda "ver e interactuar"
+con las personalizaciones Jinja/HTML de `table_v3` (`jinja_fields`,
+`calculated_columns`, `column_config.htmlTemplate`). Repasado qué de eso
+ya funcionaba (ver e interactuar, en general, ya funcionaban — el
+`form_data` completo llega sin filtrar y `patch_form_data` escribe
+cualquier control) y qué faltaba: verificar una fórmula de
+`calculated_columns` ANTES de proponerla, porque `irex.validate_expression`
+no sirve (no es SQL, se compila y evalúa en el navegador) y una
+referencia rota no da error visible — la fórmula queda en blanco en
+silencio en todas las filas. Implementada `irex.validate_calculated_column_formula`:
+NO reimplementa el compilador real (`calculatedColumns.ts`, evita
+duplicar lógica con riesgo de divergencia), porta los mismos patrones de
+extracción de referencias y verifica existencia de columnas/métricas +
+funciones reconocidas + símbolos balanceados — deja explícito que
+`valid: true` no confirma qué calcula la fórmula, solo que la estructura
+es sana. Alcance: solo `calculated_columns` de `table_v3` — `jinja_fields`
+ya cubierto por `validate_expression` (es SQL real); `metricFormulas` de
+`pivot_table_rx1` queda pendiente (mecanismo propio, no confirmado que
+sea el mismo compilador). 29 tests nuevos, 327 backend total, build 7/7.
+
+### Avance de Fase 6 (2026-09-25, entrada 93) — `get_viz_controls` gana descripción real por control (150 en total)
+
+El usuario preguntó por el mecanismo general: ¿el modelo recibe todo el
+catálogo junto, o hay una tool que le dice qué puede/no puede hacer?
+Confirmado que es la tool (`get_viz_controls`), y que esa es la elección
+correcta — pero señaló el hueco: solo daba nombres, sin descripción, así
+que el modelo sabía que un control existía pero no cómo se usaba. También
+preguntó si convenía generalizar para los nativos, igual que ya existía
+el nivel genérico. Elegido: las dos cosas juntas, en una sola pasada.
+
+`control_info` (aditivo, no rompe la forma anterior de la respuesta) cubre
+el 100% de los 150 controles conocidos — verificado con una prueba de
+cobertura completa por cada fuente (3 plugins propios + catálogo
+genérico), no solo "los que se me ocurrió describir". Los 47 nativos
+salen de `sharedControls.tsx`/`dndControls.tsx` de Superset (ya
+documentados ahí, no inventados); los 103 propios de leer los
+`controlPanel.tsx` reales de los 3 plugins, con foco en los no obvios
+(`column_config` indexado por label, `calculated_columns` explícitamente
+NO SQL con remisión a `validate_calculated_column_formula`, `jinja_fields`
+al revés SÍ SQL con remisión a `validate_expression`, `metricFormulas`
+de pivot marcado como NO confirmado que sea el mismo compilador que
+`calculated_columns`, `handlebarsTemplate`/`styleTemplate` de html_cards
+con sus helpers reales).
+
+### Avance de Fase 6 (2026-09-28, entrada 94) — corrección real en `control_info`, no solo ampliación
+
+El usuario volvió a preguntar, más específico: ¿el modelo sabe usar
+`row.{{}}`/`col.{{}}`/`total.{{}}`? ¿distingue dónde es solo HTML y dónde
+también CSS? ¿`html_cards` con sus "instrucciones muy específicas" está
+bien cubierto? Al revisar con ese nivel de detalle apareció un error real
+de la entrada 93, no solo falta de profundidad: `column_config.htmlTemplate`
+estaba descrito con la sintaxis de `calculated_columns` (sustitución
+`{{OtroLabel}}`), cuando en realidad es un lenguaje Jinja-like distinto
+(`{% set %}` + `CASE WHEN...THEN...ELSE...END`, deliberadamente
+restringido) — encontrado leyendo `HTML_TEMPLATE_AI_PROMPT` en
+`ColumnConfigControl/constants.tsx`, una constante que el propio proyecto
+ya escribió para pegar en un prompt de IA. También se corrigió que
+`pivot_table_rx1` NO tiene `htmlCss` ni formato numérico en `column_config`
+(a diferencia de `table_v3` — su layout real solo trae `displayName` +
+HTML), se aclaró que `row.`/`col.`/`total.` en `calculated_columns` NO son
+tres cosas distintas (`row.`/`col.` son alias de la fila actual, solo
+`total.` difiere), y se completó `handlebarsTemplate` de 5 a los 18
+helpers reales. Regla que queda para el resto del catálogo: cuando el
+plugin ya tiene una explicación escrita para humanos, transcribirla
+literal en vez de resumir con criterio propio.
+
+### Avance de Fase 6 (2026-09-28, entrada 95) — `show_totals` faltante (hallazgo propio) + precisión de nulos en `column_config` (verificada del backend)
+
+El agente del backend reportó una recomendación sobre `column_config.
+htmlTemplate`/`{{ raw_value }}` a partir de una sesión real; el usuario
+pidió además revisar por mi cuenta el último turno de esa misma sesión
+(una propuesta de `calculated_columns` que "no funcionó" pese a dar
+`valid: true`). Dos hallazgos, verificados los dos contra el código
+fuente real del plugin antes de aplicarlos:
+
+1. **Hallazgo propio:** la fórmula usaba `total.{{Sell In}}` pero el
+   gráfico no tenía `show_totals` activo — sin él, `TableChart.tsx` nunca
+   calcula la fila de total y `total.{{...}}` resuelve siempre a nulo, así
+   que la fórmula colapsaba siempre a la misma rama. `irex.validate_calculated_column_formula`
+   no podía atraparlo porque depende de OTRO control, no de la fórmula —
+   ahora detecta el alcance `total.` y agrega `warnings[]` (sin bajar
+   `valid`) cuando `show_totals` no está activo.
+2. **Hallazgo del backend, confirmado leyendo `formatValue.ts`:**
+   `{{ value }}`/`{{ raw_value }}`/repetir el nombre de la MISMA columna
+   son la misma ruta de código (nulo → `''`, comparable); referenciar OTRA
+   columna es distinto (nulo → `undefined`, la comparación se salta en
+   silencio). Documentado en `COLUMN_CONFIG_HTML_TEMPLATE_RULES`: el
+   PRIMER `WHEN` de una plantilla de rangos debe ser
+   `{{ raw_value }} = ''` si la propia columna puede ser nula.
 
 ## Fase 7 — Nivel 3: dataset (solo Admin)
 

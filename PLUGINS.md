@@ -323,3 +323,12 @@ Si hay duda de qué cambió, buscar los comentarios en el Registro de cambios.md
 | `superset/charts/client_processing.py` | `"pivot_table_rx1": pivot_table_v2` |
 | `superset/common/query_context_processor.py` | helpers + `get_data` extendido |
 | `superset/common/query_context_factory.py` | check de `pivot_table_rx1` |
+
+**Nota sobre las dos filas de abajo (`list_charts.py`/`get_chart_info.py`): NO están cubiertas por `migrate-plugins.sh`** —
+es un parche puntual, manual, hecho el 2026-09-28 para el flujo "reutilizar el diseño de un gráfico guardado en
+Explore" (ver `docs/explore-assistant-contract.md` de `irex-mcp-tools` y la entrada correspondiente en
+`Registro de cambios.md`). Si se migra a una versión nueva de Superset, hay que reaplicar este cambio a mano
+(agregar `"irex"` al `tags=[...]` de cada `@tool`) — el script no lo hace todavía.
+
+| `superset/mcp_service/chart/tool/list_charts.py` | Tag `"irex"` sumado a `tags=["core"]` — sin esto, `MCP_FACTORY_CONFIG(include_tags=["irex"])` de `superset_config_test.py`/prod lo oculta de `tools/list` por completo (sigue siendo llamable por nombre exacto, pero el modelo no lo ve). |
+| `superset/mcp_service/chart/tool/get_chart_info.py` | Mismo motivo — tag `"irex"` sumado a `tags=["discovery"]`. |

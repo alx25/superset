@@ -48,7 +48,14 @@ class GetVizControlsRequest(BaseModel):
         "plugins propios (table_v3, html_cards, pivot_table_rx1); para "
         "cualquier otro tipo devuelve source='generic' (el catálogo "
         "compartido de Superset, NO verificado específicamente para ese "
-        "tipo — puede faltar o sobrar algún control)."
+        "tipo — puede faltar o sobrar algún control). "
+        "Para copiar el diseño de OTRO gráfico ya guardado (ej. 'usá el mismo "
+        "estilo que el gráfico X') no hace falta una tool nueva: usar "
+        "list_charts para encontrarlo, get_chart_info(identifier=<id>) para "
+        "leer su form_data completo (incluye handlebarsTemplate/"
+        "styleTemplate/column_config/calculated_columns, lo que tenga), y "
+        "esta tool para saber cuáles de esos controles son válidos en el "
+        "viz_type del gráfico DESTINO antes de copiarlos con patch_form_data."
     ),
     tags=["irex", "explore", "chart", "read_only"],
     class_permission_name="Chart",

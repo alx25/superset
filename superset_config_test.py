@@ -2304,7 +2304,20 @@ TALISMAN_CONFIG = {
             "'self'",
             *[f"https://{d}" for d in THEME_FONT_URL_ALLOWED_DOMAINS],
         ],
-        "script-src": ["'self'", "'strict-dynamic'"],
+        # 'unsafe-eval': el plugin tableV3 compila las fórmulas de
+        # "Calculated columns" con `new Function(...)` (ver
+        # calculatedColumns.ts::compileFormulaEvaluator). Sin unsafe-eval el
+        # navegador bloquea esa compilación, y el catch silencioso del
+        # plugin hace que TODA columna calculada devuelva null -> se ve como
+        # "N/A" para cualquier fórmula, sin ningún error visible en los logs
+        # de Superset (solo como violación de CSP en la consola del
+        # navegador). Investigado y confirmado 2026-09-28. Producción hoy no
+        # tiene este problema porque corre con TALISMAN_ENABLED=False (sin
+        # CSP), así que este permiso solo empareja el comportamiento de test
+        # con el de prod -- si algún día se activa CSP en prod, este mismo
+        # problema aparecerá ahí y habrá que agregarlo también (o reescribir
+        # compileFormulaEvaluator sin `new Function`).
+        "script-src": ["'self'", "'strict-dynamic'", "'unsafe-eval'"],
     },
     "content_security_policy_nonce_in": ["script-src"],
     "force_https": False,
@@ -2714,15 +2727,50 @@ MCP_SERVICE_PORT = 5009
 # Pinea la tool de glosario de negocio para que el LLM la vea SIEMPRE
 # en tools/list, sin depender de que decida llamar search_tools primero.
 from superset.mcp_service.mcp_config import MCP_FACTORY_CONFIG as _MCP_FC  # noqa: E402
+from superset.mcp_service.mcp_config import MCP_RESPONSE_SIZE_CONFIG as _MCP_RS  # noqa: E402
 from superset.mcp_service.mcp_config import MCP_TOOL_SEARCH_CONFIG as _MCP_TS  # noqa: E402
 
 # Solo carga tools con el tag "irex" — oculta todos los tools nativos de Superset
 # (list_charts, list_dashboards, execute_sql, generate_chart, etc.) para eliminar
 # la confusión del modelo entre tools nativas e IREX.
+#
+# Excepción 2026-09-28: list_charts y get_chart_info (tools NATIVOS del host,
+# en superset/mcp_service/chart/tool/) ganaron el tag "irex" además del suyo
+# propio — necesarios para "reutilizar el diseño de un gráfico guardado en
+# Explore" (list_charts para encontrarlo, get_chart_info para leer su
+# form_data completo, luego patch_form_data para copiarlo — ver el párrafo
+# agregado a irex.get_viz_controls). Sin el tag, quedan registrados al
+# arrancar (siguen siendo llamables por nombre exacto, confirmado) pero NUNCA
+# aparecen en tools/list ni son descubribles por search_tools, así que el
+# modelo no puede usarlos — este include_tags los oculta por completo, no
+# solo del "siempre visible".
 MCP_FACTORY_CONFIG = {
     **_MCP_FC,
     "include_tags": ["irex"],
     "exclude_tags": ["guardar"],  # Deshabilita irex.create_chart (escribe en Superset DB)
+}
+
+# get_chart_info excluido del guard de tamaño (2026-09-28): normalmente ese
+# guard trunca campos de más de 500 caracteres cuando la respuesta completa
+# supera ~25k tokens (get_chart_info está en INFO_TOOLS,
+# superset/mcp_service/utils/token_utils.py) — para un form_data con
+# handlebarsTemplate/styleTemplate reales (que rutinariamente pasan los 500
+# caracteres) eso corta el CSS/HTML a la mitad de una regla, corrompiendo el
+# diseño en vez de acortarlo con sentido. Además, la ruta de truncado
+# dinámico tiene un bug real (devuelve un dict plano en vez del tipo de
+# resultado MCP esperado — 'dict' object has no attribute 'to_mcp_result',
+# reproducido con un form_data de prueba de ~65k caracteres) que hace
+# CRASHEAR la llamada entera en vez de truncar. El backend del chat ya
+# maneja su propio límite (60 000 caracteres, con aviso truncated:true por
+# encima) — por eso get_chart_info debe entregar el form_data COMPLETO o
+# fallar limpio (bloqueo estándar del guard por tamaño), nunca una copia
+# parcial silenciosa. No se tocó el bug del dict plano en sí (afecta
+# potencialmente a get_dataset_info/get_dashboard_info/get_instance_info,
+# los otros INFO_TOOLS) — excluir el tool es la corrección mínima para este
+# flujo puntual; el bug de fondo queda anotado para revisar aparte.
+MCP_RESPONSE_SIZE_CONFIG = {
+    **_MCP_RS,
+    "excluded_tools": [*_MCP_RS.get("excluded_tools", []), "get_chart_info"],
 }
 
 MCP_TOOL_SEARCH_CONFIG = {
@@ -2730,6 +2778,8 @@ MCP_TOOL_SEARCH_CONFIG = {
     "always_visible": [
         # Tools nativos excluidos por include_tags=["irex"] en MCP_FACTORY_CONFIG.
         # irex.create_chart excluido por exclude_tags=["guardar"] (escribe en Superset DB).
+        "list_charts",
+        "get_chart_info",
         "extensions.irex.irex-mcp-tools.irex.get_query_context",
         "extensions.irex.irex-mcp-tools.irex.business_context",
         "extensions.irex.irex-mcp-tools.irex.query_dataset",
@@ -2747,9 +2797,12 @@ MCP_TOOL_SEARCH_CONFIG = {
         "extensions.irex.irex-mcp-tools.irex.explain_query",
         "extensions.irex.irex-mcp-tools.irex.check_query_nulls",
         "extensions.irex.irex-mcp-tools.irex.get_explore_state",
+        "extensions.irex.irex-mcp-tools.irex.get_dataset_catalog",
         "extensions.irex.irex-mcp-tools.irex.explain_chart",
         "extensions.irex.irex-mcp-tools.irex.preview_chart",
         "extensions.irex.irex-mcp-tools.irex.get_viz_controls",
+        "extensions.irex.irex-mcp-tools.irex.validate_expression",
+        "extensions.irex.irex-mcp-tools.irex.validate_calculated_column_formula",
     ],
 }
 

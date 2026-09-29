@@ -50,13 +50,19 @@ export const DEFAULT_STYLE_TEMPLATE = `.kpi-mini-grid {
 }
 
 .kpi-mini {
-  --mini-primary: #0f8db3;
-  --mini-surface: #ffffff;
-  --mini-text-main: #1e293b;
-  --mini-text-muted: #64748b;
-  --mini-border: rgba(226, 232, 240, 0.8);
+  /* Mismo nombre de variable de siempre (compatibilidad con CSS que ya las
+     referencia), pero ahora derivadas del tema real de Superset —
+     inyectado por HtmlCards.tsx como --html-cards-theme-color-* en el
+     contenedor del gráfico — en vez de un color fijo. El valor después de
+     la coma es el fallback: si esa variable de tema no llegara a estar
+     definida, se ve exactamente igual que antes. */
+  --mini-primary: var(--html-cards-theme-color-primary, #0f8db3);
+  --mini-surface: var(--html-cards-theme-color-bg-container, #ffffff);
+  --mini-text-main: var(--html-cards-theme-color-text, #1e293b);
+  --mini-text-muted: var(--html-cards-theme-color-text-secondary, #64748b);
+  --mini-border: var(--html-cards-theme-color-border, rgba(226, 232, 240, 0.8));
   --mini-danger-bg: #fff1f2;
-  --mini-danger-text: #e11d48;
+  --mini-danger-text: var(--html-cards-theme-color-error, #e11d48);
   display: flex;
   position: relative;
   z-index: 0;
@@ -120,12 +126,12 @@ export const DEFAULT_STYLE_TEMPLATE = `.kpi-mini-grid {
 }
 
 .kpi-mini__status--warning {
-  background-color: #f59e0b;
+  background-color: var(--html-cards-theme-color-warning, #f59e0b);
   box-shadow: 0 0 6px rgba(245, 158, 11, 0.4);
 }
 
 .kpi-mini__status--danger {
-  background-color: #e11d48;
+  background-color: var(--html-cards-theme-color-error, #e11d48);
   box-shadow: 0 0 6px rgba(225, 29, 72, 0.4);
 }
 

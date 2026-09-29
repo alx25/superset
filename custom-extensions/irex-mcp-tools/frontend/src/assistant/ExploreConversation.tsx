@@ -17,6 +17,12 @@ import { ChatMarkdown } from './ChatMarkdown';
 import { EarlierTurns, UserTurn, WorkingIndicator, type ConversationMessage } from './Conversation';
 import { Icon, type IconName } from './icons';
 import { splitAssistantMessage, stripRedundantHeading } from './messageSections';
+import {
+  isTypingSlashCommandName,
+  matchingSlashCommands,
+  parseSlashInput,
+  type SlashCommandDef,
+} from './slashCommands';
 import { card, DETAILS_RESET_CSS, FONT, MONO, readableOn, type PanelTheme } from './ui';
 
 export type { ConversationMessage };
@@ -256,6 +262,69 @@ function ExploreResultDetails({
   );
 }
 
+/** Menú flotante de autocompletado, sobre el textarea — mismo trigger que
+ * Slack/Discord: aparece mientras se tipea el NOMBRE del comando (antes
+ * del primer espacio), se cierra al completar o cancelar. */
+function SlashCommandMenu({
+  theme,
+  commands,
+  highlightedIndex,
+  onPick,
+}: {
+  theme: PanelTheme;
+  commands: SlashCommandDef[];
+  highlightedIndex: number;
+  onPick: (name: string) => void;
+}): React.ReactElement {
+  return (
+    <div
+      role="listbox"
+      aria-label="Comandos disponibles"
+      style={{
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: '100%',
+        marginBottom: 4,
+        ...card(theme),
+        boxShadow: `0 4px 16px ${theme.colorBorder}`,
+        overflow: 'hidden',
+      }}
+    >
+      {commands.map((cmd, index) => {
+        const selected = index === highlightedIndex;
+        return (
+          <div
+            key={cmd.name}
+            role="option"
+            aria-selected={selected}
+            onMouseDown={event => {
+              // mousedown (no click) para que dispare ANTES del blur del textarea.
+              event.preventDefault();
+              onPick(cmd.name);
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: 8,
+              padding: '6px 9px',
+              cursor: 'pointer',
+              background: selected ? theme.colorFillTertiary : 'transparent',
+            }}
+          >
+            <span style={{ fontFamily: MONO, fontSize: FONT.code, fontWeight: 600, color: theme.colorPrimary, flexShrink: 0 }}>
+              /{cmd.name}
+            </span>
+            <span style={{ fontSize: FONT.small, color: theme.colorTextSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {cmd.hint}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export interface ExploreConversationProps {
   history: ConversationMessage[];
   mode: ExploreMode;
@@ -263,6 +332,11 @@ export interface ExploreConversationProps {
   userMessage: string;
   onUserMessageChange: (text: string) => void;
   onSend: () => void;
+  /** Habilita los comandos "/" (autocompletado + ruteo) y se llama en vez
+   * de `onSend` cuando el mensaje entero es un comando reconocido (ej.
+   * "/resume", "/clear") — nunca se manda al backend. Sin esto, el
+   * composer se comporta como antes (ningún "/" es especial). */
+  onCommand?: (name: string, args: string) => void;
   sending: boolean;
   progressSteps: string[];
   elapsedSeconds?: number;
@@ -279,6 +353,7 @@ export function ExploreConversation({
   userMessage,
   onUserMessageChange,
   onSend,
+  onCommand,
   sending,
   progressSteps,
   elapsedSeconds,
@@ -289,6 +364,39 @@ export function ExploreConversation({
 }: ExploreConversationProps): React.ReactElement {
   const theme = themeNs.useTheme();
   const canSend = !sending && !sendDisabledReason;
+  const commandsEnabled = !!onCommand;
+
+  const [menuDismissed, setMenuDismissed] = React.useState(false);
+  const [highlightedIndex, setHighlightedIndex] = React.useState(0);
+  const slashTyping = commandsEnabled ? isTypingSlashCommandName(userMessage) : { active: false, query: '' };
+  const menuCommands = slashTyping.active ? matchingSlashCommands(slashTyping.query).slice() : [];
+  const showCommandMenu = slashTyping.active && menuCommands.length > 0 && !menuDismissed;
+  const clampedHighlight = Math.min(highlightedIndex, Math.max(menuCommands.length - 1, 0));
+
+  const pickCommand = React.useCallback(
+    (name: string) => {
+      onUserMessageChange(`/${name} `);
+      setMenuDismissed(true);
+      setHighlightedIndex(0);
+    },
+    [onUserMessageChange],
+  );
+
+  const handleSubmit = React.useCallback(() => {
+    if (showCommandMenu) {
+      pickCommand(menuCommands[clampedHighlight].name);
+      return;
+    }
+    const parsed = parseSlashInput(userMessage);
+    if (parsed.isCommand && onCommand) {
+      onCommand(parsed.name, parsed.args);
+      onUserMessageChange('');
+      return;
+    }
+    onSend();
+  }, [showCommandMenu, menuCommands, clampedHighlight, userMessage, onCommand, onUserMessageChange, onSend, pickCommand]);
+
+  const isPendingCommand = commandsEnabled && parseSlashInput(userMessage).isCommand;
 
   let lastUserIndex = -1;
   history.forEach((m, i) => {
@@ -349,19 +457,50 @@ export function ExploreConversation({
       <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 7, padding: '8px 12px 10px', borderTop: `1px solid ${theme.colorBorderSecondary}`, background: theme.colorBgContainer }}>
         <ExploreSegmentedControl value={mode} onChange={onModeChange} disabled={sending} />
 
-        <div style={{ border: `1px solid ${theme.colorBorder}`, borderRadius: theme.borderRadius, background: theme.colorBgContainer, overflow: 'hidden' }}>
+        <div style={{ position: 'relative', border: `1px solid ${theme.colorBorder}`, borderRadius: theme.borderRadius, background: theme.colorBgContainer, overflow: 'visible' }}>
+          {showCommandMenu && (
+            <SlashCommandMenu theme={theme} commands={menuCommands} highlightedIndex={clampedHighlight} onPick={pickCommand} />
+          )}
           <textarea
             ref={textareaRef}
             value={userMessage}
-            onChange={event => onUserMessageChange(event.target.value)}
+            onChange={event => {
+              onUserMessageChange(event.target.value);
+              setMenuDismissed(false);
+              setHighlightedIndex(0);
+            }}
             onKeyDown={event => {
-              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && canSend) {
+              if (showCommandMenu) {
+                if (event.key === 'ArrowDown') {
+                  event.preventDefault();
+                  setHighlightedIndex(i => (i + 1) % menuCommands.length);
+                  return;
+                }
+                if (event.key === 'ArrowUp') {
+                  event.preventDefault();
+                  setHighlightedIndex(i => (i - 1 + menuCommands.length) % menuCommands.length);
+                  return;
+                }
+                if (event.key === 'Tab' || event.key === 'Enter') {
+                  event.preventDefault();
+                  pickCommand(menuCommands[clampedHighlight].name);
+                  return;
+                }
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  setMenuDismissed(true);
+                  return;
+                }
+              }
+              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && (isPendingCommand ? !sending : canSend)) {
                 event.preventDefault();
-                onSend();
+                handleSubmit();
               }
             }}
             placeholder={EXPLORE_PLACEHOLDER[mode]}
             aria-label="Instrucciones para el asistente"
+            aria-autocomplete={commandsEnabled ? 'list' : undefined}
+            aria-expanded={showCommandMenu}
             rows={2}
             style={{
               display: 'block',
@@ -373,19 +512,22 @@ export function ExploreConversation({
               padding: '7px 9px',
               fontSize: FONT.base,
               lineHeight: 1.5,
-              fontFamily: 'inherit',
+              fontFamily: isPendingCommand ? MONO : 'inherit',
               background: 'transparent',
               color: theme.colorText,
             }}
           />
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 5px 4px 9px', borderTop: `1px solid ${theme.colorBorderSecondary}`, background: theme.colorFillQuaternary ?? theme.colorBgContainer }}>
             <span style={{ flex: 1, fontSize: FONT.small, color: theme.colorTextSecondary }}>
+              {commandsEnabled && !userMessage ? (
+                <>Escribí <kbd style={{ fontFamily: MONO, fontSize: 10.5 }}>/</kbd> para ver comandos, o </>
+              ) : null}
               <kbd style={{ fontFamily: MONO, fontSize: 10.5 }}>Ctrl</kbd> + <kbd style={{ fontFamily: MONO, fontSize: 10.5 }}>Enter</kbd>
             </span>
             <button
               type="button"
-              onClick={onSend}
-              disabled={!canSend}
+              onClick={handleSubmit}
+              disabled={isPendingCommand ? sending : !canSend}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -395,18 +537,22 @@ export function ExploreConversation({
                 border: 'none',
                 fontSize: FONT.small,
                 fontWeight: 600,
-                cursor: canSend ? 'pointer' : 'default',
-                background: canSend ? theme.colorPrimary : theme.colorFillSecondary,
-                color: canSend ? readableOn(theme.colorPrimary) : theme.colorTextSecondary,
+                cursor: (isPendingCommand ? !sending : canSend) ? 'pointer' : 'default',
+                background: (isPendingCommand ? !sending : canSend) ? theme.colorPrimary : theme.colorFillSecondary,
+                color: (isPendingCommand ? !sending : canSend) ? readableOn(theme.colorPrimary) : theme.colorTextSecondary,
               }}
             >
-              {sending ? `Analizando… ${elapsedSeconds !== undefined ? formatElapsed(elapsedSeconds) : ''}`.trim() : 'Generar'}
-              {!sending && <Icon name="send" size={12} />}
+              {sending
+                ? `Analizando… ${elapsedSeconds !== undefined ? formatElapsed(elapsedSeconds) : ''}`.trim()
+                : isPendingCommand
+                  ? 'Ejecutar'
+                  : 'Generar'}
+              {!sending && <Icon name={isPendingCommand ? 'play' : 'send'} size={12} />}
             </button>
           </div>
         </div>
         <span style={{ fontSize: FONT.small, color: theme.colorTextSecondary, textAlign: 'center' }}>
-          {sendDisabledReason ?? 'Nada se aplica ni se ejecuta sin tu confirmación.'}
+          {sendDisabledReason && !isPendingCommand ? sendDisabledReason : 'Nada se aplica ni se ejecuta sin tu confirmación.'}
         </span>
       </div>
     </div>

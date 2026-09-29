@@ -1,5 +1,1027 @@
 ## Registro de cambios
 
+### 2026-09-28 (95) (Explore: dos hallazgos reales de una sesión — `show_totals` faltante en `calculated_columns` y precisión de nulos en `column_config`)
+
+Cambio realizado: el agente del backend del chat reportó, revisando una
+sesión real (`explore-57def401...`), una recomendación sobre
+`column_config.htmlTemplate` y `{{ raw_value }}`. El usuario pidió
+además revisar el ÚLTIMO turno de esa misma sesión por su cuenta — una
+propuesta de `calculated_columns` que "no funcionó" pese a usar
+`irex.validate_calculated_column_formula` y dar `valid: true`.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/explore_calculated_column_core.py` (`uses_total_scope()`, `formula_validation_result` gana `warnings`)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/validate_calculated_column_formula.py` (pasa `show_totals_enabled` del `form_data` verificado)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/explore_viz_controls_core.py` (`COLUMN_CONFIG_HTML_TEMPLATE_RULES` ampliada)
+- `custom-extensions/irex-mcp-tools/backend/tests/test_explore_calculated_column_core.py` (+9 tests)
+- `custom-extensions/irex-mcp-tools/backend/tests/test_explore_viz_controls_core.py` (+1 test)
+- `custom-extensions/irex-mcp-tools/docs/explore-assistant-contract.md`
+
+**Hallazgo propio (no reportado por el backend, encontrado revisando el
+pedido del usuario): `calculated_columns` con `total.{{...}}` sin
+`show_totals` activo — bug real, no cosmético.** El último turno de la
+sesión propuso `IF(OR(ISBLANK(total.{{Sell In}}), total.{{Sell In}} = 0),
+0, {{Sell In}} / total.{{Sell In}})` como columna calculada;
+`irex.validate_calculated_column_formula` la dio por válida (la
+referencia y la estructura SÍ eran correctas) y el diagnóstico del
+modelo lo confirmó — pero el gráfico no tenía `show_totals` activo, y la
+propuesta tampoco lo activaba. Leyendo `TableChart.tsx`/`transformProps.ts`
+del plugin real: sin `show_totals`, la variable `totals` queda
+`undefined` y `enrichedTotal` (el contexto que resuelve `total.{{...}}`)
+queda `null` — `total.{{Sell In}}` resuelve SIEMPRE a nulo,
+`ISBLANK(...)` da SIEMPRE `true`, y la fórmula entera colapsa siempre a
+la rama `0` — nunca calcula el porcentaje real. Es exactamente el tipo
+de falla que `irex.validate_calculated_column_formula` no podía atrapar
+porque depende de OTRO control, no de la fórmula en sí. Corregido: la
+tool ahora detecta el alcance `total.` y agrega un `warnings[]` cuando
+`show_totals` no está activo en el estado verificado — sin bajar
+`valid` a `false` (la fórmula sigue siendo estructuralmente correcta).
+
+**Hallazgo del backend, verificado (no solo tomado de su palabra) leyendo
+`formatValue.ts`: precisión real sobre nulos en `column_config.htmlTemplate`.**
+Reportaron que una plantilla de rangos mandaba un valor nulo a `ELSE`
+(mostrándolo como "Sobreventa" en vez de "sin dato"). Confirmado leyendo
+`getTemplateValue`/`evaluateWhenCondition`: `{{ value }}`,
+`{{ raw_value }}` y repetir el nombre de la MISMA columna que tiene el
+template son la MISMA ruta de código (`key === column.key`) — un nulo se
+convierte en `''`, comparable con `= ''`. Referenciar OTRA columna es
+distinto: un nulo ahí queda `undefined`, y esa comparación se salta en
+silencio (nunca se compara contra `''`). Documentado en
+`COLUMN_CONFIG_HTML_TEMPLATE_RULES`: si el valor de la propia columna
+puede ser nulo, el PRIMER `WHEN` de la cadena debe ser
+`{{ raw_value }} = ''` (o el nombre de esa columna repetido).
+
+Verificación:
+- `PYTHONPATH=src pytest tests/test_explore_calculated_column_core.py
+  tests/test_explore_viz_controls_core.py`: 79/79 (10 nuevos) — incluye
+  el caso real reportado (`total.{{Sell In}}` sin `show_totals` →
+  `warnings` no vacío, `valid` sigue en `true`), que no hay falso
+  positivo cuando `show_totals` sí está activo o la fórmula no usa
+  `total.`, y que el warning conviven con un error de referencia
+  (`valid: false`) sin ocultarlo.
+- `PYTHONPATH=src pytest tests/`: 355/355, sin regresiones.
+- `./scripts/build-extension.sh .../superset_v6_1_0 .../extensions_test/irex-mcp-tools-0.1.0.supx`:
+  7/7 — `.supx` reconstruido y validado, sin cambios de frontend.
+- Pendiente: reiniciar `superset_test.service`/`superset_mcp_test.service`
+  y avisarle al agente del backend del chat que su recomendación quedó
+  incorporada (verificada, no solo aplicada tal cual) y que apareció un
+  segundo hallazgo real en la misma sesión.
+
+### 2026-09-28 (94) (Explore: corrección real en `control_info` — la sintaxis de `column_config.htmlTemplate` estaba mal descrita)
+
+Cambio realizado: el usuario preguntó puntualmente si el modelo "ya sabe
+usar" cada campo de fórmulas Jinja con sus personalizaciones
+(`row.{{}}`/`col.{{}}`/`total.{{}}`), si distingue dónde se usa solo HTML
+y dónde también CSS, y si `html_cards` (que "tiene instrucciones muy
+específicas") está bien cubierto. La revisión a fondo, releyendo el
+código fuente real con más cuidado que en la entrada 93, encontró que la
+respuesta era "no del todo" — había una descripción REALMENTE
+EQUIVOCADA, no solo incompleta.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/explore_viz_controls_core.py`
+- `custom-extensions/irex-mcp-tools/backend/tests/test_explore_viz_controls_core.py` (+5 tests)
+- `custom-extensions/irex-mcp-tools/docs/explore-assistant-contract.md`
+
+Qué se corrigió (no solo se amplió):
+- **`column_config.htmlTemplate` de `table_v3`/`pivot_table_rx1` tenía la
+  sintaxis EQUIVOCADA en la entrada 93** — decía que era sustitución tipo
+  `{{OtroLabel}}` igual que `calculated_columns`. Es un lenguaje
+  DISTINTO: Jinja-like con `{% set variable = columna %}` y
+  `CASE WHEN <comparación simple> THEN <html> ELSE <html> END`,
+  deliberadamente restringido (sin `SUM()`/`AVG()`/`COUNT()`, sin
+  `OR`/`AND`/`IS NULL`/`IN`, sin comentarios `{# #}` ni macros). La fuente
+  real: `HTML_TEMPLATE_AI_PROMPT` en
+  `superset-frontend/src/explore/components/controls/ColumnConfigControl/
+  constants.tsx` — una constante que el propio proyecto YA escribió para
+  pegar en un prompt de IA (tiene botón "copiar" en la UI real, con
+  ejemplos completos en `HTML_TEMPLATE_EXAMPLES`) — se transcribió
+  literal a `COLUMN_CONFIG_HTML_TEMPLATE_RULES`, sin reinterpretar.
+- **`column_config` de `pivot_table_rx1` decía "formato numérico D3" —
+  no existe.** Su layout real (`HTML_COLUMN_CONFIG_LAYOUT`, leído en su
+  `controlPanel.tsx`) solo trae `displayName` + HTML (`enableHtmlTemplate`/
+  `htmlTemplate`), sin `htmlCss` ni formato numérico — a diferencia de
+  `table_v3`, que sí tiene los tres. Corregido con la diferencia
+  explícita entre ambos plugins.
+- **`calculated_columns` no explicaba el alcance real de `row.`/`col.`/
+  `total.`** — confirmado leyendo `SCOPE_GETTERS` en
+  `calculatedColumns.ts`: `{{Columna}}`, `row.{{Columna}}` y
+  `col.{{Columna}}` son EQUIVALENTES (las tres leen la fila actual —
+  `row.`/`col.` son alias de compatibilidad hacia atrás, no cambian
+  nada). Solo `total.{{Columna}}` es distinto: lee la fila de TOTAL de la
+  tabla — sirve para "esta fila como % del total general". Sin esta
+  aclaración, el modelo podía asumir que las tres formas hacen algo
+  distinto entre sí.
+- **`handlebarsTemplate` de `html_cards` solo tenía 5 de 18 helpers
+  reales** — el resto (`pluck`, `sum`, `coalesce`, `hasValue`,
+  `parseJson`, `rows`, `displayRows`, `firstDisplayRow`, `columns`,
+  `rowCount`, `width`/`height`, `layout.is*`, `scopeId`/`scopeSelector`,
+  `themeVars`) salió de leer el tooltip de ayuda real del control
+  (`handlebarTemplate.tsx`) — esto es justo lo que el usuario señaló como
+  "instrucciones muy específicas".
+- **`styleTemplate` de `html_cards`** suma el aviso real de la propia UI:
+  "Se necesita configurar la sanitización de HTML para poder usar CSS".
+
+Regla que queda para el resto del catálogo (documentada en el contrato):
+cuando el plugin real ya tiene una explicación escrita para humanos
+(tooltip, ejemplos, un prompt para IA ya armado), se transcribe literal
+en vez de resumir con criterio propio — resumir de más fue justo lo que
+produjo el error de `column_config`.
+
+Verificación:
+- `PYTHONPATH=src pytest tests/test_explore_viz_controls_core.py`: 40/40
+  (5 nuevos) — incluye una prueba que fija la corrección puntual (pivot
+  NO promete `htmlCss` ni formato numérico, a diferencia de table_v3) y
+  una que verifica la lista completa de 18 helpers de `handlebarsTemplate`
+  (antes solo se comprobaban los 5 de formato).
+- `PYTHONPATH=src pytest tests/`: 345/345, sin regresiones.
+- `./scripts/build-extension.sh .../superset_v6_1_0 .../extensions_test/irex-mcp-tools-0.1.0.supx`:
+  7/7 — `.supx` reconstruido y validado, sin cambios de frontend.
+- Pendiente: reiniciar `superset_test.service`/`superset_mcp_test.service`.
+  Cambio de solo texto (`control_info` sigue siendo aditivo) — no hace
+  falta avisar al backend salvo que ya estén usando este campo.
+
+### 2026-09-25 (93) (Explore: `irex.get_viz_controls` gana `control_info` — descripción real de los 150 controles conocidos)
+
+Cambio realizado: el usuario preguntó cómo sabe hoy el modelo qué puede y
+qué no puede hacer sobre el gráfico actual — si se le manda todo el
+catálogo junto, o si hay una tool que le dice qué existe para ese tipo de
+gráfico. Explicado: es lo segundo (`get_viz_controls`), y confirmó que esa
+es la opción correcta, pero notó el hueco real — la tool solo daba
+NOMBRES, sin descripción ni forma por control, así que el modelo sabía
+que `column_config`/`jinja_fields`/`calculated_columns` EXISTEN pero no
+CÓMO se arman. Preguntó también si se podía generalizar para los tipos
+nativos de Superset igual que ya existe para los genéricos. Elegido:
+todo junto, propios y nativos en una sola pasada.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/explore_viz_controls_core.py` (`GENERIC_CONTROL_INFO`, `CUSTOM_PLUGIN_CONTROL_INFO`, `control_info_for()`, `resolve_viz_controls` ampliada)
+- `custom-extensions/irex-mcp-tools/backend/tests/test_explore_viz_controls_core.py` (+13 tests)
+- `custom-extensions/irex-mcp-tools/docs/explore-assistant-contract.md`
+
+Qué hace:
+- **Nativos (`source: "generic"`, 47 controles):** `label`/`description`
+  extraídos literalmente de `sharedControls.tsx`/`dndControls.tsx`
+  (`@superset-ui/chart-controls`) — Superset ya los documenta ahí para sus
+  propios tooltips de UI, no hubo que redactar nada de cero.
+- **Propios (`source: "specific"`, 103 controles entre los 3 plugins):**
+  descripción real por control, leyendo el `controlPanel.tsx` (y sus
+  `./controls/*`) de cada plugin — priorizados los no obvios:
+  - `column_config` (los 3 plugins): aclara que se indexa por LABEL, no
+    por nombre de columna, y en `table_v3` documenta el par
+    `enableHtmlTemplate`/`htmlTemplate` (solo si `allow_render_html` está
+    activo).
+  - `calculated_columns` (table_v3): explícito "NO es SQL", lista los
+    operadores/funciones soportadas, y remite a
+    `irex.validate_calculated_column_formula` antes de proponer.
+  - `jinja_fields` (table_v3 y pivot_table_rx1): al revés — SÍ son SQL
+    real, remite a `irex.validate_expression`.
+  - `metricFormulas` (pivot_table_rx1): mismo lenguaje de fórmulas que
+    `calculated_columns` en apariencia, pero con `parseFormulaMetrics`
+    propio — la descripción aclara explícitamente que NO está confirmado
+    que sea el mismo compilador, y que `validate_calculated_column_formula`
+    no está extendido a este control todavía (evita que el modelo asuma
+    una garantía que no existe).
+  - `handlebarsTemplate`/`styleTemplate` (html_cards): qué helpers de
+    Handlebars hay disponibles (`dateFormat`, `numberFormatD3`, etc.) y
+    que la plantilla referencia columnas por el alias de `column_config`.
+  - Los 12 controles de tema de `pivot_table_rx1` (`table_theme_*`),
+    los de agrupamiento de filas de `table_v3` (`enable_row_grouping` y
+    afines) y los de Top N (`show_top`/`top_metric`/`top_count`) también
+    documentados, uno por uno.
+  - Un control reusado SIN cambios de un plugin (ej. `adhoc_filters` en
+    `table_v3`) NO se redocumenta — cae al genérico vía `control_info_for()`,
+    que prioriza lo específico y solo si no hay nada específico usa lo
+    genérico.
+- Respuesta aditiva: `controls`/`source`/`note` no cambiaron de forma,
+  se sumó `control_info: {nombre: {"description": "..."}}`.
+
+Verificación:
+- `PYTHONPATH=src pytest tests/test_explore_viz_controls_core.py`: 35/35
+  (13 nuevos) — incluye dos pruebas de COBERTURA COMPLETA (una por cada
+  uno de los 3 plugins propios, una para el catálogo genérico) que
+  comparan cada nombre en `controls` contra `control_info` y fallan si
+  falta alguno — sin gaps al día de esta entrada.
+- `PYTHONPATH=src pytest tests/`: 340/340 (todo el backend, sin
+  regresiones en el resto).
+- `./scripts/build-extension.sh .../superset_v6_1_0 .../extensions_test/irex-mcp-tools-0.1.0.supx`:
+  7/7 — `.supx` reconstruido y validado, sin cambios de frontend en esta
+  entrada.
+- Pendiente: reiniciar `superset_test.service`/`superset_mcp_test.service`
+  y avisarle al agente del backend del chat — cambio aditivo (no rompe su
+  integración actual con `get_viz_controls`), contrato actualizado en
+  `docs/explore-assistant-contract.md`.
+
+### 2026-09-25 (92) (Explore: `irex.validate_calculated_column_formula` — validar fórmulas de `calculated_columns` de tableV3, no son SQL)
+
+Cambio realizado: a pedido del usuario, revisando la sesión
+`explore-b35fd9f01a9bbd693ec7549b5272c29a3b43b639389f39be10f5f9629eaee091`
+("en la tableV3 puedo usar jinja en varias opciones y html para crear
+personalizaciones. Necesito que el LLM pueda verlos e interactuar"). Esa
+sesión puntual no tenía ningún `htmlTemplate`/`jinja_fields` configurado
+(verificado leyendo el `form_data` real del gráfico) — la respuesta del
+modelo ahí era correcta, no un bug. Repasando qué hace falta para "ver e
+interactuar" en general: el modelo ya recibe el `form_data` completo sin
+filtrar (ve cualquier `htmlTemplate`/`jinja_fields` que exista), ya sabe
+que `jinja_fields`/`calculated_columns`/`column_config` son controles
+válidos de `table_v3` (vía `get_viz_controls`), y `patch_form_data` ya
+puede escribir cualquiera de ellos. Lo que faltaba, elegido por el
+usuario entre 3 opciones: verificar una fórmula de `calculated_columns`
+ANTES de proponerla — es un lenguaje propio (no SQL), y una referencia
+rota no da error visible, deja la fórmula en blanco en silencio.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/explore_calculated_column_core.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/validate_calculated_column_formula.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/backend/tests/test_explore_calculated_column_core.py` (nuevo, 29 tests)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/entrypoint.py`
+- `custom-extensions/irex-mcp-tools/docs/explore-assistant-contract.md`
+- `superset_config_test.py` (paso 6 OBLIGATORIO: agregado a `always_visible`)
+
+Qué hace:
+- Input `{"form_data_key": "key-1", "expression": "IF({{Cuota}} = 0, 0, {{Venta}}/{{Cuota}})"}`
+  — misma key que el resto de las tools de Explore; los nombres
+  disponibles (columnas agrupadas, etiquetas de métricas, otras
+  `calculated_columns` ya definidas) salen del estado YA verificado.
+- **No reimplementa el compilador real** (`custom-plugins/plugin-chart-tableV3/
+  src/utils/calculatedColumns.ts::compileFormulaEvaluator`, que corre en
+  el navegador vía `new Function(...)`) — sería duplicar lógica real con
+  riesgo de divergencia, el patrón que este proyecto evita. En cambio,
+  porta LITERALMENTE los mismos patrones de extracción de referencias
+  (`{{Columna}}`, `scope.{{Columna}}`, `scope.Columna` con `scope`
+  `total`/`col`/`row`, mismo orden de reemplazo) y verifica: (1) que cada
+  referencia existe entre los nombres disponibles (case-insensitive), (2)
+  que no hay identificadores en mayúsculas sin reconocer fuera de `{{}}`
+  (típicamente una función mal escrita — `IF`/`OR`/`AND`/`NOT`/`ISBLANK`/
+  `ABS`/`ROUND`/`MAX`/`MIN` son las únicas soportadas), (3) llaves y
+  paréntesis balanceados.
+- Devuelve `{"valid": true, "resolved_references": [...]}` o
+  `{"valid": false, "error": "...", "unknown_references": [...],
+  "unknown_functions": [...]}`. **`valid: true` NO confirma qué calcula
+  la fórmula** — eso solo se ve en el navegador con datos reales; solo
+  confirma que las referencias existen y la estructura es sana. Documentado
+  así explícitamente para no sobre-prometer.
+- Explícitamente fuera de alcance: `jinja_fields` (son SQL real, usar
+  `irex.validate_expression`) y `metricFormulas` de `pivot_table_rx1`
+  (mecanismo propio de ese plugin — no se confirmó que sea el mismo
+  compilador, queda como trabajo futuro si hace falta).
+
+Verificación:
+- `PYTHONPATH=src pytest tests/test_explore_calculated_column_core.py`:
+  29/29 — extracción de referencias (simple, con espacios, con/sin
+  llaves de alcance, sin confundir un estilo con el otro), tokens de
+  función desconocidos (conocidas no se marcan, TRUE/FALSE/NULL/NAN
+  cuentan como conocidos, un nombre de columna en mayúsculas DENTRO de
+  `{{}}` no se confunde con una función), `known_calculated_column_names`
+  (groupby/metrics/calculated_columns en sus formas string y adhoc), y
+  el resultado combinado (válida, case-insensitive, referencia repetida
+  no duplica, referencia desconocida, función desconocida, ambos a la
+  vez, expresión vacía, llaves/paréntesis desbalanceados).
+- `./scripts/build-extension.sh .../superset_v6_1_0 .../extensions_test/irex-mcp-tools-0.1.0.supx`:
+  7/7 — 327 tests backend (29 nuevos), frontend sin cambios (298 tests
+  sin tocar), `.supx` reconstruido y validado.
+- Pendiente: reiniciar `superset_test.service`/`superset_mcp_test.service`
+  y avisarle al agente del backend del chat (contrato + ejemplo ya en
+  `docs/explore-assistant-contract.md`).
+
+### 2026-09-25 (91) (Explore: fix del fix — `tab_id` iba en el body y el endpoint solo lo lee de la query string, 400 en todos los casos)
+
+Cambio realizado: el fix de la entrada 90 seguía sin funcionar. El usuario
+insistió con pruebas (distintos gráficos, hard refresh de una pestaña
+nueva) y finalmente compartió la consola del navegador — ahí apareció:
+`:9090/api/v1/explore/form_data:1 Failed to load resource: the server
+responded with a status of 400 (BAD REQUEST)`. Diagnóstico inmediato
+leyendo el código real del endpoint (`superset/explore/form_data/api.py`
++ `superset/explore/form_data/schemas.py`): `FormDataPostSchema` NO
+declara ningún campo `tab_id` — el endpoint lo lee exclusivamente de la
+QUERY STRING (`tab_id = request.args.get("tab_id")`, línea 97 de
+`api.py`), nunca del body JSON. La entrada 90 lo mandaba adentro del
+body (`{"tab_id": "..."}`), un campo que el schema no conoce — Marshmallow
+lo rechaza con `ValidationError` → 400, exactamente el error de la
+consola. Bug propio, encontrado por no haber leído el endpoint completo
+la primera vez (sí se había leído `CreateFormDataCommand`, pero no la capa
+de la API REST que arma sus parámetros).
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/exploreApplyAdapter.ts` (`postAppliedFormData`: `tab_id` pasa a ir como query param)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreApplyAdapter.test.ts` (test de `tab_id` corregido)
+
+Qué cambia:
+- `postAppliedFormData(..., tabId)`: cuando se pasa `tabId`, ahora se
+  arma la URL como `/api/v1/explore/form_data?tab_id=<valor>` — el body
+  ya no incluye `tab_id` en ningún caso. El flujo de "Aplicar" (Fase 6),
+  que nunca pasa `tabId`, queda sin cambios de comportamiento.
+- Además, notas de diagnóstico intermedias (descartadas, quedan acá por
+  si vuelven a ser útiles): se confirmó que el puerto 9090 es
+  efectivamente el servidor de test (no hubo confusión de ambiente); se
+  confirmó que el `.supx` desplegado en cada paso SÍ contenía el código
+  nuevo (grep directo sobre el JS compilado); los datos de los gráficos
+  probados (`slice_id` 157, 459, 38) eran válidos. Ninguna de esas pistas
+  era la causa — la causa era, simplemente, un campo en el lugar
+  equivocado del request.
+
+Verificación:
+- `npx tsc --noEmit`: limpio.
+- `npx jest`: 298/298 (22 suites) — test de `tab_id` reescrito para
+  comprobar la URL en vez del body.
+- `./scripts/build-extension.sh .../superset_v6_1_0 .../extensions_test/irex-mcp-tools-0.1.0.supx`:
+  7/7 — sin cambios de Python. Verificado además con `grep` sobre el JS
+  compilado que la nueva URL con `tab_id=` está presente en el bundle
+  desplegado.
+- Pendiente (para el usuario): reiniciar `superset_test.service`, abrir
+  una pestaña NUEVA (no reusar una vieja, para garantizar JS fresco) y
+  probar de nuevo sobre un gráfico guardado recién abierto.
+
+### 2026-09-25 (90) (Explore: bug real — gráficos guardados sin form_data_key en la URL no podían usar el asistente)
+
+Cambio realizado: el usuario reportó, con captura, que el asistente
+fallaba con "No se pudo leer el estado persistido de Explore" sobre el
+`slice_id: 157`, aclarando "no genero un log" — pista clave. Confirmado
+leyendo el código (sin necesitar sesión real, porque justamente NO había
+ninguna): `buildExploreAssistantRequest` (`exploreAdapter.ts`) lanza ese
+error y corta ANTES de cualquier request al backend del chat cuando
+`context.formDataKey`/`context.formData` vienen `undefined` — exactamente
+por qué no hay log. `readExploreContext` solo intentaba
+`fetchFormData(location.formDataKey)`, y un gráfico GUARDADO recién
+abierto (navegado directo, sin tocar ningún control todavía) no tiene
+`form_data_key` en la URL — Explore recién la genera al primer cambio de
+control. El indicador de fidelidad de la captura decía igual "SQL del
+estado ejecutado disponible" porque `resolveQueryFidelity` SÍ tiene su
+propio respaldo para este caso (lee el gráfico guardado directamente,
+`exploreState.ts`) — son caminos independientes, uno no implicaba el
+otro, y eso ocultaba el problema en la UI.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreState.ts` (`fetchSavedChart` exportada)
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/exploreApplyAdapter.ts` (`postAppliedFormData` gana un 5º parámetro opcional `tabId`)
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/exploreAdapter.ts` (`readExploreContext` siembra una key cuando falta)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreApplyAdapter.test.ts` (+1 test)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreAdapter.test.ts` (+7 tests)
+
+Qué cambia:
+- `readExploreContext`: si no hay `form_data_key` en la URL pero SÍ hay
+  `slice_id` (gráfico guardado), lee la configuración YA GUARDADA
+  (`fetchSavedChart`, mismo endpoint `GET /api/v1/chart/<id>` que ya usaba
+  `resolveQueryFidelity`) y la persiste bajo una key NUEVA
+  (`POST /api/v1/explore/form_data`, reusando `postAppliedFormData` de la
+  Fase 6) — la MISMA operación que hace Explore solo con tocar un
+  control. Sin `slice_id` (gráfico nunca guardado), no hay nada de dónde
+  sembrar y el comportamiento queda igual que antes.
+- La key sembrada se manda **con `tab_id`** (a diferencia del flujo de
+  "Aplicar" de Fase 6, que deliberadamente NO lo manda por una razón
+  opuesta y ya documentada): acá se busca que la key quede asociada a la
+  pestaña, como si Explore la hubiera generado sola, para no crear una
+  key nueva en cada turno del asistente sobre el mismo gráfico. Se lee de
+  `sessionStorage['tab_id']`, el mismo id que usa el propio Explore
+  (`useTabId()`, hallazgo ya verificado en la Fase 0).
+- Tras sembrar, la key queda en la URL (`history.replaceState`, sin
+  recargar) para que el PRÓXIMO turno la reutilice en vez de sembrar una
+  nueva cada vez — best-effort, si falla el turno actual ya tiene lo que
+  necesita igual.
+- Cualquier falla en el camino (gráfico guardado ilegible, datasource
+  inválido, el POST de siembra falla) se trata igual que antes: `formData`
+  queda `undefined`, mismo mensaje de error de siempre — no hay forma
+  nueva de fallar, solo un caso más que ahora SÍ puede tener éxito.
+
+Verificación:
+- `npx tsc --noEmit`: limpio.
+- `npx jest`: 298/298 (22 suites) — 1 test nuevo de `postAppliedFormData`
+  (manda/no manda `tab_id` según corresponda) + 7 tests nuevos de
+  `readExploreContext` (siembra exitosa + URL actualizada, `tab_id` de
+  `sessionStorage`, gráfico guardado inexistente, datasource inválido,
+  POST de siembra fallido, sin `slice_id` no intenta nada, con
+  `form_data_key` ya resuelto no intenta sembrar).
+- `./scripts/build-extension.sh .../superset_v6_1_0 .../extensions_test/irex-mcp-tools-0.1.0.supx`:
+  7/7 — sin cambios de Python (298 backend sin tocar).
+- Pendiente (para el usuario): reiniciar `superset_test.service` y repetir
+  el caso real — abrir el `slice_id: 157` (u otro gráfico guardado recién
+  abierto, sin tocar ningún control) y usar "Explicar"/"Mejorar gráfico"
+  directamente.
+
+### 2026-09-25 (89) (Explore: rediseño de "Aplicar todo" a un único casillero + formato legible en `column_config`)
+
+Cambio realizado: a pedido explícito del usuario, sobre lo construido en la
+entrada 88: "Puedes pensar mejor esa parte, tanto en UX como en la forma
+que se aplica, la siento compleja, además indicar que si se aplica solo 1
+las demás se borran no me parece bien." Además: "otro tema es que también
+debería actuar sobre la personalización (aplica formatos etc.)" —
+verificado contra una sesión real
+(`explore-e25678070e7c8a06124b9717b299c448acd7da1aea2df1cf3acd95c183fbc49f`)
+que sí aplicaba un formato (`column_config`/`d3NumberFormat`) vía
+`patch_form_data`: la propuesta era estructuralmente válida, pero el diff
+la mostraría como JSON crudo (el mismo problema de legibilidad de la
+entrada 85, sin resolver para este control en particular).
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/exploreApplyAdapter.ts` (`formatControlDiffValue`, nuevo, exportado)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreApplyAdapter.test.ts` (+7 tests)
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/ExploreAssistantPanel.tsx` (`ExploreApplyAllBar` reemplazada por `ExploreProposalChecklist`; `ExploreActionCard` pierde el aviso de "hermanas"; `ControlDiffRow` usa el formateo nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/ExploreAssistantPanel.test.tsx` (describe reescrito)
+
+Qué cambia (UX — punto 1 del pedido):
+- Se elimina la barra "Aplicar todo" separada de las tarjetas individuales
+  (dos componentes, un aviso repetido por tarjeta) — reemplazada por UNA
+  sola tarjeta con casilleros (`ExploreProposalChecklist`), todos tildados
+  por defecto, cuando la propuesta trae 2+ acciones aplicables. Con 0 o 1,
+  sigue siendo la tarjeta simple de siempre — sin casillero de un solo
+  elemento, que no aportaría nada.
+- Desaparece por completo el aviso "si aplicás esta sola, las demás se
+  pierden": ya no tiene sentido, porque lo que el usuario NO tilda nunca
+  estuvo en el paquete a aplicar — no hay "efecto secundario" que avisar,
+  solo una elección explícita. Mientras hay un diff en pantalla los
+  casilleros se bloquean (hay que "Cancelar" para volver a elegir) — evita
+  mostrar un diff que ya no corresponde a la selección.
+- "Ver cambio" queda deshabilitado si no hay nada tildado — nunca se puede
+  llegar a aplicar un paquete vacío.
+- El flujo de aplicar en sí (`usePreparedApply`, revalidar la key dos
+  veces, `window.confirm`, POST sin `tab_id`, `Deshacer` con conversación)
+  no cambió — es exactamente el mismo mecanismo de la entrada 88 y 84,
+  ahora alimentado por la selección de casilleros en vez de "todas las
+  acciones aplicables".
+
+Qué cambia (formato legible — punto 2 del pedido):
+- `formatControlDiffValue(control, value)`: igual que `formatControlValue`
+  para cualquier control, PERO especializa `column_config` — su forma real
+  es un MAPA `{"nombre de columna": {ajustes}}`, no un único
+  `AdhocMetric`/`AdhocColumn`, así que `formatControlValue` solo caía al
+  JSON del mapa entero. Ahora cada entrada se resume ("Cuota: formato
+  numérico \",d\"") reconociendo `d3NumberFormat`, `d3SmallNumberFormat`,
+  `currency.symbol` y `displayName` — los mismos campos reales de
+  `TableColumnConfig` (verificado leyendo
+  `plugin-chart-tableV3/src/types.ts` y `transformProps.ts`, que además
+  confirmó que `column_config` se indexa por el LABEL del metric/columna,
+  no por un id interno — la propuesta real de la sesión revisada usaba
+  exactamente esa convención, correctamente).
+
+Verificación:
+- `npx tsc --noEmit`: limpio.
+- `npx jest`: 290/290 (22 suites) — 7 tests nuevos de
+  `formatControlDiffValue` (mapa con `d3NumberFormat`, varios ajustes
+  combinados, moneda, ajuste desconocido cae a JSON de esa columna no del
+  mapa entero, undefined/vacío, otros controles sin cambios, valor mal
+  formado) + describe reescrito de la lista con casilleros en
+  `ExploreAssistantPanel.test.tsx` (1 acción → sin casillero; 2+ → todo
+  tildado por defecto y SIN el aviso viejo; destildar todo deshabilita
+  "Ver cambio"; misma comprobación de key que antes).
+- `./scripts/build-extension.sh .../superset_v6_1_0 .../extensions_test/irex-mcp-tools-0.1.0.supx`:
+  7/7 — sin cambios de Python en esta entrada (298 backend sin tocar).
+- Pendiente (para el usuario): reiniciar `superset_test.service` y probar
+  el casillero nuevo sobre una propuesta real de varios cambios, y el
+  formato legible sobre una propuesta de `column_config`.
+
+Nota aparte, reportada para el agente del backend del chat (sin cambio de
+código de este lado — es responsabilidad del modelo, no de la extensión):
+en la MISMA sesión revisada
+(`explore-e25678070e7c8a06124b9717b299c448acd7da1aea2df1cf3acd95c183fbc49f`),
+el turno que propuso el `column_config` de formato no tiene NINGUNA
+llamada a herramienta (`tool_call`) — el modelo propuso el cambio de
+control sin llamar `irex.get_viz_controls` para confirmar que
+`column_config` era un control real de `table_v3`. En este caso
+particular el control y el campo (`d3NumberFormat`) eran correctos
+(verificado leyendo el código fuente del plugin), pero fue por acierto del
+modelo, no por verificación — exactamente el caso que el contrato ya
+advierte ("sin validar el nombre del control contra esto, no confiar en
+la propuesta").
+
+### 2026-09-25 (88) (Explore: "Aplicar todo" — combinar varias acciones de una misma propuesta en un solo paso)
+
+Cambio realizado: a pedido explícito del usuario, con captura
+(`explore-bb7d5ba72e84e1d5e4f891614edb93d0461082754114b4372df7fa4b2c9e943`):
+una propuesta de "Mejorar gráfico" trajo 4 acciones relacionadas (agrupar
+por segmento/familia/marca + 3 métricas) que solo tenían sentido juntas
+para el resultado que el usuario pedía, pero cada una necesitaba su propio
+"Ver cambio"/"Aplicar" — y aplicar la primera recargaba la página
+(mecanismo de la Fase 6) y hacía desaparecer las otras 3 tarjetas, sin
+forma de retomarlas. Palabras del usuario: "no creo que sea adecuado
+tener que aplicar uno a uno […] lo importante es ver si se puede aplicar
+todo en 1 paso en estos casos".
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/exploreApplyAdapter.ts` (`applyExploreActions`, nuevo, exportado)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreApplyAdapter.test.ts` (+3 tests)
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/ExploreAssistantPanel.tsx` (`usePreparedApply` extraído; `ExploreApplyAllBar` nuevo; `ExploreActionCard` avisa cuando hay hermanas)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/ExploreAssistantPanel.test.tsx` (+3 tests)
+
+Qué cambia:
+- `applyExploreActions(formData, actions[])` encadena varias acciones de
+  la MISMA propuesta en orden (mismo mecanismo que ya usan las
+  `operations` de un solo `patch_form_data`) — cada acción ve el resultado
+  acumulado de las anteriores, así que 3 `add_adhoc_metric` sobre el mismo
+  control (`metrics`) se van agregando una tras otra, no se pisan.
+- El flujo prepare→diff→confirm→POST/reload que antes vivía solo dentro
+  de `ExploreActionCard` se extrajo a un hook compartido
+  (`usePreparedApply`) — la única diferencia entre aplicar UNA acción y
+  aplicar VARIAS es cuántas entran al `reduce`; todo lo demás (revalidar
+  la key vigente dos veces, el diff, el `window.confirm`, el POST sin
+  `tab_id`, guardar el `PendingExploreUndo` con la conversación, el
+  reload) es exactamente el mismo código, ahora sin duplicar.
+- `ExploreApplyAllBar`, nuevo: aparece SOLO cuando la respuesta trae 2 o
+  más acciones aplicables (Nivel 2), como una tarjeta más arriba de la
+  lista, con "Ver todos los cambios"/"Aplicar todo (N)" — el diff que
+  muestra es el COMBINADO (antes = form_data actual, después = form_data
+  con las N acciones ya encadenadas), no N diffs separados.
+- Las tarjetas individuales se mantienen (cherry-picking sigue siendo
+  posible: alguien puede querer solo 1 de las N) pero ahora, cuando hay
+  hermanas, muestran un aviso explícito: "Aplicar esta tarjeta sola
+  también recarga la página — las demás propuestas de este turno dejan de
+  estar disponibles. Para aplicarlas juntas, usá 'Aplicar todo' arriba."
+- El "Deshacer" de un "Aplicar todo" sigue siendo UN solo nivel (como ya
+  era): vuelve a la key de antes de las N acciones, no a una por una.
+
+Verificación:
+- `npx tsc --noEmit`: limpio.
+- `npx jest`: 282/282 (22 suites) — 3 tests nuevos de `applyExploreActions`
+  (encadenado en orden, sin acciones, no muta el original) + 3 tests
+  nuevos de panel (sin barra con 1 sola acción; aparece con 2+ y cada
+  tarjeta avisa; "Ver todos los cambios" respeta la misma comprobación de
+  key vigente que una tarjeta individual).
+- `./scripts/build-extension.sh .../superset_v6_1_0 .../extensions_test/irex-mcp-tools-0.1.0.supx`:
+  7/7 — sin cambios de Python en esta entrada (298 backend sin tocar).
+- Pendiente (para el usuario): reiniciar `superset_test.service` y probar
+  "Aplicar todo" sobre una propuesta real de varios cambios.
+
+### 2026-09-25 (87) (Explore: `irex.get_dataset_catalog` — nueva tool, catálogo verificado de columnas/métricas)
+
+Cambio realizado: a pedido explícito del agente del backend del chat
+(reportado por el usuario), que diagnosticó con precisión el hueco:
+`irex.get_explore_state` da el estado del gráfico pero no el catálogo de
+columnas del dataset, y `irex.validate_expression` solo confirma una
+expresión A LA VEZ — sin catálogo, el modelo le pregunta al usuario por
+columnas que ya existen (sesión `explore-2287e800...`, dataset 5, el
+usuario ya había mencionado "cuota" y "sell_in" y el modelo preguntó de
+nuevo por "cuota"). Implementada `irex.get_dataset_catalog`.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/explore_dataset_catalog_core.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/get_dataset_catalog.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/backend/tests/test_explore_dataset_catalog_core.py` (nuevo, 13 tests)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/entrypoint.py`
+- `custom-extensions/irex-mcp-tools/docs/explore-assistant-contract.md`
+- `superset_config_test.py` (paso 6 OBLIGATORIO de CLAUDE.md: agregado a `always_visible`)
+
+Qué hace:
+- Input `{"form_data_key": "key-1"}` — la MISMA key que `get_explore_state`,
+  a propósito: reusa `verified_explore_state` SIN modificarla, así que el
+  catálogo queda atado al datasource del estado YA verificado (mismos
+  permisos/acceso, mismo comportamiento con gráfico sin guardar
+  `slice_id: null`, mismos errores de key vencida/dataset inválido) — no
+  hay forma de pedir el catálogo de un dataset arbitrario sin pasar por
+  esa verificación, ni nombres/IDs fijos.
+- Carga `dataset.columns`/`dataset.metrics` del `SqlaTable` real
+  (`DatasetDAO.find_by_id`, mismo patrón que `validate_expression.py`) —
+  el acceso al dataset ya lo verificó `check_access` de
+  `verified_explore_state` (`superset.explore.utils.check_access` →
+  `check_datasource_access`, el mismo camino real que usa Explore), así
+  que no hay una segunda comprobación de permisos redundante.
+- Devuelve `columns[]` (nombre real, tipo, `label`/`description` cuando el
+  dataset los tiene, `is_calculated`+`expression` si es una columna
+  virtual, `is_temporal` si es la columna de fecha) y `metrics[]` (SOLO
+  las métricas GUARDADAS del dataset, siempre con su `expression` SQL
+  real) — nunca filas, nunca prueba de ejecución: `state_kind` sigue
+  siendo `"last_persisted"`, igual que `get_explore_state`.
+- Columnas inactivas (`is_active=False`) se excluyen — no son seleccionables
+  en Explore, no tiene sentido ofrecerlas.
+- Límite generoso (300 columnas / 200 métricas) con `truncated: true`
+  explícito si se llega al tope — nunca se recorta en silencio, tal como
+  pidió el backend.
+
+Verificación:
+- `PYTHONPATH=src pytest tests/test_explore_dataset_catalog_core.py`:
+  13/13 — reducción de columna/métrica (mínima, con label/descripción,
+  calculada, temporal), orden por nombre, sin truncar / truncando columnas
+  / truncando métricas. Los casos de permisos, key/dataset inválido y
+  gráfico sin guardar NO se duplican: ya están cubiertos por
+  `test_explore_state_core.py`, y esta tool reusa esa función sin tocarla.
+- `py_compile` OK sobre los 3 archivos backend tocados/nuevos.
+- `./scripts/build-extension.sh .../superset_v6_1_0 .../extensions_test/irex-mcp-tools-0.1.0.supx`:
+  7/7 — 298 tests backend (13 nuevos), frontend sin cambios, `.supx`
+  reconstruido y validado.
+- Pendiente: reiniciar `superset_test.service`/`superset_mcp_test.service`
+  y avisarle al agente del backend del chat (contrato + ejemplo de
+  respuesta ya en `docs/explore-assistant-contract.md`) para que lo
+  conecte del lado del modelo.
+
+### 2026-09-25 (86) (Explore: aclaraciones en texto plano en vez de estructuradas — confirmado 100% backend/prompt, sin cambio de código de este lado; segunda acción descartada en silencio)
+
+Cambio realizado: ninguno de código — revisión de una sesión real a pedido
+del usuario (`explore-9155a2b633a9a5d746ca256eaed479032a4411606ec2386c8ffb011d6a6c2da7`,
+captura adjunta), que pidió "corregirlo para que funcione como en el
+SQLLab" al ver que la pregunta de aclaración del modelo se mostraba como
+texto plano dentro del mensaje (con un diagnóstico "info" al lado) en vez
+de como el widget de botones seleccionables que ya usa SQL Lab.
+
+Hallazgo (turno 1 de la sesión): el modelo escribió la pregunta
+("¿qué columna representa exactamente la venta sell_in? Y, ¿quieres
+calcular (sell_in − cuota)/cuota o (cuota − sell_in)/cuota?") como texto
+libre en `message`, con `clarification_questions: []` y sin
+`suggestion_kind` en el sobre. **Confirmado que esto NO es un bug del
+lado de la extensión:** `Clarification.tsx` es el MISMO componente que usa
+SQL Lab (no hay una versión separada para Explore) — ya sabe renderizar
+preguntas con opciones como botones, ya está conectado en
+`ExploreAssistantPanel.tsx` desde la entrada 70, y ya tiene tests. El
+parser del contrato (`exploreAssistant.ts::parseExploreAssistantResponse`)
+además es estricto a propósito: si `suggestion_kind !== "clarification"`,
+`clarification_questions` se descarta aunque venga con datos (línea
+163-176) — no hay forma de que el frontend "adivine" que un mensaje de
+texto es en realidad una aclaración. El fix completo depende de que el
+backend del chat, en modo Explore, instruya al modelo a devolver
+`suggestion_kind: "clarification"` + `clarification_questions: [{id, text,
+options[]}, ...]` en vez de la pregunta en prosa — lo mismo que ya hace
+(se asume) para SQL Lab. Coincide con la nota lateral ya anotada en la
+entrada 80 (el modelo a veces cae a texto plano al pedir aclaración) —
+esta sesión da un ejemplo concreto y reproducible para el otro agente.
+
+**Segundo hallazgo, no pedido pero relevante (turno 2 de la misma
+sesión):** reaparece el patrón de la entrada 82 (acción descartada en
+silencio, `message` cae al fallback genérico) — esta vez con
+`add_adhoc_metric` en vez de `patch_form_data`. El modelo llamó a
+`irex.validate_expression` y armó una acción bien formada
+(`100.0 * SUM(sell_in) / NULLIF(SUM(planv), 0)`, visible en
+`agent_done.answer`), pero `done.explore_response` llegó con
+`message: "No pude generar una propuesta estructurada y verificable.
+Intenta de nuevo."` y `actions: []`. La entrada 83 había confirmado
+cerrado este hallazgo para `patch_form_data` — esta sesión sugiere que el
+fix del backend no cubrió (o no cubre de la misma forma) `add_adhoc_metric`.
+
+**Tercer hallazgo (2026-09-25, corrección tras revisión del usuario) — más
+grave que el anterior: la expresión de esa misma acción usa la columna
+EQUIVOCADA.** El usuario pidió una métrica sobre "cuota" vs. `sell_in`; el
+`message` del modelo dice textualmente "100 × venta / **cuota**", pero la
+`expression` que arma es `100.0 * SUM(sell_in) / NULLIF(SUM(**planv**), 0)`
+— divide por `planv`, no por `cuota`. No son sinónimos: la sesión anterior
+del mismo día (`explore-50596f8...`, entradas 84/85) existió justamente
+para REEMPLAZAR `SUM(planv)` por `SUM(cuota)` como métrica del gráfico —
+son dos columnas distintas. El propio modelo, en la pregunta de aclaración
+de este turno, ya trataba "cuota" como un concepto entendido (solo
+preguntó por `sell_in` y por el signo, nunca por qué es "cuota"). Esto es
+un error de fondo del modelo al armar la expresión a partir del pedido —
+no algo que el MCP pueda detectar: `irex.validate_expression` solo
+confirma que `SUM(planv)` es SQL válido contra el dataset 5, no tiene
+forma de saber que el usuario pidió "cuota". **Más serio que el hallazgo
+2:** si esta acción NO se hubiera descartado, se le habría propuesto al
+usuario aplicar la fórmula equivocada mientras el texto le aseguraba que
+era la correcta — el descarte en silencio, aunque es un bug aparte, en
+este caso concreto evitó un error peor.
+
+Verificación: ninguna adicional — ambos hallazgos son de solo lectura del
+log real vía el endpoint documentado en CLAUDE.md. Sin cambios de código
+en esta entrada.
+
+### 2026-09-25 (85) (Explore: feedback de la primera prueba real de Fase 6 — diff legible y conversación que sobrevive al reload)
+
+Cambio realizado: el usuario probó "Aplicar" por primera vez (sesión
+`explore-50596f802aea7d1a7c567ba8436557e4e1692d64a129666f89d629043a586318`,
+capturas adjuntas) — funcionó de punta a punta (confirmado releyendo el
+log: `agent_done`/`done.explore_response` coinciden, la métrica se aplicó y
+el aviso de "Deshacer" apareció) — con dos observaciones de UX, ninguna un
+bug:
+1. "El cuadro donde se muestra que cambia es muy técnico, muy confuso un
+   json no es cómodo de leer."
+2. "Al aplicar se recarga la página, veo el deshacer, pero la conversación
+   se pierde. ¿Es posible hacer el cambio sin recargar la página?"
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/exploreApplyAdapter.ts` (`formatControlValue`, nuevo, exportado)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreApplyAdapter.test.ts` (+11 tests)
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/ExploreAssistantPanel.tsx` (`ControlDiffRow` usa `formatControlValue`; conversación restaurable al montar)
+- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreUndo.ts` (`PendingExploreUndo.conversation`, opcional)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreUndo.test.ts` (+2 tests)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/ExploreAssistantPanel.test.tsx` (+2 tests de restauración)
+
+Qué cambia o corrige:
+- **Punto 1 (diff legible):** `formatControlValue` reconoce las formas
+  reales de `AdhocMetric`/`AdhocColumn` de Superset en vez de volcar el
+  objeto entero — el caso exacto de la captura
+  (`{"aggregate":"SUM","column":{...columna completa...}}`) ahora se
+  muestra como `SUM(planv)`; una métrica SQL con label propio muestra el
+  label (`Cuota`), sin label la expresión (`SUM(cuota)`); un array de
+  métricas se lista separado por comas. Solo lo que no calza con ninguna
+  forma conocida cae a JSON acotado, como antes.
+- **Punto 2 (recarga completa):** confirmado que **no hay forma de
+  evitarla** con la API pública de extensiones de este Superset —
+  `@apache-superset/core` no expone ningún hook hacia el store de Redux ni
+  el árbol de React de Explore (revisado el `.d.ts` completo: `views`,
+  `commands`, `menus`, `theme`, `extensions`, nada de eso da acceso al
+  estado interno; `views.registerView` no pasa props al provider). Tocar
+  el store real de Explore requeriría importar `superset-frontend/src/
+  explore/...` directamente — exactamente lo que CLAUDE.md prohíbe. Es un
+  límite estructural de esta versión de Superset, no una tarea pendiente.
+  Documentado explícitamente en el plan para no reabrirlo sin una API
+  nueva de Superset.
+- Lo que SÍ se resolvió, que era el dolor real detrás de la pregunta: la
+  conversación ya no se pierde. `exploreUndo.ts` guarda ahora, junto con
+  la key para deshacer, una instantánea de la conversación
+  (`conversationKey`, `sessionId`, `mode`, `history`) tomada justo al
+  confirmar "Aplicar". Al volver a montar el panel tras el reload, si el
+  aviso de "Deshacer" sigue vigente (mismo gráfico, misma key recién
+  aplicada), la conversación se restaura completa; en cualquier otro caso
+  arranca vacía como siempre. Mismo ciclo de vida que "Deshacer" a
+  propósito: cuando deja de tener sentido ofrecer deshacer, tampoco tiene
+  sentido seguir mostrando esa conversación como "la actual".
+- Compatibilidad hacia atrás: `conversation` es opcional — una entrada
+  vieja en `sessionStorage` (de antes de esta entrada) se sigue leyendo
+  sin el campo, sin romper.
+
+Verificación:
+- `npx tsc --noEmit`: limpio.
+- `npx jest`: 276/276 (22 suites) — 13 tests nuevos (11 de
+  `formatControlValue` cubriendo el caso exacto de la captura del usuario,
+  2 de round-trip de `conversation` en `exploreUndo.test.ts`) + 2 tests
+  nuevos de restauración end-to-end en `ExploreAssistantPanel.test.tsx`
+  (con conversación y sin ella, compatibilidad hacia atrás).
+- `./scripts/build-extension.sh .../superset_v6_1_0 .../extensions_test/irex-mcp-tools-0.1.0.supx`:
+  7/7 — sin cambios de Python en esta entrada, 285 backend sin tocar.
+- Pendiente (para el usuario): reiniciar `superset_test.service` y repetir
+  una propuesta real para confirmar visualmente el diff legible y que la
+  conversación reaparece tras aplicar.
+
+### 2026-09-25 (84) (Explore: Fase 6 — aplicar cambios reales al gráfico, con diff y "Deshacer")
+
+Cambio realizado: a pedido explícito del usuario ("Adelante con la fase 6,
+queda pendiente la 5, pero primero avanza con la 6"), el panel de Explore
+ahora puede escribir de verdad los cambios que propone (Nivel 2 del plan:
+cambios al gráfico sin guardar — nunca al dataset, eso sigue siendo Fase 7
+y solo Admin). Hasta esta entrada, `ExploreActionCard` (entrada 70) solo
+describía la propuesta; el texto de la propia tarjeta decía "Aplicar
+propuestas automáticamente todavía no está disponible" (así lo confirmó
+la entrada 83 al usuario, que no era un bug).
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/exploreApplyAdapter.ts` (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreUndo.ts` (nuevo)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreApplyAdapter.test.ts` (nuevo, 36 tests)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreUndo.test.ts` (nuevo, 10 tests)
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/exploreAdapter.ts` (`parseDatasourceRef` extraído a función exportada, reusada por el adapter de lectura y el de aplicar)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreAdapter.test.ts` (+7 tests para `parseDatasourceRef`)
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/ExploreAssistantPanel.tsx` (`ExploreActionCard` reescrita con estado propio; nuevo `ExploreUndoBanner`)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/ExploreAssistantPanel.test.tsx` (describe "acciones — Fase 6" reemplaza al viejo "de solo lectura"; nuevo describe del aviso de "Deshacer")
+
+Qué cambia o corrige:
+- Solo son aplicables desde el panel las 4 acciones de Nivel 2:
+  `patch_form_data`, `add_adhoc_metric`, `add_adhoc_column`,
+  `change_viz_type` (`isApplicableExploreAction`). Las de dataset
+  (`add_dataset_metric`, `add_calculated_column`) y `preview` siguen sin
+  botón, con un motivo explícito en la tarjeta ("requiere rol Admin" / "la
+  vista previa vive en el propio gráfico").
+- "Ver cambio" relee `form_data_key` de la URL AHORA MISMO y la compara
+  con `action.base_form_data_key` — si no coincide (el usuario navegó,
+  ejecutó otra consulta, o pidió otra propuesta), rechaza con un mensaje
+  claro en vez de aplicar sobre un estado que ya no es el que el modelo
+  vio. Con la key vigente, relee el `form_data` fresco
+  (`GET /api/v1/explore/form_data/<key>`), calcula el resultado puro
+  (`applyExploreAction`) y el diff control-por-control
+  (`diffFormData`) — si el diff queda vacío (ya se había aplicado), lo
+  dice en vez de ofrecer un "Aplicar" que no haría nada.
+- "Aplicar" vuelve a comprobar la key justo antes de escribir (ventana
+  angosta pero real entre "Ver cambio" y el click), pide confirmación
+  (mismo patrón de `window.confirm` que `SqlLabAssistantPanel.tsx`,
+  advirtiendo que se pierden ediciones sin ejecutar en pantalla), y
+  escribe con `POST /api/v1/explore/form_data`. Sin `tab_id` a propósito:
+  leyendo `superset/commands/explore/form_data/create.py` se confirmó que
+  darlo REUSA la key existente de la pestaña (vía `contextual_key`) en vez
+  de generar una nueva — necesitábamos una key nueva y separada para poder
+  volver a la anterior. `url_params` se quita del body antes de mandar
+  (mismo criterio que `sanitizeFormData.ts` de Explore).
+- Tras aplicar, la página se recarga completa
+  (`window.location.assign('/explore/?form_data_key=<nueva>&slice_id=<id>')`)
+  — es como el propio Explore aplica cambios de key, no hay forma de
+  evitar el reload. Antes de recargar se guarda en `sessionStorage`
+  (`exploreUndo.ts`, `rememberPendingUndo`) la key ANTERIOR a aplicar, la
+  nueva, el slice_id y una descripción — un solo nivel de deshacer, no una
+  pila completa (alcanza para "me equivoqué, volvé").
+- `ExploreUndoBanner`, nuevo, en la parte superior del panel: lee la
+  entrada pendiente al montar y la muestra solo si el `slice_id` y la
+  `form_data_key` ACTUALES coinciden con los que quedaron justo después de
+  aplicar (si el usuario ya navegó a otra cosa, no se ofrece deshacer para
+  un cambio que ya no es "el último"). "Deshacer" navega de vuelta a la
+  key anterior y limpia el pendiente; también se puede descartar el aviso
+  sin deshacer.
+
+Verificación:
+- `npx tsc --noEmit`: limpio.
+- `npx jest`: 262/262 (22 suites) — incluye los 36 tests nuevos de
+  `exploreApplyAdapter.test.ts`, los 10 de `exploreUndo.test.ts`, los 7
+  nuevos de `parseDatasourceRef`, y el describe reescrito de
+  `ExploreActionCard`/`ExploreUndoBanner` en `ExploreAssistantPanel.test.tsx`.
+- `./scripts/build-extension.sh .../superset_v6_1_0 .../extensions_test/irex-mcp-tools-0.1.0.supx`:
+  las 7 fases completas — tsc estricto, 262 tests frontend, `py_compile`
+  (33 archivos), 285 tests backend (sin cambios de este lado, ningún
+  archivo Python tocado en esta entrada), webpack producción, `.supx`
+  reconstruido desde cero y validado.
+- Pendiente (para el usuario): reiniciar `superset_test.service` y
+  probar "Aplicar" de punta a punta sobre un gráfico real — en particular
+  confirmar que el reload deja el gráfico con el cambio, que "Deshacer"
+  vuelve al estado anterior, y que salir de Explore y volver hace
+  desaparecer el aviso de "Deshacer" (ya no coincide la key).
+- Fase 5 (lectura/diagnóstico más rico: "Explicar" con SQL real,
+  duration/rowcount/cache, diagnósticos ligados al SQL generado) sigue
+  pendiente, deprioritizada por pedido explícito del usuario en esta misma
+  instrucción.
+
+### 2026-09-25 (83) (Explore: confirmado el fix de la entrada 82 — la propuesta ya llega completa; falta Fase 6 para poder aplicarla)
+
+Cambio realizado: ninguno de código — verificación a pedido del usuario
+tras el fix del backend del chat, sesión
+`explore-c97116e8f77fef12f86cdd134e378dcf554a10b48c3d6485d8d597d246d7d117`
+(mismo pedido que la entrada 82: cambiar la métrica de `big_number_total`
+a `SUM(cuota)`).
+
+Confirmado: `done.explore_response.actions` llega con la acción
+`patch_form_data` completa (`SUM(cuota)`, `control: "metric"`),
+consistente con el `message` — el hallazgo de la entrada 82 (acción
+descartada en silencio) queda cerrado.
+
+El usuario reportó "no puede aplicar la sugerencia, no hubo forma" —
+**comportamiento esperado, no un bug.** El panel (`ExploreActionCard`,
+entrada 70) muestra la propuesta pero deliberadamente sin botón
+"Aplicar" — el texto de la propia tarjeta ya lo dice ("Aplicar propuestas
+automáticamente todavía no está disponible"). Aplicar de verdad
+(escribir el cambio en el `form_data` de Explore) es la Fase 6 del plan,
+que exige validar catálogo y key vigente INMEDIATAMENTE antes de escribir,
+mostrar el diff y pedir confirmación — no construida todavía.
+
+Con esto, el lado de LECTURA y PROPUESTA del copiloto de Explore queda
+confirmado funcionando de punta a punta (las 4 tools de la Fase 4 +
+acciones estructuradas llegando correctamente). El siguiente hito natural
+es la Fase 6 (aplicar cambios), pendiente de que el usuario confirme que
+quiere avanzar con eso.
+
+Verificación: ninguna adicional — este hallazgo en sí ES la verificación
+pedida. Sin cambios de código en esta entrada.
+
+### 2026-09-25 (82) (Explore: primera acción propuesta por el modelo — validada pero descartada en silencio, mensaje inconsistente)
+
+Cambio realizado: ninguno de código — revisión de una sesión real a pedido
+del usuario
+(`explore-8a291b4e6f5c0897e3082378022659485258060063e75c1a6e07dca96c207d80`,
+"Mejorar gráfico" sobre el `big_number_total` de la entrada 80, pidiendo
+cambiar la métrica a `SUM(cuota)`).
+
+Hallazgo: el modelo llamó a `irex.validate_expression` (`dataset_id: 5,
+expression: "SUM(cuota)", kind: "metric"`) → `valid: true`, y produjo una
+acción `patch_form_data` bien formada (`operations: [{op:"set",
+control:"metric", value:{...SUM(cuota)...}}]`). **La acción nunca llegó**:
+`done.explore_response.actions` vino vacío (`[]`), pero `message` seguía
+describiendo la propuesta como si fuera a aplicarse ("Propongo sustituir
+la métrica actual SUM(planv) por SUM(cuota)...") — inconsistencia real
+entre lo que el texto promete y lo que el sobre estructurado entrega.
+
+El modelo NO llamó a `irex.get_viz_controls` en este turno, solo
+`validate_expression` — hipótesis sin confirmar: si el backend exige
+ambas validaciones (expresión Y nombre de control) antes de aceptar un
+`patch_form_data`, la ausencia de la segunda explicaría el descarte
+silencioso. Reportado al usuario con texto para el agente del backend del
+chat: confirmar la causa real, y si es esa, ajustar el prompt para exigir
+`get_viz_controls` siempre antes de un `patch_form_data`/`change_viz_type`
+— y en cualquier caso, no dejar que `message` describa una acción que el
+sobre no entrega.
+
+Verificación: ninguna adicional — este hallazgo en sí ES la verificación
+pedida. Sin cambios de código en esta entrada. Se pausa el resto del
+roadmap (Fase 5+) hasta cerrar este hallazgo, por tocar directamente lo
+recién construido (entrada 80).
+
+### 2026-09-25 (81) (Explore: `irex.validate_expression` confirmada por el backend del chat; encontró y corrigió un bug propio relacionado)
+
+Cambio realizado: ninguno de código de este lado — respuesta del agente
+del backend del chat a la entrada 80.
+
+Confirmaciones y hallazgo del backend del chat:
+- Probó `irex.validate_expression` contra el MCP de test directamente: una
+  expresión inocua devolvió `valid: true`; una columna inexistente devolvió
+  `valid: false` con `error`, sin filas — confirma que la tool se comporta
+  como está documentada en `docs/explore-assistant-contract.md`.
+- **Bug propio encontrado y corregido (su lado, no el MCP):** su
+  validación asociaba el resultado solo a `(dataset_id, expression)`, sin
+  `kind` — validar una MÉTRICA con un texto habilitaba, por error, una
+  COLUMNA con el mismo texto. Corregido en
+  `api/routes/explore_assistant.py` de su repo, con su contrato y sus
+  tests actualizados (83 tests + 9 subtests de Explore y SQL Lab, todos
+  verdes de su lado).
+- Coincide con la nota de UX que dejamos sobre la sesión "cuota" (entrada
+  80, memoria): el sobre de Explore ya admite `clarification_questions`
+  estructuradas, pero el prompt del modelo no le indica cómo producirlas
+  — confirmado como una mejora real, no corregida en esta revisión.
+- Su backend LOCAL no se reinició en esta revisión (probó contra el MCP de
+  test desplegado, no volvió a correr los 285 tests de este proyecto). SQL
+  y resultados siguen sujetos a la verificación independiente del
+  `query_context` — sin cambios respecto a la entrada 79.
+
+Verificación: ninguna adicional de este lado — es la confirmación pedida.
+Sin cambios de código en esta entrada.
+
+### 2026-09-25 (80) (Explore: `irex.validate_expression` — última tool pendiente de la Fase 4, encontrada la falta en vivo)
+
+Cambio realizado: el usuario pidió revisar una sesión real
+(`explore-99c8b6c9b3a7235fe0e8fd80e56c1f779cced7a6f0e6429206018f71b7d8fb58`,
+gráfico `big_number_total`, métrica `SUM(planv)`) y notó que, al pedir
+cambiar la métrica a una columna "cuota", el modelo respondió: "no puedo
+proponer el cambio todavía: la configuración disponible no confirma que
+`cuota` exista en este dataset y no tengo una validación de la expresión
+`SUM(cuota)`". Correcto — sin `irex.validate_expression` (punto 4 de la
+Fase 4, el último pendiente) no había ninguna forma de comprobarlo.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/explore_validate_expression_core.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/validate_expression.py` (nuevo — `irex.validate_expression`)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/entrypoint.py`
+- `custom-extensions/irex-mcp-tools/backend/tests/test_explore_validate_expression_core.py` (nuevo, 6 tests)
+- `custom-extensions/irex-mcp-tools/docs/explore-assistant-contract.md`
+  (forma exacta implementada — texto para el agente del backend del chat)
+- `superset_config_test.py` (`always_visible`, paso 6 obligatorio de CLAUDE.md)
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)
+
+Que cambia o corrige:
+- `irex.validate_expression({"dataset_id", "expression", "kind": "metric"|"column"})`:
+  ejecuta la expresión DE VERDAD contra la base (`row_limit: 1`, mismo
+  pipeline `QueryContextFactory`/`ChartDataCommand` con RLS que
+  `explain_chart`/`preview_chart` y `chart_option.py`) — es la MISMA forma
+  que usa Explore cuando el usuario escribe una métrica/columna SQL a mano
+  en su propia UI, con `row_limit=1` para que sea barata. `result_type=query`
+  (solo generar el SQL, sin ejecutar) NO alcanzaba: una columna que no
+  existe recién falla en el motor de la base al ejecutarse, no en la
+  generación del texto SQL.
+- Devuelve `{"valid": true/false, "dataset_id", "expression"}` +
+  `"error"` con el mensaje real de la base cuando `valid: false` — NUNCA
+  devuelve filas ni valores calculados (es una verificación de descarte,
+  no una vista previa; `preview_chart` ya cubre eso).
+- Con esto se completan las 4 tools de lectura de la Fase 4:
+  `get_explore_state`, `explain_chart`/`preview_chart`, `get_viz_controls`
+  y ahora `validate_expression`. Queda pendiente `irex.check_chart_nulls`
+  (diagnóstico de nulos en JOINs ligado al gráfico), no parte de las 4
+  originales del plan pero mencionada en la lista de "Tools MCP
+  requeridas" del contrato.
+
+Verificación:
+- 6 tests nuevos (`test_explore_validate_expression_core.py`) + 285
+  backend en total (sin regresiones).
+- `build-extension.sh` completo (7/7) sobre `extensions_test/`.
+- No requiere tests de frontend (no se tocó frontend en esta entrada).
+- Pendiente: que el usuario reinicie `superset_mcp_test.service` y que el
+  agente del backend del chat conecte esta tool (ya documentada en
+  `docs/explore-assistant-contract.md`) para que "Mejorar gráfico"/
+  "Métricas" puedan confirmar columnas/expresiones antes de proponerlas.
+
+### 2026-09-25 (79) (Explore: respuesta del backend del chat — `source: "unknown"` para tipos inventados, `chart.query_context` reactivado)
+
+Cambio realizado: el agente del backend del chat respondió a los 3 puntos
+pendientes de la entrada 78.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/explore_viz_controls_core.py`
+- `custom-extensions/irex-mcp-tools/backend/tests/test_explore_viz_controls_core.py` (+10 tests, total 22)
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/exploreAdapter.ts`
+  (`SEND_QUERY_CONTEXT_IN_REQUEST` vuelve a `true`)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/exploreAssistantContract.test.ts`
+  (1 aserción revertida a esperar `query_context` presente)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/ExploreAssistantPanel.test.tsx`
+  (ídem)
+- `custom-extensions/irex-mcp-tools/docs/explore-assistant-contract.md`
+  (estado actualizado de los 3 puntos — texto para el agente del backend)
+- `extensions_test/irex-mcp-tools-0.1.0.supx` (rebuild)
+
+Que cambia o corrige:
+- **Punto 1 (`chart.query_context`): resuelto de los dos lados.** El
+  backend del chat agregó el campo como string opcional a su modelo de
+  `chart` — ya no da 422. Se reactivó `SEND_QUERY_CONTEXT_IN_REQUEST` del
+  lado de la extensión. El backend, por decisión propia, TODAVÍA no pasa
+  el valor al modelo ni llama a `explain_chart`/`preview_chart` con
+  él — quiere verificar primero que la captura corresponde al usuario y
+  al estado actual. Se documentó en el contrato que esas dos tools ya
+  hacen esa verificación por su cuenta (cross-check contra
+  `get_explore_state` + re-ejecución con RLS real vía
+  `QueryContextFactory`/`ChartDataCommand`) — queda a criterio del backend
+  si alcanza o prefiere una capa propia adicional; no es bloqueante de
+  este lado.
+- **Punto 2 (`get_viz_controls`), hallazgo real del backend: corregido.**
+  "Para cambiar a otro tipo, generic no basta: el MCP también lo devuelve
+  para nombres de tipo inventados" — antes, CUALQUIER string caía al
+  catálogo genérico como si fuera un `viz_type` real, sin forma de
+  distinguir "tipo real sin verificar" de "tipo que no existe". Se agregó
+  `KNOWN_VIZ_TYPES` (el enum `VizType` completo de este Superset, 50
+  tipos, extraído de
+  `superset-frontend/packages/superset-ui-core/src/chart/types/VizType.ts`)
+  y un tercer nivel `source: "unknown"` (`controls: []`, con `note`) para
+  cualquier `viz_type` que no está ni en los 3 plugins propios ni en ese
+  enum — el backend puede rechazar un `change_viz_type` a `"unknown"`
+  directamente.
+- **Punto 3 (`slice_id: null`):** el backend confirma una prueba de
+  regresión que pasa, sin retest completo desde la interfaz. Sin acción
+  de este lado — queda anotado para la próxima vez que se pruebe un
+  gráfico sin guardar desde el chat real.
+
+Verificación:
+- `npx tsc --noEmit` estricto sin errores.
+- 213 tests de frontend (2 aserciones revertidas, 0 nuevas — no se sumó
+  cobertura de frontend en esta entrada), 279 de backend (10 nuevos:
+  `TestVizTypeInventado`, ver `test_explore_viz_controls_core.py`).
+- `build-extension.sh` completo (7/7) sobre `extensions_test/`.
+- Pendiente: que el usuario reinicie ambos servicios de test y confirme
+  que "Explicar" sigue funcionando con `chart.query_context` de nuevo en
+  el body (mismo riesgo que la entrada 73, ahora con el backend ya
+  confirmando que lo acepta — pero solo una prueba real lo termina de
+  confirmar).
+
 ### 2026-09-24 (78) (Explore: `irex.get_viz_controls` — catálogo de controles, genérico + específico verificado de los 3 plugins propios)
 
 Cambio realizado: siguiente punto pendiente de la Fase 4 (punto 3). El
@@ -4046,3 +5068,200 @@ Verificacion:
 - 43/43 tests pasan (7 nuevos sobre `execute_sql_analysis` con `_fetch_source_rows` mockeado: JOIN data+data2 con diagnósticos, extra truncada → result_exact=false/incomplete_reason, principal truncada, nombre 'data' reservado, nombre inválido, duplicado, y SQL referenciando tabla no declarada).
 - `py_compile` OK; paths del ZIP verificados; ambos `.supx` con mismo md5.
 - Pendiente: reinicio de `superset_mcp.service` (sudo) y repetir el export de la sesión 470f2e8d desde el chat.
+
+### 2026-09-28 (CSP bloqueaba Calculated columns del tableV3 en test)
+
+Cambio realizado:
+Usuario reportó: en test las 3 "Calculated columns" de un gráfico table_v3 (slice 684) mostraban "N/A" en todas las filas, mientras que el mismo gráfico en producción calculaba bien. Investigación extensa (config guardada en DB, form_data_key cacheado, query real ejecutada server-side, bundle JS servido, pipeline completo de `TableChart.tsx` línea por línea, dos simulaciones fieles en Node.js) descartó dato/config/versión de código — todo apuntaba a que debía funcionar. La prueba decisiva fue un gráfico nuevo sin guardar, comparado lado a lado prod vs test (misma fuente, mismos campos, test en incógnito): prod calculaba bien, test daba N/A siempre — aislando el problema al entorno test en sí, no al slice ni al navegador.
+
+Causa raíz: `calculatedColumns.ts::compileFormulaEvaluator` (plugin-chart-tableV3) compila cada fórmula con `new Function(...)`. Eso requiere el permiso `'unsafe-eval'` en el CSP `script-src` del navegador. `superset_config_test.py` tiene `TALISMAN_ENABLED` con default `True` (vs `False` en prod) y, al no correr en modo debug, usa `TALISMAN_CONFIG` (el estricto, `script-src: ['self', 'strict-dynamic']`, sin `unsafe-eval`) en vez de `TALISMAN_DEV_CONFIG` (que sí lo tiene). El navegador bloquea la compilación, el `catch` de `compileFormulaEvaluator` la atrapa en silencio y cachea un evaluador que siempre devuelve `null` — sin ningún error visible en logs de Superset, solo como violación de CSP en la consola del navegador. Afecta CUALQUIER fórmula (simple o con `total.`), consistente con lo observado. Prod nunca lo sufrió porque corre con `TALISMAN_ENABLED=False` (sin CSP en absoluto).
+
+Nota para el futuro: esto es un problema latente también en producción si algún día se activa CSP ahí (hoy prod no tiene ninguna protección CSP, lo cual es en sí mismo un tema de seguridad aparte, no abordado en esta sesión). La solución de fondo sería reescribir `compileFormulaEvaluator` sin `new Function()` (parser propio, CSP-safe) — no se implementó, ver "Camino B" abajo.
+
+Archivos afectados:
+- `superset_config_test.py` (línea ~2307, `TALISMAN_CONFIG.content_security_policy.script-src`)
+
+Que cambia o corrige:
+- `script-src` de test pasa de `["'self'", "'strict-dynamic'"]` a `["'self'", "'strict-dynamic'", "'unsafe-eval'"]`, emparejando el comportamiento efectivo de test con el de prod (que hoy no tiene CSP) para esta feature. Cambio de config únicamente — camino A de dos opciones planteadas al usuario (A: ajuste de config, ya aplicado; B: reescribir el evaluador de fórmulas sin `new Function`, pendiente, no urgente mientras prod no tenga CSP).
+
+Verificacion:
+- Header `Content-Security-Policy` de `http://127.0.0.1:9090/explore/` confirmado con `unsafe-eval` presente tras el restart.
+- `superset_test.service` reiniciado y `active (running)`.
+- Pendiente confirmación del usuario: recargar el gráfico de slice 684 en test y verificar que "Peso Sell In sobre total" / "Es un test" ya no muestren N/A.
+
+### 2026-09-28 (handlebarsTemplate de html_cards no documentaba group/division)
+
+Cambio realizado:
+Reportado por el backend del chat (sesión `explore-fa693d0e6f4b80256a95f444271b5337ff49d933146228ff2745ebe80a5a146a`): el asistente rechazó proponer una tarjeta por familia con una tabla de marcas anidada al pasar el cursor porque `control_info.handlebarsTemplate.description` de `irex.get_viz_controls` no documentaba cómo agrupar filas dentro de la plantilla, pese a que el plugin ya registra el helper real (`HandlebarsGroupBy.register(Handlebars)` en `HandlebarsViewer.tsx`, sintaxis `{{#group displayRows by="<templateKey>"}}...{{/group}}`, expone `value`/`items`). También faltaba `division` (de `just-handlebars-helpers`, vía `Helpers.registerHelpers(Handlebars)`).
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/explore_viz_controls_core.py` (`_HTML_CARDS_CONTROL_INFO["handlebarsTemplate"]`)
+- `custom-plugins/plugin-chart-html-cards/src/plugin/controls/handlebarTemplate.tsx` (tooltip de ayuda del control — mismo listado que el MCP)
+- `custom-extensions/irex-mcp-tools/backend/tests/test_explore_viz_controls_core.py` (+3 tests: menciona group/division con su sintaxis real; compara la metadata contra los helpers REALMENTE registrados en `HandlebarsViewer.tsx`, leyendo el archivo fuente en vez de una lista copiada a mano; compara el tooltip de la UI contra `control_info` para que ninguno mencione algo que el otro omite)
+- `custom-plugins/plugin-chart-html-cards/src/__tests__/handlebarsGroupHelpers.test.ts` (nuevo — render con datos sintéticos contra los helpers reales, ver nota de infraestructura abajo)
+- `custom-extensions/irex-mcp-tools/docs/explore-assistant-contract.md`
+- `extensions_test/irex-mcp-tools-0.1.0.supx`
+
+Que cambia o corrige (aditivo, no reduce nada de lo ya documentado):
+- `control_info.handlebarsTemplate` de `html_cards` ahora incluye `group` (sintaxis, y aclara que `by=` necesita el `templateKey` de `columns[]`, no el nombre SQL ni el `displayName`) y `division` (con la advertencia de que NO protege contra denominador 0/null por sí sola — hay que envolver en `{{#if b}}...{{else}}...{{/if}}`).
+- Hallazgo propio, no reportado por el backend del chat, encontrado al escribir la prueba de render: combinar `group` con `{{#with (sum (pluck items "X")) as |d|}}` para no repetir la expresión del denominador rompe en silencio — `{{value}}`/`items` dentro del `#with` dejan de apuntar al `{{#group}}` exterior salvo que se use `../value`/`../items`. Documentado en la descripción como "más simple repetir la expresión que anidar #with".
+- Se mantuvo `source: "specific"` y la lista exacta de nombres de controles sin cambios, como pidió el reporte — este cambio es solo de `control_info` (metadata), no del catálogo de controles.
+
+Verificacion:
+- 44/44 tests de `test_explore_viz_controls_core.py` (358/358 del backend completo) — incluye los 3 tests nuevos de coverage cruzada.
+- Prueba de render (`handlebarsGroupHelpers.test.ts`) validada por fuera de Jest con un script Node standalone contra los mismos paquetes reales (`handlebars`, `just-handlebars-helpers`, `handlebars-group-by`) — confirma los 5 casos, incluido el bug de scope de `{{#with}}`.
+- **Hallazgo de infraestructura, no resuelto**: Jest (config actual de `superset-frontend/jest.config.js`) NO descubre tests dentro de `custom-plugins/*` porque son symlinks — el crawler no los sigue, y aun forzando el descubrimiento con `--roots`, la resolución de módulos hoisted (`handlebars` vive en `superset-frontend/node_modules`, no en el del plugin) tampoco alcanza esa ruta. Afecta a los TRES plugins propios por igual — ninguno tenía tests antes de este cambio, así que nunca se había topado con esto. El archivo de test queda en el lugar canónico correcto según `PLUGINS.md` para cuando se arregle, pero no corre todavía vía `npm run test`. Arreglar `jest.config.js` es un cambio a un archivo compartido de Superset (afecta ~3600 archivos rastreados) — no se tocó sin autorización explícita.
+- `build-extension.sh` corrido completo: TypeScript estricto, 298 tests frontend del asistente (irex-mcp-tools, no del plugin html_cards), 358 tests backend, build webpack, `.supx` reconstruido y copiado a `extensions_test/`.
+- `superset_mcp_test.service` reiniciado; confirmado con un import directo que `resolve_viz_controls("html_cards")` devuelve la descripción nueva (1977 caracteres, bajo el límite de 2000 que recorta el backend del chat).
+- Pendiente: que el backend del chat repita la conversación de la sesión `explore-fa693d0e...` en test para confirmar que ahora sí propone la tarjeta con tabla de marcas anidada.
+
+### 2026-09-28 (colores hardcodeados/de navegador en vez del tema real de Superset, los 3 plugins)
+
+Cambio realizado:
+Usuario reportó (sesión `explore-d362e3c9...`): el asistente maneja bien solicitudes complejas de html_cards, pero para "modo oscuro" terminó usando colores de sistema del navegador/SO (`Canvas`, `CanvasText`, `GrayText`, `color-scheme: light dark`) en vez del tema real de Superset — el propio modelo lo admitió: "no puedo confirmar que coincida con un tema oscuro de Superset configurado de forma independiente". Pidió revisar las 3 (html_cards, table_v3, pivot_table_rx1).
+
+Investigación: en **html_cards** el mecanismo de tema real YA existe (`HtmlCards.tsx` inyecta `useTheme()` como variables CSS `--html-cards-theme-color-*` en el contenedor), pero (1) solo estaba documentado bajo el helper `themeVars` de `handlebarsTemplate`, no en `styleTemplate` (el control donde de verdad se escribe CSS) — el modelo nunca conectó los dos; (2) la plantilla CSS **por defecto** del control (`style.tsx`) hardcodea `--mini-primary: #0f8db3` etc., mal ejemplo que probablemente sesgó al modelo. En **table_v3** y **pivot_table_rx1**, confirmado leyendo el código real: el tema se usa SOLO internamente (cromado propio de la tabla) — nunca se expone a `column_config.htmlTemplate`/`htmlCss`. No es un hueco de documentación, la capacidad no existía.
+
+Usuario confirmó ambas correcciones vía pregunta: (1) sí corregir el default de html_cards con fallback, (2) sí agregar el mismo mecanismo a table_v3 y pivot_table_rx1.
+
+Archivos afectados:
+- `custom-plugins/plugin-chart-html-cards/src/plugin/controls/style.tsx` (plantilla CSS por defecto)
+- `custom-plugins/plugin-chart-tableV3/src/TableChart.tsx` (nuevo `themeCssVars`, aplicado al wrapper `<Styles>`)
+- `custom-plugins/plugin-chart-pivot-tableRx1/src/PivotTableChart.tsx` (ídem)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/explore_viz_controls_core.py` (`styleTemplate` de html_cards + `_column_config_html_template_rules()`, antes `COLUMN_CONFIG_HTML_TEMPLATE_RULES` constante, ahora función parametrizada por prefijo de variables CSS — compartida por table_v3/pivot)
+- `custom-extensions/irex-mcp-tools/backend/tests/test_explore_viz_controls_core.py` (+4 tests)
+
+Que cambia o corrige:
+- `--mini-primary/-surface/-text-main/-text-muted/-border/-danger-text` del default de html_cards ahora son `var(--html-cards-theme-color-X, <mismo color de hoy>)` — mismo nombre de variable (compatibilidad con CSS que ya las referencia), mismo aspecto visual por defecto (fallback), pero ahora siguen el tema real configurado en Superset. Igual para `.kpi-mini__status--warning/--danger`.
+- `TableChart.tsx`/`PivotTableChart.tsx` ganan `themeCssVars` (mismo patrón y mismos 14 tokens que html_cards: colorPrimary/-PrimaryBg/-BgContainer/-BgElevated/-Border/-Text/-TextSecondary/-Success/-Warning/-Error/-BorderRadius/-FontFamily/-FontSize/-FontSizeSM), con prefijo propio por plugin (`--table-v3-theme-*`, `--pivot-table-rx1-theme-*`) aplicado como `style` inline en el wrapper `<Styles>` de cada uno — ahora `column_config.htmlTemplate`/`htmlCss` de estos dos plugins SÍ puede referenciar el tema real por primera vez.
+- `control_info.styleTemplate` (html_cards) y `control_info.column_config` (table_v3/pivot) documentan explícitamente estas variables y advierten contra colores de sistema del navegador/SO (`Canvas`/`CanvasText`/`light-dark()`) — el error exacto que cometió el modelo.
+- `COLUMN_CONFIG_HTML_TEMPLATE_RULES` (constante compartida) pasó a ser `_column_config_html_template_rules(css_var_prefix)` (función) para poder inyectar el prefijo correcto por plugin sin duplicar el texto — se aprovechó para comprimir la redacción existente (sin perder ningún hecho) porque el límite de 2000 caracteres que recorta el backend del chat estaba casi agotado (pivot_table_rx1 ya iba en 1973/2000 antes de este cambio).
+
+Verificacion:
+- 362/362 tests backend (4 nuevos: variables de tema en styleTemplate; prefijo correcto en table_v3/pivot sin mezclarse entre sí; longitud ≤2000 de las 3 descripciones que más crecieron).
+- `npm run type` (tsc --noEmit) limpio en los 3 archivos tocados — los 572 errores preexistentes del typecheck completo son de OTROS plugins/paquetes sin relación, confirmado que ninguno menciona `plugin-chart-tableV3`, `plugin-chart-pivot-tableRx1` ni `plugin-chart-html-cards`.
+- `npm run build` (webpack producción, superset-frontend completo): compiló los 12824 módulos (incluidos los 3 archivos tocados) sin error de sintaxis/tipos, PERO el build completo **falla** en la minificación de CSS (`css-minimizer-webpack-plugin` → `serialize-javascript`: `ReferenceError: crypto is not defined`, dentro de un worker thread) — reproducido 2 veces, mismo error, en un chunk genérico "Chart.*.chunk.css" sin relación aparente con los archivos tocados (probaron `NODE_OPTIONS=--experimental-global-webcrypto`, sin efecto). **Es un problema de entorno preexistente (Node 18.19.1 + esa versión de css-minimizer-webpack-plugin en worker threads), no causado por este cambio** — pero SÍ bloquea completar `npm run build`, así que **los `static/assets/` servidos por `superset_test.service`/`superset.service` todavía NO tienen estos cambios** (confirmado: ningún archivo de `static/assets` es más nuevo que la edición de `TableChart.tsx`). Los cambios de código están commiteados y verificados por tipo, pero no desplegados todavía.
+- Pendiente: resolver el bug de build (fuera del alcance de este pedido, es de infraestructura) o encontrar un workaround (ej. desactivar minificación de CSS específicamente) antes de poder desplegar a test y que el usuario lo vea en el navegador.
+
+**Fix del bug de build, a pedido explícito del usuario ("Arreglalo"):** causa raíz encontrada — `css-minimizer-webpack-plugin`'s `serialize-javascript` (dependencia anidada) usa el identificador GLOBAL `crypto` (Web Crypto API) sin `require()`, algo que en Node 18.19.1 SOLO está disponible como global implícito detrás del flag `--experimental-global-webcrypto` (confirmado con un script mínimo: `typeof crypto` da `"undefined"` en un archivo de módulo real sin el flag, `"object"` con el flag; `crypto.getRandomValues(...)` funciona correctamente con el flag). El intento anterior de pasar `NODE_OPTIONS="--experimental-global-webcrypto"` por variable de entorno no funcionaba porque el script `build` de `package.json` usa `cross-env NODE_OPTIONS=--max_old_space_size=8192`, que REEMPLAZA cualquier `NODE_OPTIONS` externo en vez de combinarse con él.
+
+Archivo afectado: `superset_v6_1_0/superset-frontend/package.json` (scripts `build` y `build-instrumented`, los dos que corren `--mode production` y por lo tanto pasan por `CssMinimizerPlugin`) — `NODE_OPTIONS` ahora incluye también `--experimental-global-webcrypto`. `build-dev` no se tocó (modo desarrollo, sin minificación).
+
+Verificacion:
+- `npm run build` completo: exit 0, 2 warnings (sin relación, no aparecen como error — probablemente los límites de tamaño de asset estándar de webpack, ya presentes en un proyecto de este tamaño).
+- Confirmado que `static/assets/` se regeneró (archivos con mtime posterior a la edición de `TableChart.tsx`) y que contiene las 3 variables de tema nuevas (`grep` de `table-v3-theme-color-primary`/`pivot-table-rx1-theme-color-primary`/`html-cards-theme-color-primary` en los `.js` compilados, todas presentes).
+- `curl` a `/health` de prod (8088) y test (9090): ambos 200 tras el swap de assets, sin reinicio de servicio (Flask sirve estáticos directo de disco).
+
+**Hallazgo importante de infraestructura, no documentado antes en esta sesión:** a diferencia de la extensión `.supx` (que tiene `extensions_test/` aislado de `extensions/` de producción), los plugins de chart (`custom-plugins/*`) NO tienen esa separación — `superset_v6_1_0/superset/static/assets/` es el MISMO directorio que sirven `superset.service` (prod, 8088) y `superset_test.service` (test, 9090), porque ambos derivan la ruta del mismo paquete instalado (`files("superset") / "static/assets"`, sin override en ninguno de los dos `superset_config*.py`). Esto significa que **`npm run build` en `superset-frontend` despliega a prod y test simultáneamente, sin reinicio de servicio y sin forma de probar en test primero** — muy distinto del flujo de `irex-mcp-tools`. Los cambios de tema de esta entrada (y el fix del build en sí) ya están live en producción desde que terminó el build, no solo en test. Vale la pena tenerlo presente para cualquier cambio futuro de `custom-plugins/`.
+
+### 2026-09-28 (ajustes al MCP: ejemplo de tema + responsivo real en html_cards)
+
+Cambio realizado (dos pedidos puntuales del backend del chat/usuario, sobre lo ya deployado hoy):
+1. Recomendación del backend del chat: `control_info.styleTemplate` de html_cards tenía espacio bajo el límite de 2000 caracteres — sumarle un ejemplo concreto de uso de las variables de tema (la de `handlebarsTemplate` está casi al límite, así que documentar ahí en vez de en handlebarsTemplate) y una prueba que coteje la lista publicada contra `themeCssVars` real de `HtmlCards.tsx`.
+2. Usuario: "lo creado en HTML_cards debe ser responsivo, gráficos tarjetas etc." — verificado: el plugin YA tiene el mecanismo correcto (`container-type: size`/`container-name: html-cards-chart` + `--html-cards-chart-width/-height` en `HtmlCards.tsx`, exactamente como el de las variables de tema) pero no estaba documentado en `styleTemplate` — mismo patrón de hueco que el de colores: capacidad real, sin documentar donde se escribe CSS.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/explore_viz_controls_core.py` (`styleTemplate` de html_cards)
+- `custom-extensions/irex-mcp-tools/backend/tests/test_explore_viz_controls_core.py` (+3 tests)
+- `extensions_test/irex-mcp-tools-0.1.0.supx`
+
+Que cambia o corrige:
+- Ejemplo agregado: `background: var(--html-cards-theme-color-bg-container); color: var(--html-cards-theme-color-text); border: 1px solid var(--html-cards-theme-color-border); border-radius: var(--html-cards-theme-border-radius)`.
+- Sección nueva "Responsivo": explica `@container html-cards-chart (max-width: Npx) {...}` / `(max-height: Npx) {...}` contra el tamaño REAL del gráfico — explícito que NO usar `@media` (mide el viewport del navegador, no el tile del dashboard, que puede ser chico en un dashboard grande aunque la ventana sea ancha). Incluye los umbrales reales de `handlebarsTemplate.layout` (`isNarrow` width<900, `isTiny` width<560, `isCompact` width<900 o height<420) para que si se usan los dos (CSS + Handlebars) queden consistentes.
+- `styleTemplate` queda en 1954/2000 caracteres.
+
+Verificacion:
+- 365/365 backend (3 tests nuevos: menciona el mecanismo responsivo real; container-name y umbrales cotejados contra `HtmlCards.tsx`/`templateContext.ts` reales, no una lista a mano — si cambian ahí sin actualizar la descripción, la prueba lo detecta).
+- `build-extension.sh` completo, `.supx` reconstruido y copiado a `extensions_test/`.
+- Pendiente: el usuario reinicie `superset_mcp_test.service` (el `sudo` de este agente no está pidiendo contraseña de forma consistente en esta sesión — a veces se aplica igual por otro medio, a veces no; mejor que lo confirme el usuario manualmente esta vez).
+
+### 2026-09-28 (comandos /resume y /clear — retomar conversación de un gráfico guardado)
+
+Cambio realizado:
+Usuario reportó dos huecos de UX del copiloto de Explore: (1) al guardar un gráfico y navegar al dashboard, volver a editarlo arranca en una conversación nueva sin forma de retomar la anterior; (2) no hay forma de reusar el diseño de un gráfico (ej. html_cards) en otro. Investigado contra el código real antes de diseñar nada:
+
+- **Punto 2 no era un hueco del MCP.** `get_chart_info` (tool del HOST, ya disponible para el modelo) devuelve el `form_data` COMPLETO de cualquier gráfico guardado (`params` parseado) dado su ID — el modelo ya puede leer `handlebarsTemplate`/`styleTemplate`/`column_config`/`calculated_columns` de cualquier chart vía `list_charts` + `get_chart_info`, y aplicarlos con `patch_form_data` (ya existente). Era un hueco de orquestación/prompt, no de capacidad. Fix mínimo: agregado un párrafo a la descripción de `irex.get_viz_controls` explicando este flujo (`list_charts` + `get_chart_info` + esta tool para validar los controles del viz_type destino + `patch_form_data`).
+- **Punto 1 sí era un hueco real**, resuelto con comandos `/resume` y `/clear` en el composer. Antes de construir nada, se confirmó con el backend del chat (relay del usuario) el mecanismo real: `session_id` se DERIVA de `(usuario, conversation_key)` — no es algo que se pueda enviar; reenviar el mismo `conversation_key` (UUID) hace que el backend rehidrate el historial persistido en Postgres si salió de la caché en memoria (TTL de 30 min ahí; SIN TTL en el almacén persistente). También confirmaron un matiz importante: cada turno vuelve a verificar `form_data_key`/dataset igual que uno nuevo (nunca se confía en evidencia vieja), y un cambio de gráfico/dataset/tipo abre una "frontera de contexto" del lado del backend.
+- Verificado además que el log de diagnóstico (`/api/logs/sessions/<id>`) NO guarda el texto del usuario (solo tool calls y la respuesta final) — no serviría para reconstruir una conversación mostrable. Por eso la extensión guarda su PROPIO historial completo (texto de usuario y asistente, tal cual se ve en pantalla) en el navegador, no depende del backend para el contenido — solo reenvía el `conversation_key` para que el backend tenga el contexto real del lado del modelo.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/hosts/exploreConversationHistory.ts` (nuevo) — persistencia en `localStorage`, indexada por `slice_id`, hasta 10 conversaciones por gráfico, sin vencimiento por tiempo (pedido explícito del usuario)
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/slashCommands.ts` (nuevo) — parser de comandos `/` + registro extensible (`resume`, `clear`)
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/ExploreConversation.tsx` — menú de autocompletado sobre el textarea (Slack/Discord-style: aparece al tipear `/`, flechas+Tab/Enter para elegir, Escape para cerrar), ruteo de submit (comando vs mensaje normal), botón "Ejecutar" en vez de "Generar" para un comando pendiente
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/ExploreAssistantPanel.tsx` — `handleCommand` (`/clear` = `handleNewSession`; `/resume` [n] = retoma directo con 1 candidata o índice explícito, picker con 2+, aviso si no hay ninguna o el gráfico no está guardado), `ExploreResumePicker` (tarjeta de elección), grabado automático de cada intercambio exitoso vía `recordConversationEntry`
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/get_viz_controls.py` (hint de reuso de diseño entre gráficos)
+- `custom-extensions/irex-mcp-tools/docs/explore-assistant-contract.md` (sección nueva "Comandos del composer")
+- 3 archivos de test nuevos/ampliados (ver Verificación)
+
+Que cambia o corrige:
+- Al abrir un gráfico guardado, el panel SIEMPRE arranca en sesión nueva — nunca retoma solo (pedido explícito del usuario).
+- `/resume` (con autocompletado): 0 candidatas → aviso; gráfico sin guardar → aviso específico; 1 candidata → retoma directo; 2+ → picker (fecha relativa, cantidad de mensajes, primer mensaje, más reciente primero); `/resume <n>` elige por índice directo (1 = más reciente), con aviso si el índice no existe.
+- `/clear` — mismo efecto que el botón "Nueva sesión" ya existente, como comando.
+- El registro de comandos (`SLASH_COMMANDS` en `slashCommands.ts`) es una lista chica y explícita — agregar un comando nuevo a futuro es sumar una entrada ahí, sin tocar el parser.
+
+Verificacion:
+- 35 tests nuevos (25 en `slashCommands.test.ts` + `exploreConversationHistory.test.ts`, puros; 10 de integración en `ExploreAssistantPanel.test.tsx`: grabado tras un intercambio exitoso, menú de autocompletado, cambio de label del botón, `/clear`, `/resume` en sus 6 variantes — sin guardar/sin candidatas/una/varias con picker/por índice/índice fuera de rango).
+- 333/333 tests frontend total, `tsc --noEmit` limpio.
+- `build-extension.sh` completo (TS estricto, tests backend, webpack, `.supx` reconstruido), copiado a `extensions_test/`.
+- Pendiente: el usuario reinicie `superset_mcp_test.service` (mismo problema de `sudo` no interactivo de la entrada anterior) y pruebe el flujo real: guardar un gráfico, navegar al dashboard, volver, y usar `/resume`.
+
+### 2026-09-28 (verificación de list_charts/get_chart_info para "reutilizar diseño" — hallazgos reales, 2 corregidos en test)
+
+Cambio realizado:
+Backend del chat pidió verificar con pruebas reales (no solo lectura de código) `list_charts`/`get_chart_info` para el flujo "reutilizar el diseño de un gráfico guardado en Explore" — visibilidad en `tools/list`, identidad autenticada, filtrado RBAC, forma exacta de entrada/salida (sin confundir `slice_id` dentro de `form_data` con el ID real), paginación/búsqueda, y comportamiento con CSS/plantillas largos (backend admite hasta 60 000 caracteres, por encima informa `truncated:true` y no debe proponerse copia parcial).
+
+Método: script ad-hoc en el scratchpad (mismo patrón que `scripts/e2e_rbac.py` — JWT firmado con `MCP_JWT_SECRET`/`ISSUER`/`AUDIENCE` de `superset_config_test.py`, `fastmcp.Client` contra `http://127.0.0.1:5009/mcp` real), NO mocks. Encontrados 3 hallazgos reales:
+
+1. **`list_charts`/`get_chart_info` NO aparecían en `tools/list` en absoluto** (confirmado con `client.list_tools()`: 25 tools, todos `extensions.irex.irex-mcp-tools.irex.*`). Causa: `MCP_FACTORY_CONFIG` de `superset_config_test.py` tiene `include_tags=["irex"]` — oculta TODOS los tools nativos de Superset (decisión deliberada, "para eliminar la confusión del modelo entre tools nativas e IREX", documentada en el propio config) y estos dos tools nativos no tienen ese tag. Importante: SÍ se pueden llamar por nombre exacto pese a no estar listados (confirmado — `call_tool("list_charts", ...)` funciona aunque el tool no aparezca en `tools/list`) — la ocultación es solo de DESCUBRIMIENTO, no de ejecución; los permisos reales se siguen validando en la capa de datos (RBAC), no en la de listado.
+2. **Confirmado con JWT de un usuario Gamma ("test", sin gráficos propios) contra un gráfico de admin (id 684)**: `list_charts` devuelve `total_count: 0` (no ve ningún gráfico ajeno) y `get_chart_info(684)` devuelve `{"error": "ChartInfo with identifier '684' not found", "error_type": "not_found"}` — RBAC real (mismo `ChartFilter`/`base_filter` que usa el resto de Superset) aplicado tanto en list como en get, usando la identidad del JWT (`sub`), no un usuario fijo.
+3. **Confirmado el riesgo exacto que preguntó el backend**: `get_chart_info`'s `form_data` (el JSON completo de `params`) SÍ incluye un campo `form_data.slice_id` interno que en la práctica coincide con el `id` de nivel superior — pero es un campo DISTINTO, propenso a quedar desactualizado (charts duplicados/importados). El campo AUTORITATIVO es el `id` de nivel superior (el que devuelve `ChartDAO`/`ModelGetInfoCore` directo de la fila real), nunca `form_data.slice_id`. Documentado explícitamente en el hint agregado a `irex.get_viz_controls` (entrada anterior) — se refuerza acá con el ejemplo real verificado.
+4. **Paginación y búsqueda confirmadas**: página 1 = ids 1-10, página 2 = ids 11-20 (sin superposición); `search="test asistente"` encuentra el chart 684 sin necesidad de recorrer todas las páginas.
+5. **Bug real encontrado al probar con un form_data grande**: se creó un chart temporal (borrado al terminar) duplicando uno real con `styleTemplate` inflado a ~65 000 caracteres (por encima del umbral de 60k que maneja el backend del chat). `get_chart_info` sobre ese chart **crashea** con `'dict' object has no attribute 'to_mcp_result'` en vez de devolver algo. Causa raíz: `ResponseSizeGuardMiddleware` (`superset/mcp_service/middleware.py`), al superar ~25 000 tokens estimados, intenta truncar dinámicamente (`get_chart_info` está en `INFO_TOOLS`, con `_MAX_STRING_CHARS=500` por campo — habría cortado `styleTemplate`/`handlebarsTemplate` a la mitad de una regla CSS, corrompiendo el diseño en vez de acortarlo con sentido) pero la función de truncado (`truncate_oversized_response`) devuelve un `dict` plano en vez del tipo de resultado que FastMCP espera recibir de vuelta del middleware — la llamada entera revienta.
+
+Archivos afectados:
+- `superset_v6_1_0/superset/mcp_service/chart/tool/list_charts.py` (tag `"irex"` agregado)
+- `superset_v6_1_0/superset/mcp_service/chart/tool/get_chart_info.py` (tag `"irex"` agregado)
+- `superset_config_test.py` (`list_charts`/`get_chart_info` sumados a `MCP_TOOL_SEARCH_CONFIG.always_visible`; `get_chart_info` sumado a `MCP_RESPONSE_SIZE_CONFIG.excluded_tools`, nuevo override)
+- `PLUGINS.md` (nota + fila en la tabla de archivos del backend modificados — este parche NO está cubierto por `migrate-plugins.sh`, hay que reaplicarlo a mano en la próxima migración de versión)
+
+Que cambia o corrige (siguiendo la instrucción de arreglar los tools existentes, no crear uno nuevo):
+- Los dos tools nativos ganan el tag `"irex"` (sin quitarles el suyo propio) para pasar el filtro `include_tags` y quedar en `always_visible` — visibles en `tools/list` sin que el modelo necesite adivinar el nombre.
+- `get_chart_info` excluido del guard de tamaño (`MCP_RESPONSE_SIZE_CONFIG.excluded_tools`) en vez de dejarlo truncar en silencio o crashear: para este tool específico, un `form_data` completo o un error limpio son las dos únicas respuestas aceptables — nunca una copia parcial. El bug de fondo del `dict` plano en `_try_truncate_info_response` (que también podría afectar a `get_dataset_info`/`get_dashboard_info`/`get_instance_info`, los otros 3 `INFO_TOOLS`) **no se corrigió** — excluir el tool es la corrección mínima para este flujo puntual; queda anotado como hallazgo aparte, no resuelto, para quien retome el trabajo.
+
+Verificacion:
+- Los 5 hallazgos de arriba, cada uno confirmado con una llamada MCP real (JWT propio, sin mocks) contra el servidor de test — no solo lectura de código.
+- `superset_mcp_test.service` reiniciado (el mensaje de `sudo` sigue imprimiendo "a password is required", pero el `ActiveEnterTimestamp` confirmó que el reinicio SÍ se aplicó esta vez). Reverificado DESPUÉS del reinicio, contra el servidor real:
+  - `tools/list`: 27 tools (antes 25) — `list_charts` y `get_chart_info` presentes.
+  - RBAC: repetido igual que antes del reinicio, mismo resultado (`total_count:0` / `not_found` limpio para el usuario Gamma).
+  - Chart de ~65 443 caracteres (recreado, mismo padding que antes): `get_chart_info` devuelve el `form_data` COMPLETO, sin crash — `len(json.dumps(form_data)) == 65443` exacto, `styleTemplate` termina byte a byte igual a lo guardado.
+- Los 2 charts temporales de prueba (ids 685, recreado una vez) eliminados al terminar — no queda basura en la base de test.
+- **Hallazgo de infraestructura importante**: `list_charts.py`/`get_chart_info.py` son archivos de `superset_v6_1_0/superset/mcp_service/`, compartidos entre `superset.service` (prod) y `superset_test.service` (test) — igual que con los plugins de chart, el cambio de código YA está en el archivo que prod también usa, pero un cambio de código Python (a diferencia de los assets estáticos del frontend) requiere reinicio del PROCESO para tomar efecto — `superset_mcp.service` (prod) seguirá con el comportamiento de ANTES hasta que alguien lo reinicie por cualquier motivo, momento en el que estos dos tools pasarían a ser visibles ahí también (prod tiene el mismo `include_tags=["irex"]`, confirmado). No se tocó la config de prod ni se reinició ese servicio — pero vale la pena que quede claro antes de cualquier reinicio de `superset_mcp.service` no relacionado con este cambio.
+
+### 2026-09-28 (rgba() mal formado: bug real y recurrente del modelo, documentado — y formateador de CSS/HTML en el diff)
+
+Cambio realizado:
+Sesión `explore-22cae395...`: el usuario preguntó si html_cards admite efectos (sí, CSS libre, `HTML_SANITIZATION=False` confirmado en ambos entornos) y el modelo propuso un brillo con `@keyframes`. Al revisar el `styleTemplate` REALMENTE persistido del slice 54 (no solo el mensaje del modelo) encontré 3 valores de color inválidos: `rgba(99 245 200,.18)`, `rgba(00.0,.16)`, `rgba(255 255 255,.42)` — canales separados por espacio pero con coma antes del alfa, mezcla inválida de las dos sintaxis de color CSS. El navegador descarta la declaración entera sin ningún error visible — por eso "no se ven los efectos". **No es un error aislado**: el mismo patrón (`rgba(1 523.42,.06)`) ya había aparecido en otra sesión (`explore-d362e3c9...`) con OTRO color — mismo modelo (`gpt-6-luna`), confirmando un hábito sistemático, no una casualidad.
+
+El usuario pidió corregirlo y le dijo al modelo que arreglara los 3 valores; el modelo respondió "Propongo corregir las tres declaraciones rgba()" pero el "Ver cambio" mostró "Este cambio no modifica nada". Comparé byte a byte el `styleTemplate` "corregido" contra el que ya estaba activo en ese estado: son IDÉNTICOS — el modelo no cambió nada real, solo lo dijo. Confirmado que el mecanismo de diff (`diffFormData`, comparación exacta) funcionó CORRECTAMENTE — el problema es 100% del lado de la generación del modelo, no de la extensión.
+
+El usuario pidió además que, si hay algo que el backend pueda hacer, se lo pidiera — se envió recomendación de reforzar el prompt y/o agregar una reparación determinística (regex) del lado de ellos, dado que ni siquiera señalarle el error explícitamente le alcanzó al modelo para corregirlo sobre un bloque de CSS grande.
+
+Por último, el usuario reportó que "en los CSS y HTML los entrega desordenados" — el modelo SIEMPRE entrega `styleTemplate`/`handlebarsTemplate` minificados en una sola línea, lo que hace casi imposible revisarlos a ojo en la tarjeta de diff (y, como se vio con el bug de rgba(), dificulta encontrar errores de sintaxis). Se agregó un formateador propio (sin dependencia nueva) para la tarjeta de "Ver cambio".
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/explore_viz_controls_core.py` (advertencia de `rgba()`/`rgb()` en las 3 descripciones que permiten escribir CSS: `styleTemplate` de html_cards, `column_config` de table_v3 y de pivot_table_rx1)
+- `custom-extensions/irex-mcp-tools/backend/tests/test_explore_viz_controls_core.py` (+1 test que falla si alguna de las 3 pierde la advertencia)
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/codeFormat.ts` (nuevo) — `formatCss`/`formatHtml` propios: indentación por profundidad de llaves (CSS, preservando contenido de strings con llaves literales) o por apertura/cierre de tags HTML y bloques Handlebars `{{#if}}/{{else}}/{{/if}}`/`{{#each}}` (HTML), sin tocar el contenido real (ni arregla bugs como el de rgba(), ni cambia lo que se aplica/guarda — es solo para LECTURA en el diff)
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/ExploreAssistantPanel.tsx` (`ControlDiffRow` usa `formatCodeForDiff` + un `CodeBlock` con scroll propio para `styleTemplate`/`handlebarsTemplate`; cualquier otro control sigue el resumen legible de siempre, sin cambios)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/codeFormat.test.ts` (nuevo, 19 tests)
+
+Que cambia o corrige:
+- Las 3 descripciones CSS advierten: "rgba()/rgb(): coma entre canales y alfa... NUNCA rgba(99 245 200,.18) (inválido, se descarta sin error visible, bug real y recurrente del modelo)" — mismo criterio que el resto de este catálogo (advertir sobre bugs REALES y confirmados, no hipotéticos).
+- La tarjeta de "Ver cambio" ahora muestra `styleTemplate`/`handlebarsTemplate` en un bloque `<pre>` con scroll propio, indentado y legible, en vez de todo el texto crudo en una sola línea envuelta dentro de un `<span>` — probado contra el CSS real (roto) del slice 54: se indenta correctamente, sin romper el contenido, y el bug de `rgba()` queda incluso MÁS visible (cada declaración en su propia línea) en vez de perdido en medio de una sola línea de miles de caracteres.
+
+Verificacion:
+- 367/367 backend (1 test nuevo).
+- 352/352 frontend (19 tests nuevos de `codeFormat.test.ts` — incluye casos con `@media`/`@container` anidados, strings con llaves literales, `{{#each}}` anidado con HTML adentro, atributos con `>` dentro de comillas, elementos vacíos/autocerrados). `tsc --noEmit` limpio.
+- Probado además, fuera de la suite de tests (sanity check manual, no comiteado), con el CSS real de 7016 caracteres del slice 54 (el mismo con el bug de rgba()): se formatea sin excepciones, llaves balanceadas, una propiedad por línea, perfectamente legible.
+- `build-extension.sh` completo, `.supx` reconstruido y copiado a `extensions_test/`.
+- Pendiente: el usuario reinicie `superset_mcp_test.service` (mismo problema de `sudo` no interactivo recurrente en esta sesión).

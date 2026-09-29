@@ -93,8 +93,11 @@ export interface SavedChart {
 }
 
 /** `GET /api/v1/chart/<id>` — `params`/`query_context` también viajan como
- * texto JSON en el esquema REST de Superset. */
-async function fetchSavedChart(sliceId: number): Promise<SavedChart | undefined> {
+ * texto JSON en el esquema REST de Superset. Exportada (además de usarla
+ * `resolveQueryFidelity` acá abajo): `exploreAdapter.ts` la reusa para
+ * sembrar una `form_data_key` cuando un gráfico guardado recién abierto
+ * todavía no tiene ninguna en la URL — ver `readExploreContext`. */
+export async function fetchSavedChart(sliceId: number): Promise<SavedChart | undefined> {
   const body = await getJson<ChartGetResponse>(`/api/v1/chart/${sliceId}`);
   if (!body?.result) return undefined;
   let params: Record<string, unknown> | undefined;

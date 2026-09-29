@@ -931,6 +931,32 @@ export default function TableChart<D extends DataRecord = DataRecord>(
   const successColor = colors.success?.base ?? theme.colorSuccess ?? '#52c41a';
   const errorColor = colors.error?.base ?? theme.colorError ?? '#ff4d4f';
 
+  // Tema real de Superset expuesto como variables CSS en el contenedor de
+  // la tabla, para que column_config[label].htmlTemplate/htmlCss (Jinja-like,
+  // CASE WHEN...) pueda referenciar var(--table-v3-theme-color-*) en vez de
+  // hardcodear colores o depender del tema del navegador/SO — mismo patrón
+  // y mismos nombres de token que plugin-chart-html-cards (--html-cards-
+  // theme-*), solo con el prefijo de este plugin.
+  const themeCssVars = useMemo(
+    (): CSSProperties => ({
+      '--table-v3-theme-color-primary': theme.colorPrimary,
+      '--table-v3-theme-color-primary-bg': theme.colorPrimaryBg,
+      '--table-v3-theme-color-bg-container': theme.colorBgContainer,
+      '--table-v3-theme-color-bg-elevated': theme.colorBgElevated,
+      '--table-v3-theme-color-border': theme.colorBorder,
+      '--table-v3-theme-color-text': theme.colorText,
+      '--table-v3-theme-color-text-secondary': theme.colorTextSecondary,
+      '--table-v3-theme-color-success': theme.colorSuccess,
+      '--table-v3-theme-color-warning': theme.colorWarning,
+      '--table-v3-theme-color-error': theme.colorError,
+      '--table-v3-theme-border-radius': `${theme.borderRadius}px`,
+      '--table-v3-theme-font-family': theme.fontFamily,
+      '--table-v3-theme-font-size': `${theme.fontSize}px`,
+      '--table-v3-theme-font-size-sm': `${theme.fontSizeSM}px`,
+    }) as CSSProperties,
+    [theme],
+  );
+
   // only take relevant page size options
   const pageSizeOptions = useMemo(() => {
     const getServerPagination = (n: number) => n <= rowCount;
@@ -2387,7 +2413,7 @@ export default function TableChart<D extends DataRecord = DataRecord>(
   const { width: widthFromState, height: heightFromState } = tableSize;
 
   return (
-    <Styles>
+    <Styles style={themeCssVars}>
       {htmlTemplateStyles.map(item => (
         <style key={`html-template-style-${item.scopeClass}`}>
           {item.cssText}

@@ -77,6 +77,16 @@ const HandlebarsTemplateControl = (
         'Adds numbers or all values in an array. Example: {{sum 10 20}} or {{sum (pluck rows "ventas")}}',
     },
     {
+      key: 'division',
+      descKey:
+        'Divides two numbers. No zero/null guard built in — wrap it: {{#if b}}{{division a b}}{{else}}...{{/if}}, since {{#if 0}} is falsy in Handlebars.',
+    },
+    {
+      key: 'group',
+      descKey:
+        "Groups a list by a property. Example: {{#group displayRows by=(lookup (lookup @root.columns N) 'templateKey')}}{{value}} is the group key, {{#each items}}...{{/each}} are that group's rows{{/group}}. Use the templateKey from columns[], not the SQL name or displayName. Combine with pluck+sum+division to aggregate values per group (e.g. a nested table inside each card).",
+    },
+    {
       key: 'hasValue',
       descKey:
         'Checks whether a value exists, treating 0 as a valid value.',

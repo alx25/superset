@@ -58,12 +58,12 @@ describe('body Explore v1', () => {
 
   test('deriva la identidad del estado persistido y usa el slice_id de la URL', () => {
     const request = buildExploreAssistantRequest(context, 'explain', 'Explica', 'uuid', false);
-    // NO viaja `query_context` aunque la fidelidad del fixture sea 'fiel':
-    // el backend del chat lo rechaza con 422 (`extra_forbidden`) hasta que
-    // actualice su schema — ver SEND_QUERY_CONTEXT_IN_REQUEST en
-    // exploreAdapter.ts (entrada 73 del Registro de cambios, 2026-09-24).
     expect(request.chart).toEqual({
       slice_id: 7, form_data_key: 'key-1', viz_type: 'table', datasource: { id: 11, type: 'table' },
+      // Fidelidad 'fiel' en el fixture → viaja el query_context capturado
+      // (SEND_QUERY_CONTEXT_IN_REQUEST reactivado en la entrada 79: el
+      // backend del chat ya acepta el campo, ver exploreAdapter.ts).
+      query_context: context.queryFidelity.queryContext,
     });
     expect(request.form_data).toEqual(context.formData);
     expect(request.user.is_admin).toBe(false);
