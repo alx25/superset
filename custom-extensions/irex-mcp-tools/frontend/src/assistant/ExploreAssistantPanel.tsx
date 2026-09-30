@@ -24,7 +24,6 @@ import {
   applyExploreActions,
   buildExploreReloadUrl,
   diffFormData,
-  formatControlDiffValue,
   isApplicableExploreAction,
   postAppliedFormData,
   type ApplicableExploreAction,
@@ -39,11 +38,11 @@ import {
 } from '../hosts/exploreConversationHistory';
 import { clearPendingUndo, readPendingUndo, rememberPendingUndo, type PersistedConversationSnapshot } from '../hosts/exploreUndo';
 import { Clarification } from './Clarification';
-import { formatCodeForDiff } from './codeFormat';
+import { ControlDiffRow } from './ControlDiffView';
 import { ExploreConversation, exploreDefaultPromptFor, type ConversationMessage } from './ExploreConversation';
 import { Icon } from './icons';
 import { PanelHeader } from './PanelHeader';
-import { buttonGhost, buttonIcon, buttonPrimary, card, FONT, MONO } from './ui';
+import { buttonGhost, buttonIcon, buttonPrimary, card, FONT, type PanelTheme } from './ui';
 
 /** Igual criterio que `createConversationKey` de `SqlLabAssistantPanel.tsx`
  * (duplicado a propósito, no importado: es la única pieza de ese archivo
@@ -94,63 +93,45 @@ function describeExploreAction(action: ExploreAction): string {
   }
 }
 
-/** Bloque de código con scroll propio (no `<span>` inline) — el CSS/HTML
- * real de un `styleTemplate`/`handlebarsTemplate` fácilmente pasa los miles
- * de caracteres; sin esto se ve todo apretado en una sola línea envuelta. */
-function CodeBlock({ text, emphasis }: { text: string; emphasis?: boolean }): React.ReactElement {
-  const theme = themeNs.useTheme();
-  return (
-    <pre
-      style={{
-        margin: '2px 0 6px',
-        padding: '6px 8px',
-        maxHeight: 220,
-        overflow: 'auto',
-        whiteSpace: 'pre',
-        fontFamily: MONO,
-        fontSize: FONT.small,
-        lineHeight: 1.45,
-        color: theme.colorText,
-        background: theme.colorFillQuaternary ?? theme.colorBgContainer,
-        border: `1px solid ${theme.colorBorderSecondary}`,
-        borderRadius: theme.borderRadiusSM,
-        fontWeight: emphasis ? 600 : 400,
-      }}
-    >
-      {text}
-    </pre>
-  );
-}
 
-function ControlDiffRow({ entry }: { entry: ControlDiffEntry }): React.ReactElement {
-  const theme = themeNs.useTheme();
-  // CSS/HTML (styleTemplate/handlebarsTemplate): formateado con indentación
-  // real y en un bloque con scroll propio — el modelo los entrega
-  // minificados en una sola línea (pedido del usuario 2026-09-28: "en los
-  // CSS y HTML los entrega desordenados"). Cualquier otro control sigue el
-  // resumen legible de siempre (`formatControlDiffValue`), sin cambios.
-  const beforeCode = formatCodeForDiff(entry.control, entry.before);
-  const afterCode = formatCodeForDiff(entry.control, entry.after);
-  if (beforeCode !== undefined || afterCode !== undefined) {
-    return (
-      <div style={{ fontSize: FONT.small, lineHeight: 1.5 }}>
-        <code style={{ fontFamily: MONO, fontWeight: 600 }}>{entry.control}</code>
-        <div style={{ paddingLeft: 8, color: theme.colorTextSecondary, marginTop: 4 }}>antes:</div>
-        <CodeBlock text={beforeCode ?? formatControlDiffValue(entry.control, entry.before)} />
-        <div style={{ paddingLeft: 8, color: theme.colorTextSecondary }}>después:</div>
-        <CodeBlock text={afterCode ?? formatControlDiffValue(entry.control, entry.after)} emphasis />
-      </div>
-    );
-  }
+/** Encabezado compartido de las tarjetas de propuesta — insignia con
+ * ícono + título genérico "Cambio propuesto" + una píldora con la
+ * cantidad pendiente (pedido del usuario 2026-09-30, referencia visual).
+ * Nunca colorea el TEXTO de la píldora con un color semántico (ver
+ * ui.ts: los color*Text no llegan a contraste AA) — el color va solo en
+ * el fondo/ícono, el texto siempre colorText/colorTextSecondary. */
+function ActionCardHeader({ pendingCount, theme }: { pendingCount: number; theme: PanelTheme }): React.ReactElement {
   return (
-    <div style={{ fontSize: FONT.small, lineHeight: 1.5 }}>
-      <code style={{ fontFamily: MONO, fontWeight: 600 }}>{entry.control}</code>
-      <div style={{ paddingLeft: 8, color: theme.colorTextSecondary }}>
-        antes: <span style={{ color: theme.colorText }}>{formatControlDiffValue(entry.control, entry.before)}</span>
-      </div>
-      <div style={{ paddingLeft: 8, color: theme.colorTextSecondary }}>
-        después: <span style={{ color: theme.colorText, fontWeight: 600 }}>{formatControlDiffValue(entry.control, entry.after)}</span>
-      </div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: 20,
+          height: 20,
+          borderRadius: '50%',
+          background: theme.colorPrimaryBg,
+          color: theme.colorPrimary,
+          flexShrink: 0,
+        }}
+      >
+        <Icon name="sparkles" size={12} />
+      </span>
+      <span style={{ flex: 1, minWidth: 0, fontSize: FONT.base, fontWeight: 600, color: theme.colorText }}>Cambio propuesto</span>
+      <span
+        style={{
+          fontSize: FONT.small,
+          fontWeight: 500,
+          padding: '1px 8px',
+          borderRadius: 999,
+          background: theme.colorPrimaryBg,
+          color: theme.colorTextSecondary,
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {pendingCount} {pendingCount === 1 ? 'cambio pendiente' : 'cambios pendientes'}
+      </span>
     </div>
   );
 }
@@ -304,26 +285,22 @@ function ExploreActionCard({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 10px' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-        <span style={{ marginTop: 1 }}>
-          <Icon name="sparkles" size={13} />
-        </span>
-        <div style={{ flex: 1, minWidth: 0, fontSize: FONT.base, lineHeight: 1.5 }}>{describeExploreAction(action)}</div>
-      </div>
+      <ActionCardHeader pendingCount={1} theme={theme} />
+      <div style={{ fontSize: FONT.base, lineHeight: 1.5, paddingLeft: 28 }}>{describeExploreAction(action)}</div>
 
       {error && (
-        <div style={{ fontSize: FONT.small, color: theme.colorError, paddingLeft: 21 }}>{error}</div>
+        <div style={{ fontSize: FONT.small, color: theme.colorError, paddingLeft: 28 }}>{error}</div>
       )}
 
       {prepared && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 21 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 28 }}>
           {prepared.diff.map(entry => (
             <ControlDiffRow key={entry.control} entry={entry} />
           ))}
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', paddingLeft: 21 }}>
+      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', paddingLeft: 28 }}>
         {!prepared ? (
           <button type="button" disabled={busy} style={buttonGhost(theme)} onClick={() => void handlePrepare()}>
             {busy ? 'Comprobando…' : 'Ver cambio'}
@@ -382,16 +359,12 @@ function ExploreProposalChecklist({
 
   return (
     <div style={{ ...card(theme), display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 10px' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-        <span style={{ marginTop: 1 }}>
-          <Icon name="sparkles" size={13} />
-        </span>
-        <div style={{ flex: 1, minWidth: 0, fontSize: FONT.base, lineHeight: 1.5 }}>
-          Esta propuesta tiene {actions.length} cambios relacionados. Elegí cuáles aplicar juntos, en un solo paso.
-        </div>
+      <ActionCardHeader pendingCount={selected.length} theme={theme} />
+      <div style={{ fontSize: FONT.base, lineHeight: 1.5, paddingLeft: 28 }}>
+        Esta propuesta tiene {actions.length} cambios relacionados. Elegí cuáles aplicar juntos, en un solo paso.
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingLeft: 21 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingLeft: 28 }}>
         {actions.map((action, index) => (
           // eslint-disable-next-line react/no-array-index-key
           <label
@@ -412,17 +385,17 @@ function ExploreProposalChecklist({
         ))}
       </div>
 
-      {error && <div style={{ fontSize: FONT.small, color: theme.colorError, paddingLeft: 21 }}>{error}</div>}
+      {error && <div style={{ fontSize: FONT.small, color: theme.colorError, paddingLeft: 28 }}>{error}</div>}
 
       {prepared && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 21 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 28 }}>
           {prepared.diff.map(entry => (
             <ControlDiffRow key={entry.control} entry={entry} />
           ))}
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', paddingLeft: 21 }}>
+      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', paddingLeft: 28 }}>
         {!prepared ? (
           <button type="button" disabled={busy || selected.length === 0} style={buttonGhost(theme)} onClick={() => void handlePrepare()}>
             {busy ? 'Comprobando…' : 'Ver cambio'}
@@ -577,33 +550,38 @@ function ExploreUndoBanner({ sliceId, formDataKey }: { sliceId: number | null; f
       style={{
         flexShrink: 0,
         display: 'flex',
-        alignItems: 'center',
-        gap: 6,
+        gap: 8,
         margin: '8px 12px 0',
-        padding: '4px 4px 4px 9px',
-        background: theme.colorWarningBg ?? theme.colorBgContainer,
-        border: `1px solid ${theme.colorWarningBorder ?? theme.colorWarning}`,
-        borderRadius: theme.borderRadiusSM,
+        padding: '8px 9px',
+        background: theme.colorSuccessBg ?? theme.colorBgContainer,
+        border: `1px solid ${theme.colorSuccessBorder ?? theme.colorBorderSecondary}`,
+        borderRadius: theme.borderRadius,
         fontSize: FONT.small,
       }}
     >
-      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        Aplicado: <strong>{undo.title}</strong>
+      <span style={{ color: theme.colorSuccess ?? theme.colorPrimary, marginTop: 1, flexShrink: 0 }}>
+        <Icon name="check" size={14} />
       </span>
-      <button type="button" disabled={busy} style={{ ...buttonIcon(theme), width: 'auto', padding: '3px 8px' }} onClick={handleUndo}>
-        {busy ? 'Deshaciendo…' : 'Deshacer'}
-      </button>
-      <button
-        type="button"
-        aria-label="Ocultar aviso de cambio aplicado"
-        style={{ ...buttonIcon(theme), padding: 3 }}
-        onClick={() => {
-          clearPendingUndo();
-          setUndo(undefined);
-        }}
-      >
-        <Icon name="close" size={12} />
-      </button>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 600, color: theme.colorText, marginBottom: 2 }}>Último cambio aplicado</div>
+        <div style={{ color: theme.colorTextSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{undo.title}</div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4, flexShrink: 0 }}>
+        <button type="button" disabled={busy} style={{ ...buttonGhost(theme), width: 'auto', padding: '3px 8px' }} onClick={handleUndo}>
+          {busy ? 'Deshaciendo…' : 'Deshacer'}
+        </button>
+        <button
+          type="button"
+          aria-label="Ocultar aviso de cambio aplicado"
+          style={{ ...buttonIcon(theme), padding: 3 }}
+          onClick={() => {
+            clearPendingUndo();
+            setUndo(undefined);
+          }}
+        >
+          <Icon name="close" size={12} />
+        </button>
+      </div>
     </div>
   );
 }

@@ -102,10 +102,10 @@ function ExploreResultSummary({
   ].filter(Boolean);
   const title = failed
     ? 'No se pudo completar'
-    : parts.length > 0
-      ? `Análisis con ${parts.join(', ')}`
-      : hasProposal
-        ? 'Propuesta lista para revisar'
+    : hasProposal
+      ? 'Propuesta lista para revisar'
+      : parts.length > 0
+        ? 'Análisis'
         : 'Respuesta';
 
   return (
@@ -114,7 +114,24 @@ function ExploreResultSummary({
         <Icon name={TONE_ICON[tone]} size={14} />
       </span>
       <div style={{ flex: 1, minWidth: 0, fontSize: FONT.base, lineHeight: 1.5, color: theme.colorText }}>
-        <div style={{ fontWeight: 600, color: theme.colorText, marginBottom: 2 }}>{title}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2, flexWrap: 'wrap' }}>
+          <span style={{ fontWeight: 600, color: theme.colorText }}>{title}</span>
+          {parts.length > 0 && (
+            <span
+              style={{
+                fontSize: FONT.small,
+                fontWeight: 500,
+                padding: '1px 7px',
+                borderRadius: 999,
+                background: theme.colorBgContainer,
+                border: `1px solid ${colors.border}`,
+                color: theme.colorTextSecondary,
+              }}
+            >
+              {parts.join(', ')}
+            </span>
+          )}
+        </div>
         <ChatMarkdown text={failed ? text.replace(/^Error:\s*/, '') : text} />
       </div>
     </div>
@@ -138,7 +155,7 @@ function ExploreResultDetails({
     info: theme.colorInfo ?? theme.colorPrimary,
   };
   return (
-    <details className="irex-details" open style={{ ...card(theme) }}>
+    <details className="irex-details" style={{ ...card(theme) }}>
       <summary
         style={{ listStyle: 'none', display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', cursor: 'pointer', fontSize: FONT.small, fontWeight: 600, color: theme.colorText }}
       >
