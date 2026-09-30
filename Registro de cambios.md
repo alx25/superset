@@ -5335,3 +5335,116 @@ Verificacion:
 - Frontend: 23/23 casos con el mismo harness Node standalone (3 nuevos: load corre sin evento, load se re-dispara en cada init con toggle, countUp con sufijo "%" disparado por load).
 - Backend: 377/377 (test de ALLOWED_EVENTS ajustado, sigue derivando la lista real del archivo fuente vía regex — no una copia a mano).
 - `build-extension.sh` completo a `extensions_test/`; `npm run build` en curso al momento de este registro.
+
+### 2026-09-29 (composer de Explore: "Mejorar gráfico" pasa a ser el modo por defecto; "Explicar"/"Métricas" se acceden con /)
+
+Cambio realizado:
+Mientras se revisaban sesiones reales de html_cards, el usuario señaló que el selector de 3 modos (Explicar/Mejorar gráfico/Métricas), siempre visible arriba del composer, confunde — varias de las sesiones revisadas terminaron sin ninguna propuesta simplemente porque el usuario (sin darse cuenta) tenía seleccionado "Explicar" en vez de "Mejorar gráfico" (ver sesión `explore-8324ad60...`, donde el modelo evaluó factibilidad correctamente en modo `explain` pero nunca iba a proponer un patch, por diseño de ese modo). Pedido del usuario: "el modo por defecto debe ser el de Mejorar gráfico, los demás modos se podrían acceder usando el comando /".
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/slashCommands.ts` — `SLASH_COMMANDS` gana `explain` y `metrics`.
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/ExploreConversation.tsx` — se eliminó `ExploreSegmentedControl`/`EXPLORE_MODE_OPTIONS` (el selector de 3 botones) y el prop `onModeChange`; el texto de estado vacío ahora menciona `/explain`/`/metrics` en vez de "elegí una acción abajo".
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/ExploreAssistantPanel.tsx` — el modo por defecto (montaje inicial, "Nueva sesión", fallback de `/resume` con un modo desconocido) pasa de `'explain'` a `'improve_chart'`. `handleSend` gana un 2º parámetro opcional `overrideMode` (no depende de `setMode`, que es asíncrono — evita el problema clásico de leer el modo viejo en el mismo tick). `handleCommand` enruta `/explain`/`/metrics` a `handleSend(texto, modo)` — ESE turno usa el modo pedido; el modo por defecto para los turnos siguientes NO cambia (a diferencia del viejo selector, que era una elección persistente).
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/ExploreAssistantPanel.test.tsx` — 2 tests reescritos (default ahora `improve_chart`; el viejo test de "click en el radio Mejorar gráfico" se reemplaza por `/explain` y `/metrics`, este último verificando explícitamente que el modo por defecto sigue siendo `improve_chart` en el turno SIGUIENTE) + 1 test de `/resume` corregido (el historial grabado ahora empieza con el prompt de `improve_chart`, no el de `explain`).
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/slashCommands.test.ts` — 2 tests nuevos (registro incluye explain/metrics; ambos parsean bien con y sin argumentos).
+
+Que cambia o corrige:
+- Ya no hay forma de "quedarse pegado" en un modo no deseado sin darse cuenta — "Mejorar gráfico" es siempre el default, y pedir explícitamente otra cosa (`/explain`, `/metrics`) es una acción consciente de un solo turno, no un estado persistente que hay que recordar cambiar de vuelta.
+- No afecta el contrato con el backend del chat — los 3 valores de `mode` (`explain`/`improve_chart`/`metrics`) siguen siendo exactamente los mismos en el request; solo cambió CÓMO el frontend del widget decide cuál mandar.
+
+Verificacion:
+- Esta parte del proyecto vive enteramente en `custom-extensions/irex-mcp-tools/frontend/` (build propio vía `build-extension.sh`, aislado en `extensions_test/`/`extensions/`) — a diferencia de los cambios de plugins de chart de hoy, NO comparte build con `superset-frontend`, así que este cambio SÍ se pudo probar solo en test sin afectar producción.
+- 354/354 tests frontend de la extensión (5 nuevos/reescritos). `tsc --noEmit` limpio.
+- `build-extension.sh` completo, `.supx` reconstruido y copiado a `extensions_test/`. Pendiente que el usuario reinicie `superset_mcp_test.service`.
+
+### 2026-09-29 (revisión visual: "ojos" para el LLM — backend de la captura de pantalla, primera mitad)
+
+Cambio realizado:
+Propuesta del usuario, ya coordinada con el backend del chat: darle al modelo la posibilidad de pedir una captura del gráfico YA RENDERIZADO (después de aplicar un cambio) para revisar layout/superposición/colores — motivado directamente por el bug de `orderby` de la entrada anterior (el modelo nunca ve el gráfico, solo propone texto). El backend confirmó: (1) los modelos aceptan imágenes pero el campo `images` de un tool_result HOY se convierte a texto (`extract_text`) antes de llegar al modelo — van a adaptar Explore para pasarlo como `input_image` al mismo asistente; (2) la captura debe subirse y confirmarse ANTES de mandar el mensaje del usuario (el MCP no puede pedirle al navegador que capture en el momento); (3) JPG, límite de tamaño, `capture_id` propio (no alcanza con `form_data_key`, puede haber varias capturas); (4) no van a subir los límites de turnos/herramientas todavía, medir primero en test.
+
+Investigación previa a escribir código: los caches de Superset no sirven para esto — `cache_manager.cache` es `NullCache` en `superset_config_test.py` (probarlo en test sería un placebo), `explore_form_data_cache` es real en ambos entornos pero pensado para JSON chico en la base de metadata, no para binarios. Como el endpoint de subida (proceso de `superset.service`) y la tool MCP que la lee (proceso de `superset_mcp.service`) son procesos DISTINTOS mismo host, se optó por disco compartido — sin depender de qué cache esté configurada en cada entorno.
+
+Archivos afectados (backend, primera mitad — falta el lado del widget):
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/chart_screenshot_store.py` (nuevo) — `save_screenshot`/`read_screenshot`, disco compartido bajo `IREX_CHART_SCREENSHOT_DIR` (default `/tmp/irex-chart-screenshots`), `capture_id` opaco (`secrets.token_urlsafe`), TTL 10 minutos, límite 3 MB, dueño verificado por username, limpieza de vencidos en cada acceso.
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/chart_screenshot_api.py` (nuevo) — `POST /extensions/irex/irex-mcp-tools/chart-screenshots/upload`, mismo patrón de permisos que `assistant_api.py` (vista con nombre propio, nunca `class_permission_name` de un tipo del host — ver su docstring sobre por qué eso borra permisos reales; `can_explore`/Superset + `can_read`/Chart+Dataset + acceso al dataset declarado; `csrf_exempt = False` explícito).
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/chart_screenshot_core.py` (nuevo) — núcleo puro de la tool, sin el decorador `@tool` (mismo patrón que el resto: `_core.py` se puede importar con pytest normal, el wrapper `@tool` no).
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/get_chart_screenshot.py` (nuevo) — tool MCP `irex.get_chart_screenshot(capture_id)`, wrapper delgado sobre el core; devuelve `[metadata, Image(jpeg)]` (`fastmcp.utilities.types.Image`, produce un bloque `ImageContent` real del protocolo MCP) o `{"error": "not_found", ...}` sin crashear si venció/no existe/es de otro usuario.
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/entrypoint.py` — registra `chart_screenshot_api` (con el mismo try/except que `assistant_api`, un fallo ahí no debe tumbar las tools) y `get_chart_screenshot`.
+- `superset_config_test.py` — paso 6 de CLAUDE.md aplicado (`always_visible`); `get_chart_screenshot` excluido de `MCP_RESPONSE_SIZE_CONFIG` (el guard de tamaño solo sabe truncar strings a 500 caracteres, corrompería la imagen — el límite real de 3 MB ya lo aplica el store antes de guardar).
+- Tests nuevos: `test_chart_screenshot_store.py` (7) y `test_get_chart_screenshot.py` (4) — guardar/leer con el mismo dueño, otro usuario no puede leer, capture_id inexistente/vencido da `None` sin romper, imagen demasiado grande se rechaza sin guardar nada, un capture_id con `../` no escapa el directorio. `chart_screenshot_api.py` (la vista Flask) no se prueba con pytest, mismo criterio que `assistant_api.py` — se prueba contra el Superset de test real.
+
+Que cambia o corrige:
+- Sienta la base del lado del backend/MCP para que el modelo pueda pedir y recibir una captura real del gráfico ya renderizado. Falta la mitad del widget (captura client-side con `dom-to-image-more`, subida, UI de "Solicitar revisión visual" después de aplicar un cambio) — próxima entrada.
+
+Verificacion:
+- 388/388 backend (11 tests nuevos).
+- `build-extension.sh` completo, `.supx` reconstruido y copiado a `extensions_test/` (confirmados los 4 archivos nuevos empaquetados). Pendiente que el usuario reinicie `superset_mcp_test.service` Y `superset_test.service` (el endpoint de subida vive en ESE proceso, no en el MCP).
+
+### 2026-09-29 (revisión visual: "ojos" para el LLM — widget, segunda mitad)
+
+Cambio realizado:
+Continuación directa de la entrada anterior — el lado del widget: captura client-side, subida, y la UI de "Solicitar revisión visual". Ubicación de la UI, a pedido explícito del usuario: "después de que el LLM responde y yo aplico el cambio, básicamente aparece después que se aplicó el cambio y el gráfico se renderizó" — mismo momento y mismo mecanismo de vigencia que el aviso de "Deshacer" (`readPendingUndo`), no un botón nuevo siempre visible. El aviso de no-determinismo de `orderby` (hallazgo de la entrada de hoy anterior) se documentó en la descripción de la tool, a pedido del usuario ("en la respuesta del modelo, vía prompt"), no como texto fijo de la UI.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/package.json` — nueva dependencia `dom-to-image-more` (misma librería y versión base que usa "Exportar a imagen" de Explore, `superset-frontend/src/utils/downloadAsImage.tsx` — no una implementación propia).
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/chartScreenshotAdapter.ts` (nuevo) — `captureChartScreenshot()`: captura `.panel-body .chart-container` (el MISMO selector que usa "Exportar a imagen" real, `useExploreAdditionalActionsMenu/index.tsx` — no inventado, ya confirmado que apunta al lugar correcto), ancho tope 1600px vía `scale`, calidad JPEG 0.85, conversión data-URL→Blob manual (sin pasar por `fetch()`, más simple de probar). `uploadChartScreenshot()`: `POST` multipart a `/extensions/irex/irex-mcp-tools/chart-screenshots/upload`, CSRF vía `authentication.getCSRFToken()` (mismo patrón que `exploreApplyAdapter.ts`), devuelve el `capture_id`.
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/ExploreAssistantPanel.tsx` — nuevo componente `ExploreVisualReviewPrompt` (mismo patrón que `ExploreUndoBanner`: lee `readPendingUndo` de forma independiente, no comparten estado) — botón chico → textarea de detalle (opcional) + "Enviar"/"Cancelar". Nuevo `handleVisualReview`: captura → sube → RECIÉN entonces `handleSend` con un mensaje que incluye el `capture_id` en texto plano (`"Revisión visual solicitada (capture_id: xxx). <detalle>"`) — orden estricto acordado con el backend del chat. Un error de captura/subida se muestra en la tarjeta y NO cierra ni manda nada (se puede reintentar sin perder el detalle ya escrito); un envío exitoso cierra la tarjeta sola.
+- Tests nuevos: `chartScreenshotAdapter.test.ts` (7 — sin contenedor rechaza, con contenedor llama a `domToImage.toJpeg` y devuelve Blob JPEG, multipart con los campos correctos y CSRF, `sliceId: null` no manda ese campo, error con/sin cuerpo JSON, `capture_id` inválido se rechaza) + 7 en `ExploreAssistantPanel.test.tsx` (sin cambio aplicado no se ofrece; con cambio aplicado aparece y se puede expandir; capturar→subir→mandar en ese orden con el `capture_id` correcto en el mensaje; sin detalle no agrega texto extra; error de captura/subida se muestra y NO manda nada, se puede reintentar; "Cancelar" no captura ni sube nada).
+
+Que cambia o corrige:
+- El usuario ya puede pedirle al modelo que revise visualmente el resultado de un cambio recién aplicado, con un detalle opcional de qué no le gustó — cierra el círculo completo (backend+widget) de la propuesta original.
+
+Verificacion:
+- 368/368 frontend (14 tests nuevos: 7 del adapter + 7 de integración en el panel). `tsc --noEmit` limpio.
+- `build-extension.sh` completo (pytest + webpack + `.supx` reconstruido desde cero) copiado a `extensions_test/` — nuevo chunk separado para `dom-to-image-more` confirmado en el build. Pendiente que el usuario reinicie `superset_mcp_test.service` Y `superset_test.service`.
+- **Pendiente, fuera de este repo**: el backend del chat todavía tiene que adaptar Explore para pasar el bloque `images` del tool_result como `input_image` al modelo (confirmado que hoy se convierte a texto vía `extract_text` y se pierde) — sin eso, el flujo de subida funciona pero el modelo no "ve" la imagen todavía. Informe completo armado para el otro agente, próximo mensaje.
+
+### 2026-09-30 (fix real: `get_chart_screenshot` caía en el guard de tamaño pese a estar "excluido" — nombre corto vs. namespace completo)
+
+Cambio realizado:
+El usuario probó el flujo completo contra el LLM real y confirmó que funciona — el otro agente reportó por separado un error real en esa misma prueba: `irex.get_chart_screenshot` devolvía `"Error: Response too large: ~82,743 tokens (limit: 25,000)"` en vez de la imagen, pese a que `get_chart_screenshot` ya estaba en `MCP_RESPONSE_SIZE_CONFIG["excluded_tools"]`. Causa raíz confirmada leyendo `superset/mcp_service/middleware.py::ResponseSizeGuardMiddleware.on_call_tool`: compara `excluded_tools` contra `tool_name = getattr(context.message, "name", ...)` — para un tool NATIVO de Superset (`get_chart_info`) ese nombre es corto, pero para un tool de la EXTENSIÓN es el namespace completo (`extensions.irex.irex-mcp-tools.irex.<nombre>`, igual que en `always_visible`). Había usado el nombre corto (`"get_chart_screenshot"`) en `excluded_tools` — nunca coincidía, así que el guard se aplicaba igual. `always_visible` (mismo archivo) ya tenía el nombre completo correcto — la inconsistencia entre las dos listas fue el error.
+
+Archivos afectados:
+- `superset_config_test.py` — `excluded_tools` corregido a `"extensions.irex.irex-mcp-tools.irex.get_chart_screenshot"`, con comentario explicando la trampa para no repetirla con el próximo tool de extensión que necesite excluirse.
+
+Que cambia o corrige:
+- `irex.get_chart_screenshot` ahora sí bypassa el guard de tamaño y devuelve la imagen completa, en vez de un error de texto.
+
+Verificacion:
+- **Contra el servidor MCP real** (no solo lectura de código): la captura original del otro agente venció antes de terminar el fix (TTL 10 min), así que se generó una nueva vía `chart_screenshot_store.save_screenshot()` directo (220 004 bytes, tamaño similar al original) y se llamó a la tool con un cliente MCP propio (JWT, mismo patrón que `scripts/e2e_rbac.py`) contra `http://127.0.0.1:5009/mcp` tras el reinicio — confirmado `is_error: False`, 2 bloques de contenido (texto con la metadata + `image` JPEG, 293 340 caracteres base64), sin el error de tamaño.
+- `build-extension.sh` no hizo falta para este fix puntual (es un cambio de `superset_config_test.py`, no de la extensión) — alcanza con reiniciar `superset_mcp_test.service`.
+
+### 2026-09-30 (comando `/review`: revisión visual disponible en cualquier momento, no solo tras aplicar un cambio)
+
+Cambio realizado:
+El usuario, tras probar el flujo completo, pidió una mejora: mantener el botón contextual "Solicitar revisión visual" exactamente como está (aparece solo después de aplicar un cambio), pero agregar un comando `/review` que permita pedirla en CUALQUIER momento, sin depender de que haya un cambio recién aplicado.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/slashCommands.ts` — `SLASH_COMMANDS` gana `review`.
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/ExploreAssistantPanel.tsx` — `handleCommand` enruta `/review <detalle opcional>` a `handleVisualReview` (la MISMA función que ya usaba el botón — sin duplicar lógica). `handleVisualReview` ahora también refleja busy/error en `commandNotice` (siempre visible, a diferencia del error propio de la tarjeta `ExploreVisualReviewPrompt`, que solo existe montada cuando hay un cambio recién aplicado) — así un error de `/review` disparado sin ningún cambio aplicado no se pierde en silencio.
+- Tests: `slashCommands.test.ts` (+2: registro incluye `review`, `/review` parsea con y sin detalle; +1 test ajustado, `re` ahora matchea `resume` Y `review`) + `ExploreAssistantPanel.test.tsx` (+2: `/review` funciona sin ningún cambio recién aplicado — captura, sube, manda el mensaje igual que el botón; un error de `/review` en ese mismo escenario se ve en `commandNotice`) + 2 tests existentes ajustados (el mensaje de error ahora aparece DOS veces a propósito — en la tarjeta y en `commandNotice` — cuando ambas están montadas).
+
+Que cambia o corrige:
+- El usuario ya puede pedir la revisión visual cuando quiera, no solo inmediatamente después de aplicar un cambio — por ejemplo, para revisar algo que no notó hasta más tarde, sin tener que volver a aplicar nada.
+
+Verificacion:
+- 372/372 frontend (5 nuevos/ajustados). `tsc --noEmit` limpio.
+- `build-extension.sh` completo, `.supx` reconstruido y copiado a `extensions_test/` (mismo build que trajo el fix de `excluded_tools` — ambos cambios van juntos en este build). Pendiente que el usuario reinicie `superset_mcp_test.service` Y `superset_test.service`.
+
+### 2026-09-30 (fix real: la captura salía con el spinner de carga en vez del gráfico)
+
+Cambio realizado:
+Con el flujo end-to-end ya funcionando (backend+widget+adaptación del backend del chat, todo verificado), apareció un caso real: el modelo describió la captura como "un lienzo en blanco con un indicador de carga y el texto «Esperando por Postgresql...»" — la consulta SQL del gráfico todavía no había terminado cuando se disparó la captura. `captureChartScreenshot()` tomaba lo que hubiera en `.panel-body .chart-container` en el instante del click, sin esperar a que la consulta en curso terminara.
+
+Causa raíz confirmada leyendo el código real de Superset (`superset-frontend/src/components/Chart/Chart.tsx`): `.chart-container` es el MISMO contenedor tanto para el spinner de "esperando la consulta" (`chartStatus === 'loading'`) como para el gráfico ya renderizado — ambos casos usan el componente compartido `Loading` (`@superset-ui/core/components`), que deja `data-test="loading-indicator"` en el DOM mientras está visible (confirmado leyendo su código fuente). Es la MISMA señal para el spinner "externo" (esperando la base) y el spinner "interno" (`renderChartContainer` cuando `shouldRenderChart()` todavía es false) — cualquiera de los dos deja ese marcador.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/chartScreenshotAdapter.ts` — nueva `waitForChartRendered(container)`: sondea `[data-test="loading-indicator"]` dentro del contenedor cada 300ms hasta que desaparece, con un tope de 30 segundos — si se agota, tira `ChartScreenshotError` con un mensaje claro ("El gráfico todavía está cargando...") en vez de capturar el spinner en silencio. Se llama al principio de `captureChartScreenshot()`, antes de `domToImage.toJpeg`.
+- Tests nuevos en `chartScreenshotAdapter.test.ts` (+2, con `jest.useFakeTimers()`/`advanceTimersByTimeAsync` para no esperar 30s reales): el spinner desaparece antes del timeout → espera y captura recién entonces; el spinner nunca desaparece → rechaza con el mensaje claro, nunca llama a `domToImage.toJpeg`.
+
+Que cambia o corrige:
+- La captura ahora espera a que la consulta termine antes de capturar — nunca más un spinner en vez del gráfico real. Si el gráfico tarda más de 30s, el usuario ve un error claro pidiéndole que reintente, en vez de una imagen inútil.
+
+Verificacion:
+- 374/374 frontend (2 nuevos). `tsc --noEmit` limpio.
+- `build-extension.sh` completo, `.supx` reconstruido y copiado a `extensions_test/`. Solo cambió frontend esta vez — alcanza con reiniciar `superset_test.service` (no hace falta `superset_mcp_test.service`).

@@ -35,19 +35,6 @@ export const EXPLORE_DEFAULT_PROMPTS: Record<ExploreMode, string> = {
   metrics: 'Sugerime métricas o columnas calculadas útiles para este gráfico.',
 };
 
-interface ExploreModeOption {
-  mode: ExploreMode;
-  label: string;
-  hint: string;
-  icon: IconName;
-}
-
-const EXPLORE_MODE_OPTIONS: ExploreModeOption[] = [
-  { mode: 'explain', label: 'Explicar', hint: 'Explicar la configuración actual del gráfico', icon: 'info' },
-  { mode: 'improve_chart', label: 'Mejorar gráfico', hint: 'Proponer cambios de controles, métricas u opciones', icon: 'zap' },
-  { mode: 'metrics', label: 'Métricas', hint: 'Sugerir métricas o columnas calculadas', icon: 'filePlus' },
-];
-
 const EXPLORE_PLACEHOLDER: Record<ExploreMode, string> = {
   explain: 'Algo puntual que quieras que explique (opcional)…',
   improve_chart: 'Qué querés cambiar: p. ej. "agregá una métrica de promedio"…',
@@ -57,67 +44,6 @@ const EXPLORE_PLACEHOLDER: Record<ExploreMode, string> = {
 function formatElapsed(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-}
-
-function ExploreSegmentedControl({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: ExploreMode;
-  onChange: (mode: ExploreMode) => void;
-  disabled: boolean;
-}): React.ReactElement {
-  const theme = themeNs.useTheme();
-  return (
-    <div
-      role="radiogroup"
-      aria-label="Acción del asistente"
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-        gap: 2,
-        padding: 2,
-        borderRadius: theme.borderRadius,
-        background: theme.colorFillTertiary,
-        border: `1px solid ${theme.colorBorderSecondary}`,
-      }}
-    >
-      {EXPLORE_MODE_OPTIONS.map(option => {
-        const selected = option.mode === value;
-        return (
-          <button
-            key={option.mode}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            title={option.hint}
-            disabled={disabled}
-            onClick={() => onChange(option.mode)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 4,
-              minWidth: 0,
-              padding: '5px 4px',
-              borderRadius: theme.borderRadiusSM,
-              border: 'none',
-              background: selected ? theme.colorBgContainer : 'transparent',
-              boxShadow: selected ? `0 1px 2px ${theme.colorBorder}` : 'none',
-              color: selected ? theme.colorPrimary : theme.colorTextSecondary,
-              fontSize: FONT.small,
-              fontWeight: selected ? 600 : 500,
-              cursor: disabled ? 'default' : 'pointer',
-            }}
-          >
-            <Icon name={option.icon} size={12} />
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{option.label}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
 }
 
 type Tone = 'error' | 'warning' | 'info' | 'success' | 'neutral';
@@ -328,7 +254,6 @@ function SlashCommandMenu({
 export interface ExploreConversationProps {
   history: ConversationMessage[];
   mode: ExploreMode;
-  onModeChange: (mode: ExploreMode) => void;
   userMessage: string;
   onUserMessageChange: (text: string) => void;
   onSend: () => void;
@@ -349,7 +274,6 @@ export interface ExploreConversationProps {
 export function ExploreConversation({
   history,
   mode,
-  onModeChange,
   userMessage,
   onUserMessageChange,
   onSend,
@@ -432,9 +356,11 @@ export function ExploreConversation({
       >
         {history.length === 0 && !sending && (
           <div style={{ fontSize: FONT.base, lineHeight: 1.55, color: theme.colorTextSecondary, padding: '2px 0' }}>
-            Elegí una acción abajo (por defecto, <strong style={{ color: theme.colorText }}>Explicar</strong>) y tocá{' '}
-            <strong style={{ color: theme.colorText }}>Generar</strong>. Trabajo sobre el gráfico que estás editando y
-            siempre te muestro el cambio antes de aplicarlo.
+            Escribí qué querés cambiar y tocá <strong style={{ color: theme.colorText }}>Generar</strong> — por
+            defecto propongo mejoras al gráfico. Para explicar la configuración actual o sugerir métricas en vez de
+            eso, usá <strong style={{ color: theme.colorText }}>/explain</strong> o{' '}
+            <strong style={{ color: theme.colorText }}>/metrics</strong>. Siempre te muestro el cambio antes de
+            aplicarlo.
           </div>
         )}
         {earlier.length > 0 && <EarlierTurns messages={earlier} />}
@@ -455,8 +381,6 @@ export function ExploreConversation({
       </div>
 
       <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 7, padding: '8px 12px 10px', borderTop: `1px solid ${theme.colorBorderSecondary}`, background: theme.colorBgContainer }}>
-        <ExploreSegmentedControl value={mode} onChange={onModeChange} disabled={sending} />
-
         <div style={{ position: 'relative', border: `1px solid ${theme.colorBorder}`, borderRadius: theme.borderRadius, background: theme.colorBgContainer, overflow: 'visible' }}>
           {showCommandMenu && (
             <SlashCommandMenu theme={theme} commands={menuCommands} highlightedIndex={clampedHighlight} onPick={pickCommand} />

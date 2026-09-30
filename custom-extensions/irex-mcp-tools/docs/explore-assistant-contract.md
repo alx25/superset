@@ -673,3 +673,56 @@ completo de acciones, la lista de eventos permitidos, un ejemplo, y la
 advertencia sobre `HTML_SANITIZATION`/`<script>` de arriba. El tooltip de
 ayuda del control en la propia UI de Superset (`handlebarTemplate.tsx`)
 documenta lo mismo en inglés, más corto.
+
+## Revisión visual: `irex.get_chart_screenshot` (2026-09-29)
+
+"Ojos" para el LLM — propuesta del usuario, coordinada con el backend del
+chat antes de construir. El widget captura client-side (`dom-to-image-more`,
+la MISMA librería que usa "Exportar a imagen" real de Explore) el gráfico
+YA RENDERIZADO, lo sube, y RECIÉN ENTONCES manda el mensaje del usuario a
+Explore — nunca al revés, el MCP no puede pedirle al navegador que capture
+en el momento en que el modelo llama a la tool.
+
+**Cómo se entera el modelo de que hay una captura disponible**: el
+`user_message` del turno incluye el `capture_id` en texto plano, con este
+formato exacto:
+```
+Revisión visual solicitada (capture_id: <id>). <detalle del usuario, si escribió algo>
+```
+(sin el detalle, termina en el punto después del `capture_id`). No hay
+ningún campo estructurado nuevo en el contrato de la request — el modelo
+lee el `capture_id` del texto del mensaje como cualquier otro dato que el
+usuario escriba.
+
+**La tool**: `irex.get_chart_screenshot({"capture_id": "<id>"})`. Devuelve
+una lista de 2 bloques de contenido MCP: un bloque de texto (JSON con
+`slice_id`/`form_data_key`/`detail`) y un bloque `image` real (JPEG,
+`fastmcp.utilities.types.Image` → `mcp.types.ImageContent`) — o
+`{"error": "not_found", "message": "..."}` (nunca crashea) si el
+`capture_id` venció (10 minutos), no existe, o pertenece a otro usuario.
+
+**Importante, confirmado con el backend (2026-09-29): el campo `images` de
+un tool_result NO le llega al modelo como visión solo por existir** — hoy
+`extract_text` lo convierte a texto antes de pasarlo, y el campo
+`tool_result.images` que aparece en los logs de diagnóstico alimenta la
+galería del widget, no la visión del LLM. El backend tiene pendiente
+adaptar Explore para pasar el bloque `image` de ESTA tool específicamente
+como `input_image` al mismo asistente (sin una segunda llamada a otro
+agente) — sin ese cambio, el flujo sube la captura correctamente pero el
+modelo todavía no la "ve".
+
+**Endpoint de subida** (lo usa el widget directamente, el backend del chat
+nunca lo llama): `POST /extensions/irex/irex-mcp-tools/chart-screenshots/upload`,
+multipart (`image` JPEG + `dataset_id`/`form_data_key`/`slice_id`/`detail`),
+mismo patrón de permisos y CSRF que el resto de la REST API propia de la
+extensión. El `capture_id` que devuelve es el mismo que el widget embebe en
+el `user_message`.
+
+**Límite importante que la tool comunica en su propia descripción** (no un
+aviso fijo de la UI, a pedido del usuario): una captura que se ve bien NO
+prueba que la consulta tenga un orden determinístico — si el diseño
+depende de recorrer filas en un orden específico y no hay `orderby`
+explícito, la MISMA configuración puede verse distinta en la próxima
+carga (hallazgo real, ver `Registro de cambios.md` — bug de matriz
+marca×mes). La revisión visual complementa la verificación de la consulta,
+nunca la reemplaza.

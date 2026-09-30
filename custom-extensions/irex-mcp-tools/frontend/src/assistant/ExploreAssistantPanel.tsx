@@ -30,6 +30,7 @@ import {
   type ApplicableExploreAction,
   type ControlDiffEntry,
 } from '../adapters/exploreApplyAdapter';
+import { captureChartScreenshot, uploadChartScreenshot } from '../adapters/chartScreenshotAdapter';
 import { RESOLVE_DEBOUNCE_MS, UNSAVED_STATE_CONTRACT, fetchFormData, parseExploreLocation, type QueryFidelity } from '../hosts/exploreState';
 import {
   listConversationEntries,
@@ -607,6 +608,85 @@ function ExploreUndoBanner({ sliceId, formDataKey }: { sliceId: number | null; f
   );
 }
 
+/** "Ojos" para el LLM (pedido del usuario 2026-09-29): aparece en el MISMO
+ * momento que "Deshacer" — justo después de aplicar un cambio y que la
+ * página recargó con el gráfico ya renderizado — porque es ahí donde tiene
+ * sentido pedir una revisión visual de lo que se acaba de aplicar. Mismo
+ * `readPendingUndo` que `ExploreUndoBanner`, independiente (no comparten
+ * estado) porque cada uno decide su propia vigencia/cierre. */
+function ExploreVisualReviewPrompt({
+  sliceId,
+  formDataKey,
+  busy,
+  error,
+  success,
+  onSubmit,
+}: {
+  sliceId: number | null;
+  formDataKey: string | undefined;
+  busy: boolean;
+  error: string | undefined;
+  /** true recién cuando el envío terminó bien — la tarjeta se cierra sola;
+   * un error deliberadamente NO la cierra (así el usuario ve el mensaje y
+   * puede reintentar sin perder lo que ya había escrito en el detalle). */
+  success: boolean;
+  onSubmit: (detail: string) => void;
+}): React.ReactElement | null {
+  const theme = themeNs.useTheme();
+  const [undo] = useState(() => readPendingUndo(sliceId, formDataKey));
+  const [expanded, setExpanded] = useState(false);
+  const [detail, setDetail] = useState('');
+
+  if (!undo || success) return null;
+
+  if (!expanded) {
+    return (
+      <div style={{ flexShrink: 0, margin: '6px 12px 0' }}>
+        <button
+          type="button"
+          style={{ ...buttonGhost(theme), width: 'auto', padding: '4px 9px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+          onClick={() => setExpanded(true)}
+        >
+          <Icon name="sparkles" size={12} />
+          Solicitar revisión visual
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ flexShrink: 0, margin: '6px 12px 0', ...card(theme), padding: '8px 9px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ fontSize: FONT.small, fontWeight: 600, color: theme.colorText }}>Revisión visual del gráfico renderizado</div>
+      <textarea
+        value={detail}
+        onChange={event => setDetail(event.target.value)}
+        placeholder='Qué no te gustó (opcional) — ej. "los meses se ven desordenados"'
+        rows={2}
+        disabled={busy}
+        style={{
+          resize: 'none',
+          border: `1px solid ${theme.colorBorder}`,
+          borderRadius: theme.borderRadiusSM,
+          padding: '6px 8px',
+          fontSize: FONT.base,
+          fontFamily: 'inherit',
+          color: theme.colorText,
+          background: theme.colorBgContainer,
+        }}
+      />
+      {error && <div style={{ fontSize: FONT.small, color: theme.colorError }}>{error}</div>}
+      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+        <button type="button" disabled={busy} style={{ ...buttonGhost(theme), width: 'auto', padding: '4px 10px' }} onClick={() => setExpanded(false)}>
+          Cancelar
+        </button>
+        <button type="button" disabled={busy} style={{ ...buttonPrimary(theme), width: 'auto', padding: '4px 10px' }} onClick={() => onSubmit(detail)}>
+          {busy ? 'Capturando…' : 'Enviar'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 type FidelityState = { status: 'cargando' } | QueryFidelity;
 
 /** Mismo hook que vivía en `exploreHost.tsx` antes de esta entrada, movido
@@ -694,7 +774,9 @@ export function ExploreAssistantPanel(): React.ReactElement {
   const [pendingUndoAtMount] = useState(() => readPendingUndo(currentLocation.sliceId, currentLocation.formDataKey));
   const restoredConversation = pendingUndoAtMount?.conversation;
   const [mode, setMode] = useState<ExploreMode>(() =>
-    restoredConversation && EXPLORE_MODES.includes(restoredConversation.mode as ExploreMode) ? (restoredConversation.mode as ExploreMode) : 'explain',
+    restoredConversation && EXPLORE_MODES.includes(restoredConversation.mode as ExploreMode)
+      ? (restoredConversation.mode as ExploreMode)
+      : 'improve_chart',
   );
   const [userMessage, setUserMessage] = useState('');
   const [history, setHistory] = useState<ConversationMessage[]>(() => restoredConversation?.history ?? []);
@@ -723,8 +805,9 @@ export function ExploreAssistantPanel(): React.ReactElement {
   }, [sending]);
 
   const handleSend = useCallback(
-    async (overrideText?: string) => {
-      const text = overrideText ?? (userMessage.trim() || exploreDefaultPromptFor(mode));
+    async (overrideText?: string, overrideMode?: ExploreMode) => {
+      const effectiveMode = overrideMode ?? mode;
+      const text = overrideText ?? (userMessage.trim() || exploreDefaultPromptFor(effectiveMode));
       const baseHistory = historyRef.current;
       const userTurn: ConversationMessage = { role: 'user', text };
       setSending(true);
@@ -739,7 +822,7 @@ export function ExploreAssistantPanel(): React.ReactElement {
 
       try {
         const context: ExploreContext = await readExploreContext(window.location.search);
-        const request = buildExploreAssistantRequest(context, mode, text, conversationKey, readIsAdminHint());
+        const request = buildExploreAssistantRequest(context, effectiveMode, text, conversationKey, readIsAdminHint());
         const onProgress = (event: AssistantProgressEvent): void => {
           if (event.type === 'session') {
             setSessionId(event.sessionId);
@@ -759,7 +842,7 @@ export function ExploreAssistantPanel(): React.ReactElement {
         recordConversationEntry(currentLocation.sliceId, {
           conversationKey,
           sessionId: resolvedSessionId,
-          mode,
+          mode: effectiveMode,
           history: [...baseHistory, userTurn, assistantTurn],
         });
       } catch (e) {
@@ -783,9 +866,57 @@ export function ExploreAssistantPanel(): React.ReactElement {
     [handleSend],
   );
 
+  // Revisión visual ("ojos" para el LLM, 2026-09-29): captura → sube →
+  // RECIÉN entonces manda el mensaje a Explore, en ese orden estricto
+  // (acordado con el backend del chat — el MCP no puede pedirle al
+  // navegador que capture en el momento en que el modelo llama a la tool).
+  const [visualReviewBusy, setVisualReviewBusy] = useState(false);
+  const [visualReviewError, setVisualReviewError] = useState<string | undefined>();
+  const [visualReviewSuccess, setVisualReviewSuccess] = useState(false);
+
+  const handleVisualReview = useCallback(
+    async (detail: string) => {
+      setVisualReviewBusy(true);
+      setVisualReviewError(undefined);
+      try {
+        const context = await readExploreContext(window.location.search);
+        const datasourceRaw = context.formData?.datasource;
+        const ref = typeof datasourceRaw === 'string' ? parseDatasourceRef(datasourceRaw) : undefined;
+        if (!ref || !context.formDataKey) {
+          throw new Error('No se pudo leer el dataset del gráfico actual.');
+        }
+        const blob = await captureChartScreenshot();
+        const captureId = await uploadChartScreenshot(blob, {
+          sliceId: currentLocation.sliceId,
+          formDataKey: context.formDataKey,
+          datasourceId: ref.id,
+          detail,
+        });
+        const trimmedDetail = detail.trim();
+        const message = trimmedDetail
+          ? `Revisión visual solicitada (capture_id: ${captureId}). ${trimmedDetail}`
+          : `Revisión visual solicitada (capture_id: ${captureId}).`;
+        setVisualReviewSuccess(true);
+        setCommandNotice(undefined);
+        await handleSend(message);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        setVisualReviewError(message);
+        // También en `commandNotice` -- si se disparó por "/review" (sin un
+        // cambio recién aplicado de por medio), la tarjeta con el error
+        // propio ni siquiera está montada; `commandNotice` sí es visible
+        // siempre.
+        setCommandNotice(message);
+      } finally {
+        setVisualReviewBusy(false);
+      }
+    },
+    [handleSend, currentLocation.sliceId],
+  );
+
   const handleNewSession = useCallback(() => {
     pendingRequestRef.current?.abort();
-    setMode('explain');
+    setMode('improve_chart');
     setUserMessage('');
     setSending(false);
     setProgressSteps([]);
@@ -818,7 +949,7 @@ export function ExploreAssistantPanel(): React.ReactElement {
     setElapsedSeconds(0);
     setUserMessage('');
     setResponse(undefined);
-    setMode(EXPLORE_MODES.includes(entry.mode as ExploreMode) ? (entry.mode as ExploreMode) : 'explain');
+    setMode(EXPLORE_MODES.includes(entry.mode as ExploreMode) ? (entry.mode as ExploreMode) : 'improve_chart');
     setHistory(entry.history);
     setConversationKey(entry.conversationKey);
     setSessionId(entry.sessionId);
@@ -860,9 +991,26 @@ export function ExploreAssistantPanel(): React.ReactElement {
         setResumeCandidates(entries);
         return;
       }
+      if (name === 'explain' || name === 'metrics') {
+        // Modo por defecto del composer es "improve_chart" (pedido del
+        // usuario 2026-09-29: los otros dos modos solo se acceden con "/",
+        // sin selector visible) — este comando manda ESTE turno con el modo
+        // pedido, sin cambiar el modo por defecto para los turnos siguientes.
+        void handleSend(args || exploreDefaultPromptFor(name), name);
+        return;
+      }
+      if (name === 'review') {
+        // Pedido del usuario (2026-09-30): la tarjeta contextual sigue
+        // apareciendo igual después de aplicar un cambio, pero "/review"
+        // permite pedir la revisión visual EN CUALQUIER MOMENTO, sin
+        // depender de que haya un cambio recién aplicado.
+        setCommandNotice('Capturando el gráfico…');
+        void handleVisualReview(args);
+        return;
+      }
       setCommandNotice(`Comando "/${name}" no reconocido.`);
     },
-    [currentLocation.sliceId, handleNewSession, applyConversationEntry],
+    [currentLocation.sliceId, handleNewSession, applyConversationEntry, handleSend, handleVisualReview],
   );
 
   // Cambió de gráfico, de key o se ejecutó una consulta nueva: la propuesta
@@ -889,6 +1037,14 @@ export function ExploreAssistantPanel(): React.ReactElement {
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <PanelHeader title="Asistente de gráficos" subtitle="Explore · último estado ejecutado" sessionId={sessionId} onNewSession={handleNewSession} />
       <ExploreUndoBanner sliceId={currentLocation.sliceId} formDataKey={currentLocation.formDataKey} />
+      <ExploreVisualReviewPrompt
+        sliceId={currentLocation.sliceId}
+        formDataKey={currentLocation.formDataKey}
+        busy={visualReviewBusy}
+        error={visualReviewError}
+        success={visualReviewSuccess}
+        onSubmit={detail => void handleVisualReview(detail)}
+      />
       {/* Contrato del criterio de salida 1: SIEMPRE visible, no solo antes
           del primer mensaje — "lo dice en la interfaz" (PLAN_COPILOTO_EXPLORE.md). */}
       <div
@@ -916,7 +1072,6 @@ export function ExploreAssistantPanel(): React.ReactElement {
       <ExploreConversation
         history={history}
         mode={mode}
-        onModeChange={setMode}
         userMessage={userMessage}
         onUserMessageChange={setUserMessage}
         onSend={() => void handleSend()}

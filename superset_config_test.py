@@ -2770,7 +2770,27 @@ MCP_FACTORY_CONFIG = {
 # flujo puntual; el bug de fondo queda anotado para revisar aparte.
 MCP_RESPONSE_SIZE_CONFIG = {
     **_MCP_RS,
-    "excluded_tools": [*_MCP_RS.get("excluded_tools", []), "get_chart_info"],
+    # get_chart_screenshot: devuelve un bloque Image (JPEG), no texto — el
+    # guard de tamaño solo sabe truncar strings a 500 caracteres, lo que
+    # corrompería la imagen en vez de acortarla. El límite real de tamaño
+    # de la captura ya lo aplica chart_screenshot_store.py (3 MB) antes de
+    # guardarla, así que no hace falta un segundo control acá.
+    #
+    # CRÍTICO: `ResponseSizeGuardMiddleware.on_call_tool` (superset/mcp_service/
+    # middleware.py) compara `excluded_tools` contra el nombre TAL CUAL lo ve
+    # `context.message.name` — para un tool NATIVO (get_chart_info) eso es el
+    # nombre corto, pero para un tool de la EXTENSIÓN es el namespace completo
+    # ("extensions.irex.irex-mcp-tools.irex.<nombre>"), igual que en
+    # `always_visible` más abajo. Usar el nombre corto acá para un tool de
+    # extensión NUNCA matchea — el guard se sigue aplicando igual (bug real
+    # encontrado en vivo, 2026-09-29: get_chart_screenshot devolvía
+    # "Response too large" en vez de la imagen, con esta misma lista ya
+    # "excluyéndolo" — el nombre corto era el error).
+    "excluded_tools": [
+        *_MCP_RS.get("excluded_tools", []),
+        "get_chart_info",
+        "extensions.irex.irex-mcp-tools.irex.get_chart_screenshot",
+    ],
 }
 
 MCP_TOOL_SEARCH_CONFIG = {
@@ -2803,6 +2823,7 @@ MCP_TOOL_SEARCH_CONFIG = {
         "extensions.irex.irex-mcp-tools.irex.get_viz_controls",
         "extensions.irex.irex-mcp-tools.irex.validate_expression",
         "extensions.irex.irex-mcp-tools.irex.validate_calculated_column_formula",
+        "extensions.irex.irex-mcp-tools.irex.get_chart_screenshot",
     ],
 }
 

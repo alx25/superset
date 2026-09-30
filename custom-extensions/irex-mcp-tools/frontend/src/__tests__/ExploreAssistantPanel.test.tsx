@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ExploreAssistantPanel } from '../assistant/ExploreAssistantPanel';
 import { requestExploreAssistant, ExploreBackendError } from '../adapters/exploreBackendAdapter';
 import { readExploreContext, readIsAdminHint, onExploreContextChanged, readExploreFidelity, type ExploreContext } from '../adapters/exploreAdapter';
+import { captureChartScreenshot, uploadChartScreenshot } from '../adapters/chartScreenshotAdapter';
 import type { ExploreAssistantResponse } from '../contracts/exploreAssistant';
 
 jest.mock('../adapters/exploreBackendAdapter', () => {
@@ -21,11 +22,18 @@ jest.mock('../adapters/exploreAdapter', () => {
   };
 });
 
+jest.mock('../adapters/chartScreenshotAdapter', () => ({
+  captureChartScreenshot: jest.fn(),
+  uploadChartScreenshot: jest.fn(),
+}));
+
 const requestMock = requestExploreAssistant as jest.MockedFunction<typeof requestExploreAssistant>;
 const readContextMock = readExploreContext as jest.MockedFunction<typeof readExploreContext>;
 const readIsAdminMock = readIsAdminHint as jest.MockedFunction<typeof readIsAdminHint>;
 const readFidelityMock = readExploreFidelity as jest.MockedFunction<typeof readExploreFidelity>;
 const onContextChangedMock = onExploreContextChanged as jest.MockedFunction<typeof onExploreContextChanged>;
+const captureScreenshotMock = captureChartScreenshot as jest.MockedFunction<typeof captureChartScreenshot>;
+const uploadScreenshotMock = uploadChartScreenshot as jest.MockedFunction<typeof uploadChartScreenshot>;
 
 const VALID_CONTEXT: ExploreContext = {
   sliceId: 7,
@@ -56,11 +64,13 @@ beforeEach(() => {
   readIsAdminMock.mockReset();
   readFidelityMock.mockReset();
   onContextChangedMock.mockReset();
+  captureScreenshotMock.mockReset();
+  uploadScreenshotMock.mockReset();
   baseMocks();
 });
 
 describe('enviar un mensaje', () => {
-  test('con el modo por defecto ("Explicar"), un click en Generar manda el prompt por defecto y muestra la respuesta', async () => {
+  test('con el modo por defecto ("Mejorar gráfico"), un click en Generar manda el prompt por defecto y muestra la respuesta', async () => {
     requestMock.mockResolvedValue(RESPONSE);
     render(<ExploreAssistantPanel />);
 
@@ -69,8 +79,8 @@ describe('enviar un mensaje', () => {
     await screen.findByText(/agrupa por columna/);
     expect(requestMock).toHaveBeenCalledTimes(1);
     const [request] = requestMock.mock.calls[0];
-    expect(request.mode).toBe('explain');
-    expect(request.user_message).toBe('Explicame la configuración actual de este gráfico: qué muestra y por qué.');
+    expect(request.mode).toBe('improve_chart');
+    expect(request.user_message).toBe('Sugerime mejoras a este gráfico (métricas, columnas, opciones).');
     expect(request.chart).toEqual({
       slice_id: 7, form_data_key: 'key-1', viz_type: 'table', datasource: { id: 11, type: 'table' },
       query_context: '{"saved":true}', // VALID_CONTEXT.queryFidelity ya viene 'fiel'
@@ -88,16 +98,35 @@ describe('enviar un mensaje', () => {
     expect(requestMock.mock.calls[0][0].user_message).toBe('agregá una métrica de promedio');
   });
 
-  test('cambiar de modo cambia lo que se manda por defecto', async () => {
+  test('/explain manda ESE turno en modo "explain" sin escribir texto propio', async () => {
     requestMock.mockResolvedValue(RESPONSE);
     render(<ExploreAssistantPanel />);
+    const textboxName = 'Instrucciones para el asistente';
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Mejorar gráfico' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Generar' }));
+    fireEvent.change(screen.getByRole('textbox', { name: textboxName }), { target: { value: '/explain ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ejecutar' }));
 
     await screen.findByText(/agrupa por columna/);
-    expect(requestMock.mock.calls[0][0].mode).toBe('improve_chart');
-    expect(requestMock.mock.calls[0][0].user_message).toContain('Sugerime mejoras');
+    expect(requestMock.mock.calls[0][0].mode).toBe('explain');
+    expect(requestMock.mock.calls[0][0].user_message).toContain('Explicame la configuración actual');
+  });
+
+  test('/metrics con texto propio lo manda en modo "metrics", y el modo por defecto sigue siendo "improve_chart" después', async () => {
+    requestMock.mockResolvedValue(RESPONSE);
+    render(<ExploreAssistantPanel />);
+    const textboxName = 'Instrucciones para el asistente';
+
+    fireEvent.change(screen.getByRole('textbox', { name: textboxName }), { target: { value: '/metrics una métrica de ticket promedio' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ejecutar' }));
+
+    await screen.findByText(/agrupa por columna/);
+    expect(requestMock.mock.calls[0][0].mode).toBe('metrics');
+    expect(requestMock.mock.calls[0][0].user_message).toBe('una métrica de ticket promedio');
+
+    // el siguiente envío normal (sin "/") vuelve a usar el modo por defecto
+    fireEvent.click(screen.getByRole('button', { name: 'Generar' }));
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
+    expect(requestMock.mock.calls[1][0].mode).toBe('improve_chart');
   });
 
   test('el rol Admin del hint viaja en el body', async () => {
@@ -406,7 +435,7 @@ describe('comandos "/" del composer (2026-09-28)', () => {
     const entries = JSON.parse(raw as string);
     expect(entries).toHaveLength(1);
     expect(entries[0].history).toEqual([
-      { role: 'user', text: 'Explicame la configuración actual de este gráfico: qué muestra y por qué.' },
+      { role: 'user', text: 'Sugerime mejoras a este gráfico (métricas, columnas, opciones).' },
       { role: 'assistant', text: RESPONSE.message },
     ]);
     expect(entries[0].sessionId).toBe('explore-session-1');
@@ -571,5 +600,172 @@ describe('comandos "/" del composer (2026-09-28)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Ejecutar' }));
 
     expect(screen.getByText(/No hay una conversación #5/)).toBeInTheDocument();
+  });
+});
+
+describe('revisión visual ("ojos" para el LLM, 2026-09-29)', () => {
+  afterEach(() => {
+    window.sessionStorage.clear();
+    window.history.replaceState({}, '', '/');
+  });
+
+  function seedPendingUndo(): void {
+    window.history.replaceState({}, '', '/explore/?slice_id=7&form_data_key=key-after');
+    window.sessionStorage.setItem(
+      'irex-explore-pending-undo',
+      JSON.stringify({ sliceId: 7, previousFormDataKey: 'key-before', appliedFormDataKey: 'key-after', title: 'Cambiar row_limit', appliedAt: 1 }),
+    );
+  }
+
+  test('sin cambio recién aplicado, no se ofrece revisión visual', () => {
+    window.history.replaceState({}, '', '/explore/?slice_id=7&form_data_key=key-after');
+    render(<ExploreAssistantPanel />);
+    expect(screen.queryByText('Solicitar revisión visual')).toBeNull();
+  });
+
+  test('con un cambio recién aplicado, aparece el botón; al tocarlo se abre el detalle', () => {
+    seedPendingUndo();
+    render(<ExploreAssistantPanel />);
+    expect(screen.getByText('Solicitar revisión visual')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Solicitar revisión visual'));
+    expect(screen.getByPlaceholderText(/Qué no te gustó/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Enviar' })).toBeInTheDocument();
+  });
+
+  test('capturar → subir → mandar el mensaje con el capture_id, en ese orden', async () => {
+    seedPendingUndo();
+    requestMock.mockResolvedValue(RESPONSE);
+    const fakeBlob = new Blob(['jpeg-falso'], { type: 'image/jpeg' });
+    const order: string[] = [];
+    captureScreenshotMock.mockImplementation(async () => {
+      order.push('capture');
+      return fakeBlob;
+    });
+    uploadScreenshotMock.mockImplementation(async () => {
+      order.push('upload');
+      return 'cap-123';
+    });
+    requestMock.mockImplementation(async () => {
+      order.push('send');
+      return RESPONSE;
+    });
+
+    render(<ExploreAssistantPanel />);
+    fireEvent.click(screen.getByText('Solicitar revisión visual'));
+    fireEvent.change(screen.getByPlaceholderText(/Qué no te gustó/), { target: { value: 'los meses se ven desordenados' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+    expect(order).toEqual(['capture', 'upload', 'send']);
+    expect(uploadScreenshotMock).toHaveBeenCalledWith(fakeBlob, {
+      sliceId: 7,
+      formDataKey: 'key-1',
+      datasourceId: 11,
+      detail: 'los meses se ven desordenados',
+    });
+    expect(requestMock.mock.calls[0][0].user_message).toBe(
+      'Revisión visual solicitada (capture_id: cap-123). los meses se ven desordenados',
+    );
+    // se cierra sola tras un envío exitoso
+    expect(screen.queryByText('Solicitar revisión visual')).toBeNull();
+  });
+
+  test('sin detalle, el mensaje no incluye texto extra', async () => {
+    seedPendingUndo();
+    requestMock.mockResolvedValue(RESPONSE);
+    captureScreenshotMock.mockResolvedValue(new Blob(['jpeg-falso'], { type: 'image/jpeg' }));
+    uploadScreenshotMock.mockResolvedValue('cap-456');
+
+    render(<ExploreAssistantPanel />);
+    fireEvent.click(screen.getByText('Solicitar revisión visual'));
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+    expect(requestMock.mock.calls[0][0].user_message).toBe('Revisión visual solicitada (capture_id: cap-456).');
+  });
+
+  test('si la captura falla, muestra el error y NO manda ningún mensaje', async () => {
+    seedPendingUndo();
+    captureScreenshotMock.mockRejectedValue(new Error('No se encontró el gráfico renderizado en la página.'));
+
+    render(<ExploreAssistantPanel />);
+    fireEvent.click(screen.getByText('Solicitar revisión visual'));
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
+
+    // aparece dos veces a propósito: en la tarjeta propia Y en commandNotice
+    // (este último es lo único visible cuando el error viene de "/review",
+    // sin ningún cambio recién aplicado que monte la tarjeta).
+    await waitFor(() => expect(screen.getAllByText('No se encontró el gráfico renderizado en la página.')).toHaveLength(2));
+    expect(requestMock).not.toHaveBeenCalled();
+    expect(uploadScreenshotMock).not.toHaveBeenCalled();
+    // sigue ofreciéndose -- un error no cierra la tarjeta, para poder reintentar
+    expect(screen.getByRole('button', { name: 'Enviar' })).toBeInTheDocument();
+  });
+
+  test('si la subida falla, muestra el error y NO manda ningún mensaje', async () => {
+    seedPendingUndo();
+    captureScreenshotMock.mockResolvedValue(new Blob(['jpeg-falso'], { type: 'image/jpeg' }));
+    uploadScreenshotMock.mockRejectedValue(new Error('No se pudo subir la captura (HTTP 413).'));
+
+    render(<ExploreAssistantPanel />);
+    fireEvent.click(screen.getByText('Solicitar revisión visual'));
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
+
+    await waitFor(() => expect(screen.getAllByText('No se pudo subir la captura (HTTP 413).')).toHaveLength(2));
+    expect(requestMock).not.toHaveBeenCalled();
+  });
+
+  test('"Cancelar" cierra el detalle sin capturar ni subir nada', () => {
+    seedPendingUndo();
+    render(<ExploreAssistantPanel />);
+    fireEvent.click(screen.getByText('Solicitar revisión visual'));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+
+    expect(screen.queryByPlaceholderText(/Qué no te gustó/)).toBeNull();
+    expect(screen.getByText('Solicitar revisión visual')).toBeInTheDocument();
+    expect(captureScreenshotMock).not.toHaveBeenCalled();
+  });
+
+  test('/review funciona SIN ningún cambio recién aplicado (sin el botón contextual)', async () => {
+    // A diferencia de todos los tests de arriba, acá NO se llama a
+    // seedPendingUndo() -- el pedido del usuario (2026-09-30) es justo que
+    // "/review" ande en cualquier momento, no solo cuando la tarjeta está
+    // montada.
+    window.history.replaceState({}, '', '/explore/?slice_id=7&form_data_key=key-1');
+    requestMock.mockResolvedValue(RESPONSE);
+    captureScreenshotMock.mockResolvedValue(new Blob(['jpeg-falso'], { type: 'image/jpeg' }));
+    uploadScreenshotMock.mockResolvedValue('cap-789');
+
+    render(<ExploreAssistantPanel />);
+    expect(screen.queryByText('Solicitar revisión visual')).toBeNull();
+
+    const textboxName = 'Instrucciones para el asistente';
+    fireEvent.change(screen.getByRole('textbox', { name: textboxName }), { target: { value: '/review el título se corta' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ejecutar' }));
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+    expect(uploadScreenshotMock).toHaveBeenCalledWith(expect.any(Blob), {
+      sliceId: 7,
+      formDataKey: 'key-1',
+      datasourceId: 11,
+      detail: 'el título se corta',
+    });
+    expect(requestMock.mock.calls[0][0].user_message).toBe(
+      'Revisión visual solicitada (capture_id: cap-789). el título se corta',
+    );
+  });
+
+  test('/review con error lo muestra en commandNotice (la tarjeta ni existe sin cambio aplicado)', async () => {
+    window.history.replaceState({}, '', '/explore/?slice_id=7&form_data_key=key-1');
+    captureScreenshotMock.mockRejectedValue(new Error('No se encontró el gráfico renderizado en la página.'));
+
+    render(<ExploreAssistantPanel />);
+    const textboxName = 'Instrucciones para el asistente';
+    fireEvent.change(screen.getByRole('textbox', { name: textboxName }), { target: { value: '/review ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ejecutar' }));
+
+    await waitFor(() => expect(screen.getByText('No se encontró el gráfico renderizado en la página.')).toBeInTheDocument());
+    expect(requestMock).not.toHaveBeenCalled();
   });
 });

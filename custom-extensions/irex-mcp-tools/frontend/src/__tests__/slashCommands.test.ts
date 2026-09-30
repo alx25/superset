@@ -81,8 +81,12 @@ describe('matchingSlashCommands', () => {
   });
 
   test('filtra por prefijo, sin distinguir mayúsculas', () => {
-    expect(matchingSlashCommands('re').map(c => c.name)).toEqual(['resume']);
-    expect(matchingSlashCommands('RE').map(c => c.name)).toEqual(['resume']);
+    expect(matchingSlashCommands('resu').map(c => c.name)).toEqual(['resume']);
+    expect(matchingSlashCommands('RESU').map(c => c.name)).toEqual(['resume']);
+  });
+
+  test('un prefijo compartido por varios comandos los devuelve a todos', () => {
+    expect(matchingSlashCommands('re').map(c => c.name).sort()).toEqual(['resume', 'review']);
   });
 
   test('prefijo que no matchea nada da lista vacía', () => {
@@ -90,9 +94,30 @@ describe('matchingSlashCommands', () => {
   });
 });
 
-test('el registro tiene resume y clear, y ningún nombre repetido', () => {
+test('el registro tiene resume, clear, explain, metrics y review, sin ningún nombre repetido', () => {
   const names = SLASH_COMMANDS.map(c => c.name);
   expect(names).toContain('resume');
   expect(names).toContain('clear');
+  expect(names).toContain('explain');
+  expect(names).toContain('metrics');
+  expect(names).toContain('review');
   expect(new Set(names).size).toBe(names.length);
+});
+
+test('/review se reconoce como comando, con y sin detalle', () => {
+  expect(parseSlashInput('/review')).toEqual({ isCommand: true, name: 'review', args: '' });
+  expect(parseSlashInput('/review los meses se ven desordenados')).toEqual({
+    isCommand: true,
+    name: 'review',
+    args: 'los meses se ven desordenados',
+  });
+});
+
+test('/explain y /metrics se reconocen como comandos, con y sin argumentos', () => {
+  expect(parseSlashInput('/explain')).toEqual({ isCommand: true, name: 'explain', args: '' });
+  expect(parseSlashInput('/metrics una métrica de promedio')).toEqual({
+    isCommand: true,
+    name: 'metrics',
+    args: 'una métrica de promedio',
+  });
 });

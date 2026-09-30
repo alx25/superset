@@ -17,6 +17,16 @@ except Exception:  # noqa: BLE001
         "el panel usará el proxy /api/chat-widget como fallback"
     )
 
+try:
+    from . import chart_screenshot_api  # noqa: F401
+except Exception:  # noqa: BLE001
+    import logging
+
+    logging.getLogger(__name__).exception(
+        "irex: no se pudo registrar la REST API de capturas de gráfico; "
+        "la revisión visual no estará disponible"
+    )
+
 from . import business_context  # noqa: F401,E402
 from . import query_dataset  # noqa: F401,E402
 from . import create_chart  # noqa: F401,E402
@@ -40,6 +50,7 @@ from . import validate_calculated_column_formula  # noqa: F401,E402
 from . import explore_chart_diagnostics  # noqa: F401,E402
 from . import explain_query  # noqa: F401,E402
 from . import check_query_nulls  # noqa: F401,E402
+from . import get_chart_screenshot  # noqa: F401,E402
 from .auth_bridge import install_auth_bridge  # noqa: E402
 
 install_auth_bridge()

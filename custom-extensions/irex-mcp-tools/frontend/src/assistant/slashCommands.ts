@@ -31,6 +31,9 @@ export interface SlashCommandDef {
 export const SLASH_COMMANDS: readonly SlashCommandDef[] = [
   { name: 'resume', hint: 'Retomar una conversación anterior de este gráfico' },
   { name: 'clear', hint: 'Empezar una conversación nueva (igual que "Nueva sesión")' },
+  { name: 'explain', hint: 'Explicar la configuración actual del gráfico (en vez de mejorar)' },
+  { name: 'metrics', hint: 'Sugerir métricas o columnas calculadas (en vez de mejorar)' },
+  { name: 'review', hint: 'Pedir una revisión visual del gráfico renderizado ahora mismo' },
 ];
 
 export type ParsedSlashInput =
