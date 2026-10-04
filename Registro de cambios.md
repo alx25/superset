@@ -1,5 +1,50 @@
 ## Registro de cambios
 
+### 2026-10-03 (asistente Explore publicado en producción)
+
+Cambio realizado:
+- Construido desde las fuentes canónicas el candidato de `irex-mcp-tools`, validado en test y promovido a producción mediante `scripts/deploy_extension.sh`, ejecutado por el usuario desde su terminal para ingresar la contraseña sudo. Reiniciados `superset.service` y `superset_mcp.service`.
+- Actualizado `/home/imercados/.superset/superset_config.py`: 10 tools faltantes de la extensión y las tools nativas `list_charts`/`get_chart_info` en `always_visible`; agregado `MCP_RESPONSE_SIZE_CONFIG` con exclusiones para preservar el form_data y las imágenes de `get_chart_screenshot`. Rutas, credenciales y asignaciones de permisos conservadas.
+- Respaldo privado previo al despliegue en `/home/imercados/.superset/backups/explore-2026-10-03-pxz_vy0z/`: configuración, paquetes y snapshot de 1545 asignaciones rol-permiso.
+
+Archivos afectados:
+- `/home/imercados/.superset/superset_config.py` (configuración de producción).
+- `custom-extensions/irex-mcp-tools/frontend/dist/` y `custom-extensions/irex-mcp-tools/dist/irex-mcp-tools-0.1.0.supx` (artefactos de build).
+- `extensions/irex-mcp-tools-0.1.0.supx`, `extensions_test/irex-mcp-tools-0.1.0.supx`, `custom-extensions/irex-mcp-tools/irex-mcp-tools-0.1.0.supx` y este registro.
+- Respaldos del script en `extensions/backups/irex-mcp-tools-0.1.0.supx.20261003-210334` y `extensions/backups/prod_perms.20261003-210334.txt{,.after}`.
+
+Verificación:
+- Build completo: TypeScript estricto, 390/390 pruebas frontend y 388/388 backend; webpack y manifest del `.supx` válidos.
+- Test reiniciado por el usuario: 23/23 comprobaciones E2E de autenticación y RBAC; endpoints Explore y capturas registrados.
+- Smoke de Explore en MCP test: tools visibles, lectura verificada de un gráfico real, catálogo del dataset, controles de tableV3 y transferencia de un JPEG sintético de más de 200 KB sin truncamiento. Fixtures temporales eliminados.
+- Configuración candidata de producción validada sin errores ni avisos.
+- Producción: ambos servicios activos; `/health` responde OK; APIs de Explore y capturas registradas. Paquetes de producción, test, candidato y copia fuente idénticos.
+- MCP producción: 9/9 comprobaciones de humo de autenticación y RBAC, más 5/5 comprobaciones específicas de Explore (tools visibles, estado real, catálogo, controles personalizados y JPEG sintético sin truncamiento). Fixtures temporales eliminados.
+- Comparación de permisos: 1545 antes y después, ninguna asignación agregada o eliminada. `pre-commit run` aplicado al registro y ambos paquetes.
+- La comprobación de servidor no sustituye la prueba visual en el navegador: recargar Explore con Ctrl+Shift+R para cargar el bundle actualizado.
+
+### 2026-10-03 (recuperación desde GitHub tras restaurar el backup del 28-set)
+
+Cambio realizado:
+- Recuperada `prod-6` por fast-forward: `ddaf5d6dc` → `12b7f4eac` (4 commits).
+- Recuperada `superset_v6_1_0`, rama `prod-6-1-0-irex`: `9da3092a14` → `4a32da4a82` (1 commit).
+- Los 28 archivos del estado restaurado quedaron preservados en un stash (`c119d762be62a90bd9b668a0bbe08934655ba54c`) y en `/tmp/superset-recuperacion-2026-10-03-rnjnrj1c/`, con archivo comprimido, parche y manifiesto SHA-256 verificado. El stash no se reaplicó: GitHub es la referencia del estado sincronizado previo al incidente.
+- Reinstalada la dependencia `dom-to-image-more@3.11.0`, ausente en el backup, sin modificar `package.json` ni `package-lock.json`.
+
+Archivos afectados:
+- 64 archivos recuperados del repositorio principal: `custom-extensions/irex-mcp-tools/`, `custom-plugins/`, `extensions/`, `extensions_test/`, `superset_config_test.py`, documentación, caché Python versionada y referencia de `superset_v6_1_0`.
+- En `superset_v6_1_0`: `superset-frontend/package.json`, `superset/mcp_service/chart/tool/get_chart_info.py` y `superset/mcp_service/chart/tool/list_charts.py`.
+- `custom-extensions/irex-mcp-tools/frontend/node_modules/` (dependencias locales) y este registro.
+
+Qué cambia o corrige:
+- Restituye el asistente Explore, capturas y revisión visual, comparación de cambios, correcciones de seguridad de columnas calculadas e interactividad de HTML Cards guardadas en GitHub hasta el 30-set.
+- Ambos repositorios coinciden con sus ramas remotas después de recuperar; la única modificación adicional versionada es esta entrada. No se reiniciaron servicios ni se recompiló el frontend de Superset.
+
+Verificación:
+- TypeScript estricto: OK. Frontend de la extensión: 390/390 pruebas. Backend afectado: 131/131 pruebas; la suite completa se interrumpió porque dejó de avanzar tras 65 pruebas.
+- Sintaxis de 42 archivos Python: OK. Integridad ZIP y referencias del manifest de ambos `.supx`: OK.
+- `pre-commit run` con la configuración de `superset_v6_1_0` aplicado a este registro.
+
 ### 2026-09-28 (95) (Explore: dos hallazgos reales de una sesión — `show_totals` faltante en `calculated_columns` y precisión de nulos en `column_config`)
 
 Cambio realizado: el agente del backend del chat reportó, revisando una
