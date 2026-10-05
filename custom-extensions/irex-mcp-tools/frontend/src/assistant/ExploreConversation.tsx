@@ -285,6 +285,16 @@ export interface ExploreConversationProps {
   sendDisabledReason?: string;
   diagnostics?: ExploreDiagnostic[];
   hasProposal?: boolean;
+  /** Imagen de referencia adjunta (archivo o pegada con Ctrl+V), pendiente
+   * de subir cuando se toque "Generar" — pedido del usuario 2026-10-05:
+   * "adjuntar una imagen... para que el LLM revise y aplique". El
+   * composer solo junta el archivo y lo muestra; subirlo y armar el
+   * mensaje es responsabilidad de `ExploreAssistantPanel` (mismo patrón
+   * que la revisión visual del propio gráfico). */
+  attachedImageName?: string;
+  attachedImagePreviewUrl?: string;
+  onAttachImage?: (file: File) => void;
+  onRemoveAttachedImage?: () => void;
   children?: React.ReactNode;
 }
 
@@ -301,6 +311,10 @@ export function ExploreConversation({
   sendDisabledReason,
   diagnostics = [],
   hasProposal = false,
+  attachedImageName,
+  attachedImagePreviewUrl,
+  onAttachImage,
+  onRemoveAttachedImage,
   children,
 }: ExploreConversationProps): React.ReactElement {
   const theme = themeNs.useTheme();
@@ -363,6 +377,36 @@ export function ExploreConversation({
     el.style.height = `${Math.min(el.scrollHeight, 6 * 18 + 12)}px`;
   }, [userMessage]);
 
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const canAttachImage = !!onAttachImage;
+
+  const handlePaste = React.useCallback(
+    (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      if (!onAttachImage) return;
+      const item = Array.from(event.clipboardData.items).find(it => it.type.startsWith('image/'));
+      if (!item) return;
+      const file = item.getAsFile();
+      if (!file) return;
+      // Pegar una imagen reemplaza el texto que hubiera en el portapapeles
+      // (no tiene sentido pegar ambos) — el resto del mensaje se sigue
+      // escribiendo a mano.
+      event.preventDefault();
+      onAttachImage(file);
+    },
+    [onAttachImage],
+  );
+
+  const handleFileInputChange = React.useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (file && onAttachImage) onAttachImage(file);
+      // Limpia el input para poder adjuntar el mismo archivo otra vez
+      // (p. ej. tras sacarlo con el botón de quitar).
+      event.target.value = '';
+    },
+    [onAttachImage],
+  );
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <style>{DETAILS_RESET_CSS}</style>
@@ -402,6 +446,34 @@ export function ExploreConversation({
           {showCommandMenu && (
             <SlashCommandMenu theme={theme} commands={menuCommands} highlightedIndex={clampedHighlight} onPick={pickCommand} />
           )}
+          {attachedImagePreviewUrl && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 7,
+                padding: '6px 9px',
+                borderBottom: `1px solid ${theme.colorBorderSecondary}`,
+              }}
+            >
+              <img
+                src={attachedImagePreviewUrl}
+                alt=""
+                style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: theme.borderRadiusSM, border: `1px solid ${theme.colorBorderSecondary}` }}
+              />
+              <span style={{ flex: 1, minWidth: 0, fontSize: FONT.small, color: theme.colorTextSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {attachedImageName ?? 'Imagen adjunta'}
+              </span>
+              <button
+                type="button"
+                onClick={onRemoveAttachedImage}
+                aria-label="Quitar imagen adjunta"
+                style={{ display: 'inline-flex', border: 'none', background: 'transparent', color: theme.colorTextSecondary, cursor: 'pointer', padding: 2 }}
+              >
+                <Icon name="close" size={13} />
+              </button>
+            </div>
+          )}
           <textarea
             ref={textareaRef}
             value={userMessage}
@@ -410,6 +482,7 @@ export function ExploreConversation({
               setMenuDismissed(false);
               setHighlightedIndex(0);
             }}
+            onPaste={handlePaste}
             onKeyDown={event => {
               if (showCommandMenu) {
                 if (event.key === 'ArrowDown') {
@@ -465,6 +538,37 @@ export function ExploreConversation({
               ) : null}
               <kbd style={{ fontFamily: MONO, fontSize: 10.5 }}>Ctrl</kbd> + <kbd style={{ fontFamily: MONO, fontSize: 10.5 }}>Enter</kbd>
             </span>
+            {canAttachImage && (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileInputChange}
+                  style={{ display: 'none' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={sending}
+                  aria-label="Adjuntar imagen de referencia"
+                  title="Adjuntar imagen de referencia (o pegar con Ctrl+V)"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    padding: 4,
+                    borderRadius: theme.borderRadiusSM,
+                    border: `1px solid ${theme.colorBorderSecondary}`,
+                    background: 'transparent',
+                    color: theme.colorTextSecondary,
+                    cursor: sending ? 'default' : 'pointer',
+                    opacity: sending ? 0.5 : 1,
+                  }}
+                >
+                  <Icon name="image" size={14} />
+                </button>
+              </>
+            )}
             <button
               type="button"
               onClick={handleSubmit}

@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { CSS_CONTROLS, formatCodeForDiff, formatCss, formatHtml, HTML_CONTROLS } from '../assistant/codeFormat';
+import { CSS_CONTROLS, formatCodeForDiff, formatCss, formatHtml, formatSql, HTML_CONTROLS, looksUnformattedSql } from '../assistant/codeFormat';
 
 describe('formatCss', () => {
   test('indenta reglas simples por profundidad de llaves', () => {
@@ -152,5 +152,83 @@ describe('formatCodeForDiff', () => {
     CSS_CONTROLS.forEach(name => {
       expect(HTML_CONTROLS.has(name)).toBe(false);
     });
+  });
+});
+
+describe('looksUnformattedSql', () => {
+  test('SQL largo sin ningún salto de línea: true', () => {
+    expect(looksUnformattedSql(`SELECT ${'a,'.repeat(50)}z FROM t`)).toBe(true);
+  });
+
+  test('SQL corto, aunque sin salto de línea, no hace falta reformatearlo', () => {
+    expect(looksUnformattedSql('SELECT 1')).toBe(false);
+  });
+
+  test('SQL ya con saltos de línea reales: false, aunque sea largo', () => {
+    expect(looksUnformattedSql(`SELECT\n${'  a,\n'.repeat(50)}  z\nFROM t`)).toBe(false);
+  });
+});
+
+describe('formatSql', () => {
+  test('caso real de producción (sesión sqllab-a14b0f7c..., 2026-10-05): 6500+ caracteres en una sola línea quedan en bloques legibles', () => {
+    // Recorte representativo del caso real: dos CTEs con JOIN + condición,
+    // y un ARRAY JOIN con literales -- lo que de verdad rompió el diff
+    // (comas de un array confundidas con comas de la cláusula).
+    const input =
+      "WITH a AS (SELECT x,y FROM t GROUP BY x,y),b AS (SELECT p.x,p.y FROM a p INNER JOIN c ON c.x=p.x) " +
+      "SELECT b.x FROM b ARRAY JOIN [1,2,3] AS n ORDER BY b.x ASC,b.y DESC";
+    const result = formatSql(input);
+
+    expect(result.split('\n')).toEqual([
+      'WITH a AS (',
+      '  SELECT x,',
+      '    y',
+      '  FROM t',
+      '  GROUP BY x,',
+      '    y',
+      '),b AS (',
+      '  SELECT p.x,',
+      '    p.y',
+      '  FROM a p',
+      '  INNER JOIN c',
+      '  ON c.x=p.x',
+      ')',
+      'SELECT b.x',
+      'FROM b',
+      'ARRAY JOIN [1,2,3] AS n',
+      'ORDER BY b.x ASC,',
+      '  b.y DESC',
+    ]);
+  });
+
+  test('una coma DENTRO de un array literal ([...]) no corta -- solo la coma que separa ítems de la cláusula', () => {
+    const result = formatSql('SELECT a FROM t ARRAY JOIN [1,2,3] AS x,[4,5] AS y');
+    const arrayLines = result.split('\n').filter(l => l.includes('['));
+    expect(arrayLines).toEqual(['ARRAY JOIN [1,2,3] AS x,', '  [4,5] AS y']);
+  });
+
+  test('una coma dentro de una llamada a función (no una lista de la cláusula) queda pegada', () => {
+    const result = formatSql('SELECT coalesce(a,b,c) AS x FROM t');
+    expect(result).toBe('SELECT coalesce(a,b,c) AS x\nFROM t');
+  });
+
+  test('comentarios de línea y de bloque se copian tal cual, nunca se reestructura su contenido', () => {
+    const result = formatSql('SELECT a -- comentario, con comas\nFROM t /* bloque, con comas */ WHERE a=1');
+    expect(result).toContain('-- comentario, con comas');
+    expect(result).toContain('/* bloque, con comas */');
+  });
+
+  test('un string con comas o palabras clave adentro no se parte', () => {
+    const result = formatSql("SELECT a FROM t WHERE b='select, from, where'");
+    expect(result).toContain("b='select, from, where'");
+  });
+
+  test('string vacío o solo espacios da string vacío, sin romper', () => {
+    expect(formatSql('')).toBe('');
+    expect(formatSql('   \n  ')).toBe('');
+  });
+
+  test('un SELECT simple de una sola cláusula no gana saltos de línea de más', () => {
+    expect(formatSql('SELECT 1')).toBe('SELECT 1');
   });
 });

@@ -77,7 +77,34 @@ export function listOpenTabs(): sqlLab.Tab[] {
  * eso solo ocurre en `executeConfirmed`, tras confirmación explícita
  * del usuario en el panel.
  */
-export async function applyAction(action: AssistantAction): Promise<void> {
+export interface ExpectedEditorSnapshot {
+  tabId: string;
+  sql: string;
+  mode?: AssistantMode;
+}
+
+function documentReplacementIssue(original: string, proposed: string, mode?: AssistantMode): string | undefined {
+  let start = proposed.trimStart();
+  while (start.startsWith('--') || start.startsWith('/*')) {
+    if (start.startsWith('--')) {
+      const nextLine = start.indexOf('\n');
+      start = nextLine < 0 ? '' : start.slice(nextLine + 1).trimStart();
+    } else {
+      const end = start.indexOf('*/');
+      if (end < 0) break;
+      start = start.slice(end + 2).trimStart();
+    }
+  }
+  if (/^[A-Za-z_][\w$]*\s+AS\s*(?:\(|SELECT\b)/i.test(start)) {
+    return 'La propuesta contiene solo un CTE; no se reemplazó la consulta completa.';
+  }
+  if (mode === 'explain_error' && original.trim().length >= 1000 && proposed.trim().length < original.trim().length * 0.6) {
+    return 'La propuesta elimina gran parte de la consulta original; no se aplicó al editor.';
+  }
+  return undefined;
+}
+
+export async function applyAction(action: AssistantAction, expected?: ExpectedEditorSnapshot): Promise<void> {
   switch (action.type) {
     case 'replace_selection': {
       const tab = await getCurrentTabOrThrow();
@@ -88,6 +115,13 @@ export async function applyAction(action: AssistantAction): Promise<void> {
     case 'replace_document': {
       const tab = await getCurrentTabOrThrow();
       const editor = await tab.getEditor();
+      if (expected && (tab.id !== expected.tabId || editor.getValue() !== expected.sql)) {
+        throw new Error('La pestaña o el SQL cambiaron desde la propuesta. Generá una propuesta nueva antes de aplicar.');
+      }
+      if (expected?.mode) {
+        const issue = documentReplacementIssue(expected.sql, action.sql, expected.mode);
+        if (issue) throw new Error(issue);
+      }
       editor.setValue(action.sql);
       return;
     }

@@ -102,10 +102,22 @@ const ACTIONS: Record<string, ActionHandler> = {
     const fromRaw = target.dataset.hcCountFrom ?? target.textContent ?? '0';
     const from = Number(String(fromRaw).replace(/[^0-9.-]/g, '')) || 0;
     const decimals = (toRaw.split('.')[1] || '').length;
-    const start = performance.now();
+    // `start` se fija en el timestamp del PRIMER frame real (el `now` que
+    // recibe el primer callback de rAF), no en el momento en que se llama
+    // `countUp`. Si se fijara acá con `performance.now()`, un hilo
+    // principal ocupado (otros gráficos cargando, inicialización pesada)
+    // puede demorar ese primer callback más que `duration` entero — la
+    // animación entera colapsa en un solo salto instantáneo al valor
+    // final, sin ningún frame intermedio visible (bug real encontrado en
+    // vivo, 2026-10-05: la tarjeta mostraba el número final de una, sin
+    // contar — los atributos data-hc-on/data-hc-action llegaban intactos
+    // al DOM, así que no era un problema de sanitización ni de render).
+    let start: number | null = null;
     let frameId = 0;
     const tick = (now: number) => {
-      const progress = duration === 0 ? 1 : Math.min(1, (now - start) / duration);
+      const elapsedSince = start ?? now;
+      start = elapsedSince;
+      const progress = duration === 0 ? 1 : Math.min(1, (now - elapsedSince) / duration);
       const eased = 1 - (1 - progress) ** 3;
       const current = from + (to - from) * eased;
       target.textContent = current.toFixed(decimals) + suffix;

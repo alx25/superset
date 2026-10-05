@@ -213,6 +213,44 @@ describe('initDynamicActions', () => {
     dispose();
   });
 
+  test('countUp no salta directo al valor final si el navegador demora el primer frame de rAF (bug real, 2026-10-05)', () => {
+    // Reproduce un hilo principal ocupado (otros gráficos cargando,
+    // inicialización pesada): el navegador no llega a entregar el primer
+    // frame de requestAnimationFrame hasta mucho después de que se llamó
+    // a countUp. Si `start` se fijara con `performance.now()` al llamar
+    // countUp (el bug), ese primer frame ya mostraría el valor final sin
+    // ningún frame intermedio visible -- justo lo que se reportó en vivo
+    // (el número aparecía en 89% de una, sin contar).
+    const container = renderInto(
+      '<span data-hc-on="load" data-hc-action="countUp:100,200,%" data-hc-count-from="0">0%</span>',
+    );
+
+    const realRAF = window.requestAnimationFrame;
+    const pending: FrameRequestCallback[] = [];
+    window.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+      pending.push(cb);
+      return pending.length;
+    }) as typeof window.requestAnimationFrame;
+
+    const dispose = initDynamicActions(container);
+    const span = container.querySelector('span')!;
+    expect(pending).toHaveLength(1); // countUp ya programó su primer frame
+
+    // 5000ms "después" de cuando se llamó a countUp -- mucho más que los
+    // 200ms de duración configurados.
+    const delayedFirstFrame = performance.now() + 5000;
+    const firstCallback = pending.shift()!;
+    firstCallback(delayedFirstFrame);
+
+    // Con el fix: el reloj de la animación arranca recién en este primer
+    // frame real, así que todavía está en el valor inicial (0%), no en el final.
+    expect(span.textContent).toBe('0%');
+    expect(span.textContent).not.toBe('100%');
+
+    window.requestAnimationFrame = realRAF;
+    dispose();
+  });
+
   test('selector inválido en data-hc-target no rompe el render -- cae al propio elemento', () => {
     const container = renderInto(
       '<button data-hc-on="click" data-hc-action="toggleClass:x" data-hc-target=":::invalid:::">y</button>',

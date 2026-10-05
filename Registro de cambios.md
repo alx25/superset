@@ -1,5 +1,257 @@
 ## Registro de cambios
 
+### 2026-10-05 (SQL Lab: el diff mostraba "se borra todo, se agrega 1 línea" cuando el modelo propone SQL sin saltos de línea)
+
+Cambio realizado: usuario reportó sobre una sesión real (`sqllab-a14b0f7c3851308373d3402f0d646432167dd16f2220677cdbb2eb6bc3d5acca`)
+que una propuesta de `replace_document` se mostró como "1 línea" — revisando
+el log, el modelo efectivamente propuso una consulta de 6500+ caracteres
+(14 CTEs, varios JOIN, un ARRAY JOIN) toda en una sola línea, sin ningún
+salto. `SqlDiff.tsx` (SQL Lab) diffa línea por línea sobre el texto crudo
+(`before.split('\n')` vs `after.split('\n')`) sin formatear nada antes —
+con `after` de una sola línea, el diff entero se ve como "se borra todo el
+`before`, se agrega 1 línea gigante": inútil para revisar el cambio real.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/codeFormat.ts` (+`formatSql`, +`looksUnformattedSql`)
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlDiff.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/codeFormat.test.ts` (+9 tests)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/SqlDiff.test.tsx` (nuevo, 4 tests)
+
+Qué cambia o corrige:
+- Nuevo `formatSql`, mismo espíritu que `formatCss`/`formatHtml` ya
+  existentes para Explore (best-effort para LECTURA humana en el diff,
+  nunca un parser SQL formal, nunca decide validez ni transforma lo que de
+  verdad se aplica). Reconoce los mismos tramos atómicos que
+  `tokenizeSql` (strings con `''` escapado, `"..."`/`` `...` `` , `--`,
+  `/* */`, `{{ }}`/`{% %}`/`{# #}`, `$tag$...$tag$`) para nunca
+  reestructurar su contenido, y agrega saltos de línea + indentación por
+  profundidad de paréntesis en dos puntos: antes de cada palabra clave de
+  cláusula (SELECT/FROM/WHERE/GROUP BY/JOIN/ON/etc., sin importar la
+  profundidad) y después de una coma que separa ítems de la cláusula
+  ACTUAL (misma profundidad en la que se vio la última palabra clave) —
+  una coma dentro de una llamada a función (`coalesce(a,b)`) o de un
+  array literal (`ARRAY JOIN [a,b,c]`) queda pegada, no se confunde con un
+  separador de la cláusula.
+- `SqlDiff` normaliza `before`/`after` con `formatSql` SOLO cuando `after`
+  viene sin saltos de línea reales (`looksUnformattedSql`, umbral de 80
+  caracteres para no reformatear un `SELECT 1` corto) — si `after` ya
+  viene formateado, ninguno de los dos lados se toca, cero riesgo de
+  reformatear (con OTRO estilo) un SQL que ya se mostraba bien. Normaliza
+  los DOS lados con el MISMO formateador (no solo `after`) para que el
+  diff refleje cambios reales, no una diferencia de estilo entre el
+  `before` (ya bien formateado, viene del editor) y un `after` recién
+  reformateado.
+- **Dos bugs reales encontrados probando contra el SQL real de la
+  sesión** (antes de escribir los tests formales): (1) `[`/`]` no se
+  trackeaban como profundidad de paréntesis — una coma dentro de un array
+  literal (`ARRAY JOIN [a,b,c,d] AS x`) se confundía con una coma de la
+  cláusula y cortaba adentro del array; (2) un `replace(/[ \t]+$/, '')`
+  de más, justo antes de escribir una palabra clave de cláusula, se comía
+  la indentación que un salto de línea anterior ya había puesto, dejando
+  "SELECT" pegado al margen en vez de indentado dentro de su subconsulta.
+- Verificación: `tsc --noEmit` limpio, 425 tests frontend (29 suites, 13
+  nuevos) en verde — incluye un test con el SQL REAL de 6541 caracteres
+  extraído de la sesión reportada (confirmado legible: 14 CTEs cada uno en
+  su propio bloque, cada cláusula en su propia línea). `.supx`
+  reconstruido con `build-extension.sh` y copiado a `extensions_test/`.
+  Falta: reiniciar `superset_test.service`/`superset_mcp_test.service` y
+  probar en vivo.
+
+### 2026-10-05 (corrección sobre la entrada anterior: el aviso inline no alcanzaba — ahora es un popup real)
+
+Cambio realizado: el usuario aclaró el pedido anterior ("Solo el mensaje de confirmación no me gusta demasiado, que sea del tipo mensaje emergente... en la interfaz del chat") — "Me refería más a un mensaje emergente pero de la misma interfaz de Superset". El aviso inline (`ConfirmNotice` empujando contenido dentro del flujo de la tarjeta/panel) no era lo que pedía: quería un popup real, visualmente consistente con Superset.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/ExploreAssistantPanel.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/ExploreAssistantPanel.test.tsx`
+
+Qué cambia o corrige:
+- `ConfirmNotice` pasó de tarjeta inline a overlay real: `position: fixed; inset: 0` con fondo (`theme.colorBgMask`) + tarjeta centrada con sombra (`theme.colorBgElevated`/`theme.boxShadowSecondary`/`theme.borderRadiusLG`) — los MISMOS tokens de tema que usa un Modal real de antd/Superset (confirmados en `node_modules/@apache-superset/core/lib/theme/types.d.ts::allowedAntdTokens`), aunque no es el componente `Modal` en sí: `@apache-superset/core` (la única API pública de extensión disponible) solo expone `Alert` en `components`, no `Modal`/`Popconfirm`; sumar `@superset-ui/core` entero como dependencia nueva solo para esto infla el bundle sin necesidad.
+- `position: fixed` (no `absolute`): el aviso de "Aplicar" vive varios niveles adentro del área de conversación con `overflow: auto` — con `absolute` el popup habría quedado recortado/scrolleable dentro de esa caja chica en vez de cubrir toda la pantalla; `fixed` escapa de cualquier `overflow` de los ancestros sin necesitar un portal de React.
+- Semántica real de popup: click en el fondo (fuera de la tarjeta) cancela, `Escape` cancela — igual que cualquier modal.
+- Verificación: `tsc --noEmit` limpio, 408 tests frontend (28 suites, 2 nuevos: click en el fondo cancela, Escape cancela), `.supx` reconstruido con `build-extension.sh` y copiado a `extensions_test/`. Falta: reiniciar `superset_test.service`/`superset_mcp_test.service` y probar en vivo.
+
+### 2026-10-05 (copiloto Explore: los dos `window.confirm` pasan a ser avisos dentro del panel)
+
+Cambio realizado: feedback del usuario sobre las dos confirmaciones agregadas hoy mismo (advertencia de "Generar" con propuesta sin aplicar, y la confirmación de "Aplicar" que ya existía desde Fase 6) — "Solo el mensaje de confirmación no me gusta demasiado, que sea del tipo mensaje emergente del navegador. Es posible hacerlos en la interfaz del chat?". Las dos usaban `window.confirm` (diálogo nativo, bloqueante, sin estilo).
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/ExploreAssistantPanel.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/ExploreAssistantPanel.test.tsx`
+
+Qué cambia o corrige:
+- Nuevo `ConfirmNotice` (mensaje + "Cancelar"/confirmar, estilo de aviso ya usado por el resto del panel) reemplaza los dos `window.confirm`:
+  - **"Aplicar"**: `usePreparedApply` separa en `handleApplyClick` (solo muestra el aviso) y `handleConfirmApply` (el POST real, antes vivía adentro del `if (window.confirm(...))`). `handleCancelConfirm` descarta solo el aviso — el diff preparado se mantiene, se puede volver a tocar "Aplicar". Mismo texto que tenía el diálogo nativo.
+  - **Advertencia de "Generar" con propuesta sin aplicar**: como `handleSend` es async y se llama desde varios lugares esperando que se resuelva solo cuando el usuario decide (visual review, adjuntar imagen, comandos), `window.confirm` (síncrono) se reemplazó por `confirmGenerateReplace()`, que devuelve una `Promise<boolean>` que queda pendiente hasta que el usuario responde el aviso — mismo contrato de `await` que tenía el diálogo nativo, ningún llamador de `handleSend` necesitó cambios. Mientras el aviso está en pantalla, "Generar" queda deshabilitado (vía `sendDisabledReason`, sin tocar el texto del botón).
+- **Hallazgo lateral durante las pruebas**: el primer test nuevo de "Aplicar" dejó la URL en `slice_id=7` sin restaurarla al terminar (solo limpiaba `localStorage`) — eso le pegó ese `slice_id` residual a varios tests intermedios que no fijan su propia ubicación, y terminó rompiendo un test de un describe totalmente distinto, 300 líneas más abajo, que esperaba exactamente 1 entrada guardada. Mismo patrón ya documentado antes en este proyecto (`window.location` persiste entre tests del mismo archivo) — fix: el `afterEach` nuevo restaura la URL además de limpiar `localStorage`.
+- Verificación: `tsc --noEmit` limpio, 406 tests frontend (28 suites, 6 nuevos: 3 de "Aplicar" con mock de `fetch` real GET+POST, 4 reescritos de la advertencia de "Generar" sin mockear `window.confirm`), `.supx` reconstruido con `build-extension.sh` y copiado a `extensions_test/`. Falta: reiniciar `superset_test.service`/`superset_mcp_test.service` y probar en vivo.
+
+### 2026-10-05 (hallazgo real en primera prueba de "adjuntar imagen de referencia": el modelo no llamó a la tool)
+
+Cambio realizado: primera prueba real del usuario de la función de
+adjuntar imagen (entrada de hoy, más abajo) — adjuntó una imagen con
+Ctrl+V (confirmó verla en el chip de preview, esa parte funcionó) y pidió
+"unir" el gráfico actual (slice 53, html_cards) con el gráfico 54.
+Revisando la sesión (`explore-23054a815ef38f3245ab39091a519d069fe5d853deb77ddcf7c02475a76999d7`,
+test, puerto 5009): el único `tool_call` del turno fue `get_chart_info(54)`
+— **nunca llamó a `irex.get_chart_screenshot`** — y su respuesta final
+incluyó esta frase: "No puedo inspeccionar la imagen con capture_id en
+esta sesión, así que no atribuiré características visuales a esa
+referencia." La tool está disponible y correctamente excluida del guard
+de tamaño en `superset_config_test.py` (confirmado por grep, sin cambios
+necesarios ahí) — el modelo decidió no intentarlo, no es que no pudiera.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/get_chart_screenshot.py`
+
+Qué cambia o corrige:
+- Reforzada la descripción de la tool con una instrucción imperativa al
+  principio: si el mensaje menciona un `capture_id` DE CUALQUIER FORMA
+  (no solo con las frases exactas de los ejemplos), SIEMPRE llamarla antes
+  de responder — nunca asumir sin haber llamado que la imagen "no se
+  puede inspeccionar en esta sesión". El manejo de `not_found` (vencido/
+  inexistente/de otro usuario) se deja condicionado a DESPUÉS de haber
+  intentado la llamada, no como excusa para no intentarla.
+- **Esto es un refuerzo del lado del MCP, no una solución confirmada** —
+  sigue sin estar claro POR QUÉ el modelo se negó esta vez cuando la MISMA
+  tool, con el mismo capture_id en texto plano, ya funcionó de punta a
+  punta para el flujo de "Revisión visual solicitada" (confirmado
+  2026-09-30). Reportado al otro agente (backend del chat) para que
+  revise si hay alguna diferencia de prompt/instrucciones entre modos, o
+  alguna lógica que distinga el mensaje nuevo ("Imagen de referencia
+  adjunta...") del mensaje ya probado ("Revisión visual solicitada...").
+- Verificación: 388 tests backend sin cambios (es solo texto de
+  descripción), parche puntual aplicado a `extensions_test/irex-mcp-tools-0.1.0.supx`
+  con el flujo manual de un solo archivo (zip -u desde el directorio
+  correcto, path verificado).
+- **CONFIRMADO tras reiniciar `superset_mcp_test.service`** (sesión
+  `explore-a083eb811e7777c6c9bc6f700d8edeff3bc24b70993005a97f4ab9b7697ecc91`,
+  mismo gráfico, misma imagen pegada): el refuerzo de la descripción
+  alcanzó — esta vez `irex.get_chart_screenshot` fue el PRIMER `tool_call`
+  del turno, el modelo recibió la imagen, y propuso una tarjeta nueva
+  (`handlebarsTemplate`/`styleTemplate`/`metrics`/`column_config`)
+  siguiendo fielmente el diseño de la referencia (anillo de progreso +
+  comparación visual), reusando la métrica guardada del gráfico 54.
+  `agent_done`/`done.explore_response` coinciden. No hizo falta ningún
+  cambio del lado del backend del chat — era, efectivamente, un problema
+  de que el modelo no sabía que DEBÍA intentar la llamada ante un mensaje
+  con un prefijo que no había visto antes ("Imagen de referencia
+  adjunta..." vs. "Revisión visual solicitada...").
+
+### 2026-10-05 (copiloto Explore: advertencia de propuesta sin aplicar + adjuntar imagen de referencia)
+
+Cambio realizado: dos pedidos del usuario sobre el copiloto de Explore ya
+en producción. (1) Tocar "Generar" (con o sin texto) mientras hay una
+propuesta aplicable sin aplicar en pantalla reemplazaba el diff armado sin
+ningún aviso. (2) Pedido de poder adjuntar una imagen (botón o Ctrl+V,
+"por ejemplo subir un gráfico de ejemplo y pedirle que lo copie igual")
+para que el modelo la revise y proponga cambios.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/ExploreAssistantPanel.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/ExploreConversation.tsx`
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/icons.tsx` (+ícono `image`)
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/chartScreenshotAdapter.ts` (+`convertImageToJpeg`)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/get_chart_screenshot.py` (solo descripción de la tool)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/chartScreenshotAdapter.test.ts` (+4 tests)
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/ExploreAssistantPanel.test.tsx` (+9 tests)
+
+Qué cambia o corrige:
+- **Advertencia de propuesta sin aplicar**: `handleSend` ahora chequea, antes
+  de armar el pedido nuevo, si `response.actions` tiene alguna acción
+  APLICABLE (`isApplicableExploreAction`) — si la hay, pide confirmación con
+  `window.confirm` (mismo patrón ya usado por `usePreparedApply`) antes de
+  seguir. Acciones no aplicables desde el panel (`add_dataset_metric`,
+  `preview`) nunca tuvieron nada que "perder", así que no preguntan.
+- **Adjuntar imagen de referencia**: reusa el pipeline de subida que ya
+  existía para la revisión visual del propio gráfico
+  (`chart_screenshot_api.py`/`irex.get_chart_screenshot`, sin tocar su
+  lógica) — confirmado que el endpoint no valida el CONTENIDO de la
+  imagen contra el gráfico actual, solo que el dataset declarado sea
+  accesible al usuario, así que una imagen subida por el usuario entra
+  sin cambios de backend. `convertImageToJpeg` (nuevo, en
+  `chartScreenshotAdapter.ts`) convierte cualquier formato (PNG, lo que
+  venga del portapapeles) a JPEG vía `createImageBitmap` + `<canvas>`
+  (fondo blanco para transparencia — JPEG no tiene canal alfa),
+  reescalando al mismo `MAX_CAPTURE_WIDTH` que la captura del propio
+  gráfico. `ExploreConversation` ganó un botón de adjuntar + manejo de
+  `onPaste` sobre el textarea (clipboard con un item `image/*`) + un chip
+  de preview con nombre y botón de quitar. El wrapper `handleGenerateClick`
+  en el panel sube la imagen (si hay una adjunta) ANTES de llamar a
+  `handleSend`, componiendo el mensaje con el `capture_id` — mismo orden
+  estricto que `handleVisualReview`. Se actualizó la descripción de
+  `irex.get_chart_screenshot` para que el modelo distinga los dos casos de
+  uso (revisar el propio gráfico vs. imitar una referencia) por el
+  contexto del mensaje.
+- Verificación: `tsc --noEmit` limpio, 403 tests frontend (28 suites) y 388
+  tests backend (pytest) en verde, `./scripts/build-extension.sh` reconstruyó
+  el `.supx` completo (TS estricto + tests + webpack) y lo copió a
+  `extensions_test/irex-mcp-tools-0.1.0.supx` — falta reiniciar
+  `superset_test.service`/`superset_mcp_test.service` y probar en vivo antes
+  de replicar a producción.
+
+### 2026-10-05 (html-cards: `countUp` saltaba directo al valor final sin animar)
+
+Cambio realizado: el usuario reportó, sobre una sesión real del asistente
+de Explore (`explore-bae9f5dba7d92f76fa3e6209aa42f3202684ee31b0fdee21bdbf54268cc5db9c`,
+`slice_id: 1249`, `viz_type: html_cards`), que una tarjeta con un contador
+animado (`data-hc-on="load"` + `data-hc-action="countUp:..."`, mecanismo
+de `dynamicActions.ts` construido el 2026-09-28) mostraba el número final
+(89%) de una, sin ningún conteo visible. Descartadas por evidencia varias
+hipótesis previas (sanitización HTML — `HTML_SANITIZATION=False` en ambos
+entornos; atributos `data-hc-*` perdidos — confirmados intactos en el DOM
+inspeccionado por el usuario; acción no reconocida — sin ningún
+`console.warn`). Causa real encontrada leyendo
+`custom-plugins/plugin-chart-html-cards/src/utils/dynamicActions.ts`.
+
+Archivos afectados:
+- `custom-plugins/plugin-chart-html-cards/src/utils/dynamicActions.ts`
+- `custom-plugins/plugin-chart-html-cards/src/__tests__/dynamicActions.test.ts` (+1 test)
+
+Qué cambia o corrige:
+- `countUp` fijaba `start = performance.now()` en el momento en que SE
+  LLAMA (síncrono, durante el escaneo "load" de `initDynamicActions`),
+  no en el del primer frame real de `requestAnimationFrame`. Si el hilo
+  principal está ocupado al cargar la página (otros gráficos
+  inicializando — la consola del usuario mostraba errores de otro
+  gráfico con AG-Grid en la misma vista), el primer callback de rAF
+  puede demorar más que la `duration` configurada (1200ms). Cuando por
+  fin corre, `now - start` ya supera `duration` — `progress` se clampea
+  a 1 en el PRIMER frame, y la animación entera colapsa en un salto
+  instantáneo al valor final, sin ningún frame intermedio visible.
+- Arreglado: el reloj de la animación ahora se ancla al timestamp del
+  primer frame REAL (`start = start ?? now` dentro de `tick`, no antes
+  de programarlo) — sin importar cuánto demore el navegador en entregar
+  ese primer frame, la animación completa (`duration` entero de frames
+  visibles) arranca recién desde ahí.
+
+Verificación:
+- Test nuevo que reproduce el escenario exacto: mockea
+  `requestAnimationFrame` para entregar el primer frame con un timestamp
+  5000ms posterior al de la llamada (mucho más que los 200ms de prueba)
+  — con el código anterior este test hubiera fallado (saltaría directo
+  al valor final); con el fix, confirma que el primer frame real todavía
+  muestra el valor inicial.
+- `npx jest --roots=.../custom-plugins/plugin-chart-html-cards/src
+  --testRegex='dynamicActions\.test\.ts$'` (ejecutado desde
+  `superset_v6_1_0/superset-frontend` para heredar la config/transform
+  del monorepo, apuntando `--roots` directo al path REAL del plugin en
+  vez del symlinked — la ejecución de tests de plugins propios vía jest
+  venía documentada como "no se pudo correr" por un problema de
+  resolución de symlinks; este flag lo evita para archivos sin
+  dependencias externas, como este): **20/20 pasan**, sin regresiones en
+  los 19 tests preexistentes de `dynamicActions.test.ts`.
+- `./node_modules/.bin/tsc` sobre la misma ruta real NO pudo correr
+  (mismo problema de symlinks pero sobre `tsconfig.json`'s `extends`
+  relativo — `tsc` resuelve symlinks a su destino real antes de leer
+  rutas relativas, así que `../../tsconfig.base.json` apunta fuera del
+  monorepo). No bloqueante: el archivo es TypeScript simple sin tipos
+  complejos, verificado a mano; el build de producción (`npm run build`,
+  paso siguiente) typechequea como parte del bundle completo.
+- Pendiente: `npm run build` completo del frontend (PLUGINS.md, "Al
+  cambiar código de un plugin existente") + reinicio de
+  `superset_test.service` para probar en test antes de producción.
+
 ### 2026-10-03 (asistente Explore publicado en producción)
 
 Cambio realizado:
@@ -5516,3 +5768,19 @@ Verificación:
 - 390/390 frontend (390 = 374 previos + 5 de `ControlDiffView.test.tsx`, ya contaban con los 11 de `lineDiff.test.ts` sumados en el camino). `tsc --noEmit` limpio.
 - `build-extension.sh` completo (388 backend + 390 frontend + webpack + empaquetado desde cero), `.supx` reconstruido y copiado a `extensions_test/`. Solo cambió frontend — alcanza con reiniciar `superset_test.service`.
 - Pendiente: mostrarle el resultado real al usuario para confirmar que coincide con la intención de la imagen de referencia (no hubo instancia de confirmación antes de implementar, por pedido explícito de "adelante" implícito en el contexto de mejorar la UI) y mencionar la decisión consciente de no incluir la fila de "gráfico actual: nombre · estado guardado".
+
+### 2026-10-05 (SQL Lab: impedir que una corrección parcial borre la consulta)
+
+Cambio realizado:
+La sesión `sqllab-1e0f4d101c59833f66e8fce009f5c866e09882d13ac73dec5133a221ea8d8915` recibió 802 líneas, pero dos respuestas ofrecieron solo un CTE de 20 líneas con `target=document`. La acción de aplicar reemplazaba el contenido completo del editor.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/frontend/src/adapters/sqlLabAdapter.ts` — valida que la pestaña y el SQL actuales coincidan con el snapshot de la propuesta; impide aplicar un CTE aislado como documento y bloquea reducciones drásticas al corregir un error.
+- `custom-extensions/irex-mcp-tools/frontend/src/assistant/SqlLabAssistantPanel.tsx` — entrega el snapshot al aplicar y al deshacer/rehacer para no sobrescribir cambios posteriores ni otra pestaña.
+- `custom-extensions/irex-mcp-tools/frontend/src/__tests__/ActionCard.test.tsx` — regresiones para CTE parcial y SQL modificado después de generar la propuesta.
+
+Verificación:
+- Pruebas focalizadas: 23/23; TypeScript estricto sin errores.
+- Build completo: 410/410 frontend, 388/388 backend y webpack correcto; paquete generado en `extensions_test/irex-mcp-tools-0.1.0.supx`.
+- `sudo -n` requirió contraseña; el usuario reinició `superset_test.service` a las 15:12. Health de pruebas HTTP 200 y registro de la extensión confirmado. Producción de Superset no se modificó.
+- Regresión adicional tras el build: 12/12 tests de ActionCard (incluye bloqueo de reescritura corta).

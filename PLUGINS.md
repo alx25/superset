@@ -105,6 +105,47 @@ webpack que resuelva rutas de módulos y loaders **desde la ubicación del symli
 3. El symlink propaga el cambio a todos los `superset_v*/` automáticamente
 4. Rebuild: `cd superset_v6_1_0/superset-frontend && npm run build`
 
+### Correr los tests de un plugin propio antes del rebuild
+
+El jest del monorepo (`superset_v6_1_0/superset-frontend/jest.config.js`) no
+descubre los `*.test.ts(x)` de `custom-plugins/` cuando se corre normalmente
+— su `testRegex` exige `/superset-frontend/` en la ruta, y el crawler de
+jest **no sigue symlinks de directorio** al listar archivos, así que nunca
+llega a entrar en `plugins/<nombre-del-plugin>/` (que es un symlink a
+`custom-plugins/<nombre-del-plugin>/`). Esto ya estaba documentado como
+limitación sin solución (`custom-src/ListViewCard/index.tsx`, hallazgo de
+2026-07-24: "Jest no resuelve el symlink... no está relacionada con el
+cambio en sí").
+
+Workaround (confirmado funcionando para archivos sin dependencias de
+`node_modules` fuera del propio monorepo, ej. `dynamicActions.ts` de
+html-cards — 2026-10-05): apuntar `--roots` DIRECTO a la ruta real (no la
+symlinked), corriendo igual desde `superset_v6_1_0/superset-frontend` para
+heredar `moduleNameMapper`/`setupFilesAfterEnv`/transform del monorepo:
+
+```bash
+cd superset_v6_1_0/superset-frontend
+npx jest \
+  --roots=$(realpath ../../custom-plugins/<nombre-del-plugin>/src) \
+  --testRegex='<archivo>\.test\.tsx?$'
+```
+
+Límite conocido: si el archivo importa algo de `node_modules` que el
+monorepo resuelve por hoisting (ej. `handlebars` en html-cards), ese
+`require` falla igual (`Cannot find module`) — `custom-plugins/` es
+hermano de `superset_v6_1_0/`, no descendiente, así que la resolución de
+Node hacia arriba desde la ruta real nunca llega al `node_modules` del
+monorepo. Sirve para utilidades puras (sin imports externos) como las
+unit tests de `dynamicActions.ts`; no sustituye correr la suite completa
+del plugin a través del symlink cuando eso sea posible.
+
+`tsc` tiene el mismo problema pero más agudo: resuelve el `tsconfig.json`
+del plugin a su ruta REAL antes de leer `extends`, así que
+`"extends": "../../tsconfig.base.json"` (pensado para la ubicación
+symlinked) apunta fuera del monorepo y falla con `TS5083`/`TS6053`. Sin
+workaround conocido — el build completo (`npm run build`) sí typechequea
+correctamente porque corre sobre la ruta symlinked, nunca sobre la real.
+
 ### Al cambiar FormulaMetricControl o MetricOrderControl
 1. Editar en `custom-src/FormulaMetricControl/` o `custom-src/MetricOrderControl/`
 2. El symlink propaga el cambio automáticamente

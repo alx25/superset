@@ -70,6 +70,7 @@ function titleFor(action: AssistantAction): string {
 export interface AppliedSnapshot {
   before: string;
   after: string;
+  tabId: string;
   tabTitle: string;
 }
 
@@ -152,14 +153,17 @@ export function ActionCard({ action, context, onDismiss, onExecuted, onApplied }
             await applyAction({ type: 'replace_selection', sql: applied.sql });
             overwroteInPlace = true;
           } else if (applied.target === 'document') {
-            await applyAction({ type: 'replace_document', sql: applied.sql });
+            await applyAction(
+              { type: 'replace_document', sql: applied.sql },
+              { tabId: context.tab.id, sql: context.editor.sql, mode: context.mode },
+            );
             overwroteInPlace = true;
             newFullSql = applied.sql;
           } else {
             await applyAction({ type: 'create_tab', sql: applied.sql, title: applied.title });
           }
         } else if (applied.type === 'replace_document') {
-          await applyAction(applied);
+          await applyAction(applied, { tabId: context.tab.id, sql: context.editor.sql, mode: context.mode });
           overwroteInPlace = true;
           newFullSql = applied.sql;
         } else {
@@ -171,7 +175,7 @@ export function ActionCard({ action, context, onDismiss, onExecuted, onApplied }
           try {
             const afterSql = newFullSql ?? (await getCurrentDocumentValue());
             await revealChange(beforeSql, afterSql, REVEAL_MESSAGE);
-            onApplied({ before: beforeSql, after: afterSql, tabTitle: context.tab.title });
+            onApplied({ before: beforeSql, after: afterSql, tabId: context.tab.id, tabTitle: context.tab.title });
           } catch {
             // Resaltar en el editor y habilitar deshacer/rehacer es una
             // mejora de UX, no crítica: si falla no se reporta como error
@@ -544,7 +548,10 @@ export function SqlLabAssistantPanel(): React.ReactElement {
     if (!lastChange) return;
     setChangeError(undefined);
     try {
-      await applyAction({ type: 'replace_document', sql: lastChange.before });
+      await applyAction(
+        { type: 'replace_document', sql: lastChange.before },
+        { tabId: lastChange.tabId, sql: lastChange.after },
+      );
       await clearRevealedChange().catch(() => {});
       setChangeUndone(true);
     } catch (e) {
@@ -556,7 +563,10 @@ export function SqlLabAssistantPanel(): React.ReactElement {
     if (!lastChange) return;
     setChangeError(undefined);
     try {
-      await applyAction({ type: 'replace_document', sql: lastChange.after });
+      await applyAction(
+        { type: 'replace_document', sql: lastChange.after },
+        { tabId: lastChange.tabId, sql: lastChange.before },
+      );
       await revealChange(lastChange.before, lastChange.after, REVEAL_MESSAGE).catch(() => {});
       setChangeUndone(false);
     } catch (e) {

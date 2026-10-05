@@ -24,7 +24,8 @@ export type IconName =
   | 'filePlus'
   | 'apply'
   | 'play'
-  | 'close';
+  | 'close'
+  | 'image';
 
 const PATHS: Record<IconName, string[]> = {
   sparkles: ['M12 3l1.8 4.9L19 9.7l-5.2 1.9L12 16.5l-1.8-4.9L5 9.7l5.2-1.8z', 'M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z'],
@@ -44,6 +45,7 @@ const PATHS: Record<IconName, string[]> = {
   apply: ['M20 5v7a3 3 0 0 1-3 3H6', 'M10 11l-4 4 4 4'],
   play: ['M7 4.5v15l13-7.5z'],
   close: ['M6 6l12 12', 'M18 6L6 18'],
+  image: ['M4 4h16v16H4z', 'M8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z', 'M4 17l5-5 4 4 3-3 4 4'],
 };
 
 export interface IconProps {

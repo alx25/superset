@@ -50,16 +50,24 @@ class GetChartScreenshotRequest(BaseModel):
 @tool(
     name="irex.get_chart_screenshot",
     description=(
-        "Devuelve la captura de pantalla (JPEG) de un gráfico de Explore YA RENDERIZADO en el navegador del "
-        "usuario -- subida por el widget cuando el usuario pide una revisión visual, nunca generada por esta "
-        "tool. Usarla para revisar layout, superposición de elementos, colores, legibilidad -- NO para "
-        "confirmar que los datos en sí son correctos (para eso, preview_chart/explain_chart). Importante: una "
-        "captura que se ve bien NO prueba que la consulta tenga un orden determinístico -- si el diseño "
-        "depende de recorrer filas en un orden específico (matrices, líneas de tiempo agrupadas) y no hay "
-        "orderby explícito seteado, la MISMA configuración puede verse distinta en la próxima carga; eso es un "
-        "problema de la consulta, no algo que una sola captura pueda descartar. El capture_id vence a los 10 "
-        "minutos de subido. Devuelve {\"error\": \"not_found\", ...} (nunca crashea) si venció, no existe, o "
-        "pertenece a otro usuario -- en ese caso, pedirle al usuario que repita la revisión visual."
+        "IMPORTANTE: si el mensaje del usuario menciona un capture_id (de cualquier forma, no solo con las "
+        "frases exactas de los ejemplos de abajo), SIEMPRE llamar a esta tool con ese capture_id antes de "
+        "responder -- nunca asumir, sin haber llamado a la tool, que la imagen no se puede inspeccionar en "
+        "esta sesión. Si la tool devuelve {\"error\": \"not_found\", ...} (venció, no existe, o pertenece a "
+        "otro usuario), ahí sí explicar eso y pedirle al usuario que repita la subida -- pero intentar primero. "
+        "Devuelve una imagen (JPEG) subida por el widget -- nunca generada por esta tool. Dos casos de uso, "
+        "distinguibles por el 'detail' que acompaña al mensaje del usuario: (1) revisión visual del gráfico "
+        "actual YA RENDERIZADO ('revisar cómo se ve'), para layout, superposición de elementos, colores, "
+        "legibilidad -- NO para confirmar que los datos en sí son correctos (para eso, preview_chart/"
+        "explain_chart); (2) imagen de REFERENCIA que el usuario subió o pegó desde el portapapeles (ej. un "
+        "gráfico de otra fuente) pidiendo que el gráfico actual se parezca a esa referencia -- en ese caso "
+        "usarla para identificar qué controles/formato cambiar (tipo de gráfico, colores, orden de columnas, "
+        "etc.) y proponer los cambios correspondientes, nunca asumir que la imagen describe datos reales a "
+        "cargar. Importante: una captura que se ve bien NO prueba que la consulta tenga un orden "
+        "determinístico -- si el diseño depende de recorrer filas en un orden específico (matrices, líneas de "
+        "tiempo agrupadas) y no hay orderby explícito seteado, la MISMA configuración puede verse distinta en "
+        "la próxima carga; eso es un problema de la consulta, no algo que una sola captura pueda descartar. "
+        "El capture_id vence a los 10 minutos de subido."
     ),
     tags=["irex", "explore", "chart", "read_only"],
     class_permission_name="Chart",

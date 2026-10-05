@@ -1246,6 +1246,33 @@ en el gráfico actual (una acción de Nivel 2).
 - Automatizar la pantalla por DOM (clics o escritura sobre controles).
 - Escrituras autónomas o desde el MCP.
 
+### Avance de Fase 6 (2026-10-05, entrada 96) — advertencia de propuesta sin aplicar + adjuntar imagen de referencia
+
+Dos pedidos del usuario sobre el copiloto ya en producción:
+
+1. **Advertencia al "Generar" con una propuesta sin aplicar**: `handleSend`
+   ahora pregunta con `window.confirm` (mismo patrón que `usePreparedApply`)
+   antes de reemplazar una propuesta con acciones APLICABLES
+   (`isApplicableExploreAction`) sin aplicar — las no aplicables desde el
+   panel (`add_dataset_metric`, `preview`) no preguntan, porque nunca
+   tuvieron nada que perder.
+2. **Adjuntar imagen de referencia** (botón o pegar con Ctrl+V): reusa sin
+   cambios el pipeline de subida ya construido para la revisión visual
+   (`chart_screenshot_api.py`/`irex.get_chart_screenshot`) — confirmado que
+   valida acceso al dataset, no el contenido de la imagen, así que una
+   imagen traída por el usuario (no capturada del propio gráfico) entra
+   igual. `convertImageToJpeg` (nuevo) normaliza cualquier formato a JPEG
+   client-side antes de subir. La descripción de la tool se actualizó para
+   que el modelo distinga "revisar mi gráfico" de "imitar esta referencia"
+   según el mensaje del usuario.
+
+Verificado: `tsc --noEmit` limpio, 403 tests frontend / 388 backend en
+verde, `.supx` reconstruido con `build-extension.sh` y copiado a
+`extensions_test/`. Detalle completo en `Registro de cambios.md`
+(2026-10-05). Falta: reiniciar `superset_test.service`/
+`superset_mcp_test.service` y probar en vivo antes de replicar a
+producción.
+
 ## Revisiones del plan
 
 - **2026-09-24 — revisión externa, 4 puntos + alcance (todos verificados en

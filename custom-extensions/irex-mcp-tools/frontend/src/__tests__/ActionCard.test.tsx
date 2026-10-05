@@ -117,6 +117,7 @@ describe('diff y aplicación', () => {
     expect(props.onApplied).toHaveBeenCalledWith({
       before: 'SELECT anio FROM t',
       after: 'SELECT anio_id FROM t',
+      tabId: 't1',
       tabTitle: 'Pestaña t1',
     });
     expect(fakeHost.executeQuery).not.toHaveBeenCalled();
@@ -127,6 +128,41 @@ describe('diff y aplicación', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Abrir en nueva pestaña' }));
     await waitFor(() => expect(fakeHost.createTab).toHaveBeenCalledWith({ sql: 'SELECT 9', title: 'Otra' }));
     expect(props.onApplied).not.toHaveBeenCalled();
+  });
+
+  test('no reemplaza una consulta larga por un fragmento CTE', async () => {
+    const original = `WITH base AS (SELECT * FROM t)\n${Array.from({ length: 120 }, (_, i) => `-- línea ${i}`).join('\n')}\nSELECT * FROM base`;
+    tab = createFakeTab('t1', { value: original });
+    fakeHost.reset(tab);
+    const errorContext = { ...context, mode: 'explain_error' as const, editor: { ...context.editor, sql: original } };
+    const props = { onDismiss: jest.fn(), onExecuted: jest.fn(), onApplied: jest.fn() };
+    render(<ActionCard action={{ type: 'propose_sql', target: 'document', sql: 'info_producto AS (SELECT anio FROM base)', title: 'Corregir CTE' }} context={errorContext} {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar al editor' }));
+    expect(await screen.findByText(/contiene solo un CTE/)).toBeInTheDocument();
+    expect(tab.editor.setValue).not.toHaveBeenCalled();
+    expect(props.onDismiss).not.toHaveBeenCalled();
+  });
+
+  test('no aplica una reescritura muy corta al corregir un error de una consulta larga', async () => {
+    const original = `WITH base AS (SELECT * FROM t)\n${Array.from({ length: 120 }, (_, i) => `-- lógica ${i}`).join('\n')}\nSELECT * FROM base`;
+    tab = createFakeTab('t1', { value: original });
+    fakeHost.reset(tab);
+    const errorContext = { ...context, mode: 'explain_error' as const, editor: { ...context.editor, sql: original } };
+    const props = { onDismiss: jest.fn(), onExecuted: jest.fn(), onApplied: jest.fn() };
+    render(<ActionCard action={{ type: 'replace_document', sql: 'WITH base AS (SELECT * FROM t) SELECT * FROM base' }} context={errorContext} {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar al editor' }));
+    expect(await screen.findByText(/elimina gran parte/)).toBeInTheDocument();
+    expect(tab.editor.setValue).not.toHaveBeenCalled();
+    expect(props.onDismiss).not.toHaveBeenCalled();
+  });
+
+  test('no aplica una propuesta antigua si el SQL activo ya cambió', async () => {
+    const props = renderCard({ type: 'replace_document', sql: 'SELECT anio_id FROM t' });
+    tab.editor.state.value = 'SELECT anio, mes FROM t';
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar al editor' }));
+    expect(await screen.findByText(/SQL cambiaron desde la propuesta/)).toBeInTheDocument();
+    expect(tab.editor.setValue).not.toHaveBeenCalled();
+    expect(props.onDismiss).not.toHaveBeenCalled();
   });
 });
 

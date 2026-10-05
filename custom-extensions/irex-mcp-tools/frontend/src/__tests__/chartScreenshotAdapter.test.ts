@@ -19,6 +19,7 @@
 import domToImage from 'dom-to-image-more';
 import {
   captureChartScreenshot,
+  convertImageToJpeg,
   uploadChartScreenshot,
   ChartScreenshotError,
 } from '../adapters/chartScreenshotAdapter';
@@ -91,6 +92,84 @@ describe('captureChartScreenshot', () => {
 
     expect(toJpegMock).not.toHaveBeenCalled();
     jest.useRealTimers();
+  });
+});
+
+describe('convertImageToJpeg', () => {
+  // jsdom no implementa `createImageBitmap` ni canvas 2D -- se mockean los
+  // dos, igual que `toJpegMock` mockea `dom-to-image-more` arriba. No se
+  // prueba el contenido real de los píxeles (eso es responsabilidad del
+  // navegador), solo el contrato: tamaño resultante, fondo blanco para
+  // transparencia, y los dos modos de fallo (archivo inválido, canvas sin
+  // soporte de toBlob).
+  let getContextSpy: jest.SpyInstance;
+  let toBlobSpy: jest.SpyInstance;
+  let fillRectMock: jest.Mock;
+  let drawImageMock: jest.Mock;
+  let lastToBlobResult: Blob | null;
+
+  beforeEach(() => {
+    lastToBlobResult = new Blob(['jpeg-bytes'], { type: 'image/jpeg' });
+    fillRectMock = jest.fn();
+    drawImageMock = jest.fn();
+    getContextSpy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      fillStyle: '',
+      fillRect: fillRectMock,
+      drawImage: drawImageMock,
+    } as unknown as CanvasRenderingContext2D);
+    toBlobSpy = jest.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function toBlob(
+      this: HTMLCanvasElement,
+      callback: BlobCallback,
+    ) {
+      callback(lastToBlobResult);
+    });
+    (globalThis as unknown as { createImageBitmap: jest.Mock }).createImageBitmap = jest.fn().mockResolvedValue({
+      width: 800,
+      height: 600,
+      close: jest.fn(),
+    });
+  });
+
+  afterEach(() => {
+    getContextSpy.mockRestore();
+    toBlobSpy.mockRestore();
+    delete (globalThis as { createImageBitmap?: unknown }).createImageBitmap;
+  });
+
+  test('convierte una imagen chica (sin reescalar) a JPEG', async () => {
+    const result = await convertImageToJpeg(new Blob(['png-bytes'], { type: 'image/png' }));
+
+    expect(result.type).toBe('image/jpeg');
+    expect(fillRectMock).toHaveBeenCalled(); // fondo blanco para transparencia
+    expect(drawImageMock).toHaveBeenCalledWith(expect.anything(), 0, 0, 800, 600);
+  });
+
+  test('reescala cuando el ancho supera el máximo', async () => {
+    (globalThis as unknown as { createImageBitmap: jest.Mock }).createImageBitmap = jest.fn().mockResolvedValue({
+      width: 3200,
+      height: 1600,
+      close: jest.fn(),
+    });
+
+    await convertImageToJpeg(new Blob(['png-bytes'], { type: 'image/png' }), 1600);
+
+    expect(drawImageMock).toHaveBeenCalledWith(expect.anything(), 0, 0, 1600, 800);
+  });
+
+  test('archivo que no es una imagen válida rechaza con ChartScreenshotError', async () => {
+    (globalThis as unknown as { createImageBitmap: jest.Mock }).createImageBitmap = jest
+      .fn()
+      .mockRejectedValue(new Error('no es una imagen'));
+
+    await expect(convertImageToJpeg(new Blob(['no-es-una-imagen']))).rejects.toThrow(ChartScreenshotError);
+  });
+
+  test('si el canvas no puede producir un Blob, rechaza con ChartScreenshotError', async () => {
+    lastToBlobResult = null;
+
+    await expect(convertImageToJpeg(new Blob(['png-bytes'], { type: 'image/png' }))).rejects.toThrow(
+      ChartScreenshotError,
+    );
   });
 });
 

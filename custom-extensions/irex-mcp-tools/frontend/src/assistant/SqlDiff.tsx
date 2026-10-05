@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { formatSql, looksUnformattedSql } from './codeFormat';
 import { Icon } from './icons';
 import { SqlCode } from './sqlHighlight';
 import { MONO } from './ui';
@@ -134,7 +135,24 @@ function Badge({ color, children }: { color: string; children: React.ReactNode }
   );
 }
 
-export function SqlDiff({ before, after }: SqlDiffProps): React.ReactElement {
+/**
+ * Normaliza ANTES de diffear solo si `after` (la propuesta del modelo)
+ * viene sin saltos de línea reales (hallazgo real 2026-10-05, sesión
+ * `sqllab-a14b0f7c...`: una consulta de 6500+ caracteres propuesta en una
+ * sola línea mostraba "se borra todo, se agrega 1 línea" — un diff
+ * inútil). Se normalizan los DOS lados con el mismo formateador para que
+ * el diff refleje cambios reales, no solo una diferencia de estilo entre
+ * el `before` (ya bien formateado, viene del editor) y un `after`
+ * reformateado. Si `after` ya trae saltos de línea, ninguno de los dos
+ * lados se toca — cero riesgo de reformatear (con OTRO estilo) un SQL que
+ * ya se mostraba bien. */
+function normalizeForDiff(before: string, after: string): { before: string; after: string } {
+  if (!looksUnformattedSql(after)) return { before, after };
+  return { before: formatSql(before), after: formatSql(after) };
+}
+
+export function SqlDiff({ before: rawBefore, after: rawAfter }: SqlDiffProps): React.ReactElement {
+  const { before, after } = useMemo(() => normalizeForDiff(rawBefore, rawAfter), [rawBefore, rawAfter]);
   const lines = useMemo(() => computeLineDiff(before, after), [before, after]);
   const displayItems = useMemo(() => buildDisplayItems(lines), [lines]);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());

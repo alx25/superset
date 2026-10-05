@@ -272,3 +272,237 @@ export function formatCodeForDiff(control: string, value: unknown): string | und
   if (HTML_CONTROLS.has(control)) return formatHtml(value);
   return undefined;
 }
+
+/**
+ * Formateador de SQL, mismo espíritu que `formatCss`/`formatHtml` arriba
+ * (best-effort para LECTURA humana en el diff de SQL Lab, nunca un parser
+ * SQL formal ni algo que decida validez) — hallazgo real 2026-10-05,
+ * sesión `sqllab-a14b0f7c...`: el modelo propuso un `replace_document` con
+ * el SQL entero en una sola línea (sin ningún salto), y `SqlDiff.tsx` diffa
+ * línea por línea sin formatear primero — el resultado fue "se borra todo,
+ * se agrega 1 línea gigante", un diff inútil para revisar el cambio real.
+ *
+ * No reimplementa `tokenizeSql` (ese es para resaltado de color, no para
+ * decidir saltos de línea) — reconoce los mismos tramos atómicos (strings,
+ * comentarios, bloques Jinja, identificadores entre comillas) para nunca
+ * reestructurar su CONTENIDO, y agrega saltos de línea + indentación por
+ * profundidad de paréntesis en dos puntos: (1) antes de cada palabra clave
+ * de cláusula (SELECT/FROM/WHERE/GROUP BY/JOIN/etc., SIN importar la
+ * profundidad — hasta dentro de una subconsulta conviene que tengan su
+ * propia línea); (2) después de una coma que separa ítems de la cláusula
+ * ACTUAL (misma profundidad en la que se vio la última palabra clave) — una
+ * coma dentro de una llamada a función (`coalesce(a,b)`) queda pegada, no
+ * se le pierde el rastro a `clauseDepth` por eso.
+ */
+const SQL_CLAUSE_STARTS = new Set([
+  'with', 'select', 'from', 'where', 'group by', 'order by', 'having',
+  'limit', 'offset', 'union all', 'union', 'intersect', 'except',
+  'full outer join', 'full join', 'left outer join', 'left join',
+  'right outer join', 'right join', 'inner join', 'cross join', 'join',
+  'left array join', 'array join', 'on', 'using', 'qualify', 'window',
+  'settings', 'partition by',
+]);
+
+/** Palabra completa (identificador) a partir de `from`, sin exigir que
+ * empiece justo ahí — salta espacios primero. Para armar frases de hasta 3
+ * palabras (`"left outer join"`) sin consumir nada hasta confirmar match. */
+function peekWordAt(source: string, from: number): { word: string; next: number } | undefined {
+  let i = from;
+  while (i < source.length && /\s/.test(source[i])) i += 1;
+  const match = /^[A-Za-z_][A-Za-z0-9_]*/.exec(source.slice(i));
+  if (!match) return undefined;
+  return { word: match[0], next: i + match[0].length };
+}
+
+/** Prueba la frase MÁS LARGA primero (hasta 3 palabras) para no confundir
+ * "group" suelto con "group by", ni cortar "left outer join" en "left
+ * join". Devuelve el texto real matcheado (conserva su propio espaciado
+ * interno) para no inventar separación donde el modelo puso otra. */
+function tryMatchClausePhrase(source: string, from: number): { matchedText: string; next: number } | undefined {
+  const positions: number[] = [from];
+  const words: string[] = [];
+  let cursor = from;
+  for (let w = 0; w < 3; w += 1) {
+    const peek = peekWordAt(source, cursor);
+    if (!peek) break;
+    words.push(peek.word);
+    cursor = peek.next;
+    positions.push(cursor);
+  }
+  for (let count = words.length; count >= 1; count -= 1) {
+    const phrase = words.slice(0, count).join(' ').toLowerCase();
+    if (SQL_CLAUSE_STARTS.has(phrase)) {
+      return { matchedText: source.slice(from, positions[count]), next: positions[count] };
+    }
+  }
+  return undefined;
+}
+
+export function formatSql(source: string): string {
+  const trimmed = source.trim();
+  if (!trimmed) return trimmed;
+
+  let depth = 0;
+  // Por nivel de paréntesis: si ESE paréntesis se abrió para una subconsulta
+  // o CTE (`(SELECT ...`/`(WITH ...`), el `)` que lo cierra también rompe
+  // de línea -- una llamada a función simple (`toWeek(...)`) no.
+  const multilineParen: boolean[] = [];
+  // Profundidad en la que se vio la última palabra clave de cláusula — una
+  // coma en ESA MISMA profundidad separa ítems de la lista (columnas del
+  // SELECT, CTEs del WITH, columnas del GROUP BY); más profunda, es de una
+  // llamada a función anidada, se deja pegada.
+  let clauseDepth: number | undefined;
+  let out = '';
+
+  const indent = (level: number) => INDENT_UNIT.repeat(Math.max(level, 0));
+  const breakLine = (level: number) => {
+    out = out.replace(/[ \t]+$/, '');
+    out += `\n${indent(level)}`;
+  };
+  const currentLineHasContent = () => out.slice(out.lastIndexOf('\n') + 1).trim() !== '';
+
+  let i = 0;
+  const n = trimmed.length;
+  while (i < n) {
+    const c = trimmed[i];
+    const two = trimmed.slice(i, i + 2);
+
+    if (two === '--') {
+      const end = trimmed.indexOf('\n', i);
+      const stop = end === -1 ? n : end;
+      out += trimmed.slice(i, stop);
+      i = stop;
+      continue;
+    }
+    if (two === '/*') {
+      const end = trimmed.indexOf('*/', i + 2);
+      const stop = end === -1 ? n : end + 2;
+      out += trimmed.slice(i, stop);
+      i = stop;
+      continue;
+    }
+    if (two === '{{' || two === '{%' || two === '{#') {
+      const close = two === '{{' ? '}}' : two === '{%' ? '%}' : '#}';
+      const end = trimmed.indexOf(close, i + 2);
+      const stop = end === -1 ? n : end + close.length;
+      out += trimmed.slice(i, stop);
+      i = stop;
+      continue;
+    }
+    if (c === "'") {
+      let j = i + 1;
+      while (j < n) {
+        if (trimmed[j] === "'" && trimmed[j + 1] === "'") j += 2;
+        else if (trimmed[j] === "'") {
+          j += 1;
+          break;
+        } else j += 1;
+      }
+      out += trimmed.slice(i, j);
+      i = j;
+      continue;
+    }
+    if (c === '"' || c === '`') {
+      const end = trimmed.indexOf(c, i + 1);
+      const stop = end === -1 ? n : end + 1;
+      out += trimmed.slice(i, stop);
+      i = stop;
+      continue;
+    }
+    if (c === '$' && /^\$[A-Za-z_]*\$/.test(trimmed.slice(i))) {
+      const tag = /^\$[A-Za-z_]*\$/.exec(trimmed.slice(i))![0];
+      const end = trimmed.indexOf(tag, i + tag.length);
+      const stop = end === -1 ? n : end + tag.length;
+      out += trimmed.slice(i, stop);
+      i = stop;
+      continue;
+    }
+
+    if (/\s/.test(c)) {
+      // Colapsa cualquier corrida de espacios/saltos del original a UNO
+      // solo -- los saltos que de verdad importan los agrega esta función
+      // en los puntos estructurales de arriba.
+      out = out === '' || out.endsWith(' ') || out.endsWith('\n') ? out : `${out} `;
+      let j = i;
+      while (j < n && /\s/.test(trimmed[j])) j += 1;
+      i = j;
+      continue;
+    }
+
+    if (c === '(' || c === '[') {
+      // `[...]` (array literal, ej. `ARRAY JOIN [a,b,c]`) comparte la
+      // misma pila/profundidad que `(` -- sin esto, una coma DENTRO del
+      // array se confunde con una coma de la cláusula (misma profundidad
+      // vista en `clauseDepth`) y corta ahí (hallazgo real probando contra
+      // el SQL de producción de la sesión que reportó el bug). Nunca abre
+      // multilínea (`[` no empieza una subconsulta).
+      out += c;
+      const peek = c === '(' ? peekWordAt(trimmed, i + 1) : undefined;
+      const opensBlock = !!peek && (peek.word.toLowerCase() === 'select' || peek.word.toLowerCase() === 'with');
+      depth += 1;
+      multilineParen.push(opensBlock);
+      if (opensBlock) breakLine(depth);
+      i += 1;
+      continue;
+    }
+    if (c === ')' || c === ']') {
+      const wasMultiline = multilineParen.pop() ?? false;
+      depth = Math.max(depth - 1, 0);
+      if (clauseDepth !== undefined && clauseDepth > depth) clauseDepth = undefined;
+      if (wasMultiline) breakLine(depth);
+      out = out.replace(/[ \t]+$/, '');
+      out += c;
+      i += 1;
+      continue;
+    }
+    if (c === ',') {
+      out = out.replace(/[ \t]+$/, '');
+      out += ',';
+      i += 1;
+      if (clauseDepth !== undefined && depth === clauseDepth) {
+        while (i < n && /\s/.test(trimmed[i])) i += 1;
+        breakLine(depth + 1);
+      }
+      continue;
+    }
+
+    if (/[A-Za-z_]/.test(c)) {
+      const clause = tryMatchClausePhrase(trimmed, i);
+      if (clause) {
+        // Sin el `if`: cuando NO hace falta el salto (ya estamos recién
+        // bajados de línea por un `(` de subconsulta, ver `breakLine`
+        // arriba) este `replace` se comía la indentación que ya estaba
+        // puesta, dejando "SELECT" pegado al margen en vez de indentado
+        // (hallazgo real corriendo esto contra el SQL de producción).
+        if (currentLineHasContent()) breakLine(depth);
+        out += clause.matchedText.replace(/\s+/g, ' ').toUpperCase();
+        clauseDepth = depth;
+        i = clause.next;
+        continue;
+      }
+      const end = i + /^[A-Za-z_][A-Za-z0-9_]*/.exec(trimmed.slice(i))![0].length;
+      out += trimmed.slice(i, end);
+      i = end;
+      continue;
+    }
+
+    out += c;
+    i += 1;
+  }
+
+  return out
+    .split('\n')
+    .map(line => line.replace(/[ \t]+$/, ''))
+    .join('\n')
+    .trim();
+}
+
+/** `true` cuando `sql` tiene cara de venir SIN saltos de línea reales
+ * (el caso real encontrado: una consulta larga entera en una sola línea) —
+ * umbral de longitud para no reformatear un `SELECT 1` corto que
+ * legítimamente no necesita ninguna línea nueva. Quien llama (`SqlDiff`)
+ * solo normaliza con `formatSql` cuando esto da `true`, para no arriesgar
+ * reformatear (con OTRO estilo) un SQL que ya viene bien formateado. */
+export function looksUnformattedSql(sql: string): boolean {
+  return sql.trim().length > 80 && !sql.includes('\n');
+}

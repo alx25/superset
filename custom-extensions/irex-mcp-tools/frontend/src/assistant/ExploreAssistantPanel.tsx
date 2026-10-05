@@ -29,7 +29,7 @@ import {
   type ApplicableExploreAction,
   type ControlDiffEntry,
 } from '../adapters/exploreApplyAdapter';
-import { captureChartScreenshot, uploadChartScreenshot } from '../adapters/chartScreenshotAdapter';
+import { captureChartScreenshot, convertImageToJpeg, uploadChartScreenshot } from '../adapters/chartScreenshotAdapter';
 import { RESOLVE_DEBOUNCE_MS, UNSAVED_STATE_CONTRACT, fetchFormData, parseExploreLocation, type QueryFidelity } from '../hosts/exploreState';
 import {
   listConversationEntries,
@@ -136,6 +136,92 @@ function ActionCardHeader({ pendingCount, theme }: { pendingCount: number; theme
   );
 }
 
+/** Popup real — reemplaza `window.confirm` en los dos casos que lo usaban
+ * (aplicar un cambio, generar de nuevo con una propuesta sin aplicar), a
+ * pedido del usuario (2026-10-05): "me refería más a un mensaje
+ * emergente... de la misma interfaz de Superset" (la primera versión era
+ * un aviso inline dentro del flujo, no un popup — no alcanzaba).
+ *
+ * `position: fixed` (no `absolute`): escapa del `overflow: auto` del área
+ * de conversación sin necesitar un portal — a diferencia de `absolute`,
+ * un ancestro con scroll no lo recorta, cubre toda la pantalla igual que
+ * un modal real (que tampoco vive adentro del contenedor que lo abre).
+ * Fondo y tarjeta con los MISMOS tokens que usa un Modal de antd/Superset
+ * (`colorBgMask`/`colorBgElevated`/`boxShadowSecondary`) — no es el
+ * componente Modal real (`@apache-superset/core` solo expone `Alert`, no
+ * `Modal`, y sumar `@superset-ui/core` entero solo por esto infla el
+ * bundle), pero se ve y se siente igual. */
+function ConfirmNotice({
+  message,
+  confirmLabel,
+  cancelLabel = 'Cancelar',
+  disabled = false,
+  onConfirm,
+  onCancel,
+}: {
+  message: string;
+  confirmLabel: string;
+  cancelLabel?: string;
+  disabled?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}): React.ReactElement {
+  const theme = themeNs.useTheme();
+  return (
+    <div
+      role="presentation"
+      onMouseDown={event => {
+        // Click en el fondo (no en la tarjeta) cierra, como un modal real.
+        if (event.target === event.currentTarget) onCancel();
+      }}
+      onKeyDown={event => {
+        if (event.key === 'Escape') onCancel();
+      }}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1000,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 16,
+        background: theme.colorBgMask,
+      }}
+    >
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        style={{
+          width: '100%',
+          maxWidth: 320,
+          padding: '16px 18px',
+          borderRadius: theme.borderRadiusLG ?? theme.borderRadius,
+          background: theme.colorBgElevated ?? theme.colorBgContainer,
+          boxShadow: theme.boxShadowSecondary,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 14,
+        }}
+      >
+        <div style={{ display: 'flex', gap: 8 }}>
+          <span style={{ color: theme.colorWarning, marginTop: 1, flexShrink: 0 }}>
+            <Icon name="warning" size={15} />
+          </span>
+          <div style={{ flex: 1, fontSize: FONT.base, lineHeight: 1.55, color: theme.colorText }}>{message}</div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button type="button" disabled={disabled} style={buttonGhost(theme)} onClick={onCancel}>
+            {cancelLabel}
+          </button>
+          <button type="button" disabled={disabled} style={buttonPrimary(theme)} onClick={onConfirm}>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Lo que hace falta para poder escribir el `POST` real — se arma UNA vez,
  * al pedir "Ver cambio" (ahí se lee el form_data fresco y se valida la key
  * vigente); "Aplicar" reusa esto sin volver a leer nada, salvo la
@@ -163,13 +249,27 @@ function usePreparedApply(
   busy: boolean;
   error: string | undefined;
   prepared: PreparedExploreApply | undefined;
+  /** Mientras es `true`, el diff ya está armado y se le pidió confirmar
+   * "Aplicar" — hay que mostrar `ConfirmNotice` en vez de los botones de
+   * siempre (ver `ExploreActionCard`/`ExploreProposalChecklist`). */
+  confirmingApply: boolean;
   handlePrepare: () => Promise<void>;
-  handleConfirm: () => Promise<void>;
+  /** Primer click en "Aplicar" — solo pide la confirmación inline, todavía
+   * no escribe nada. */
+  handleApplyClick: () => void;
+  /** Confirmado en el aviso inline — recién acá se revalida la key y se
+   * hace el POST real (antes, el cuerpo de esta función vivía adentro del
+   * `if (window.confirm(...))`). */
+  handleConfirmApply: () => Promise<void>;
+  /** Descarta solo la confirmación inline (el diff preparado se mantiene,
+   * se puede volver a tocar "Aplicar"). */
+  handleCancelConfirm: () => void;
   handleCancel: () => void;
 } {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [prepared, setPrepared] = useState<PreparedExploreApply | undefined>();
+  const [confirmingApply, setConfirmingApply] = useState(false);
   const baseKey = actions[0]?.base_form_data_key;
 
   const handlePrepare = useCallback(async () => {
@@ -204,15 +304,17 @@ function usePreparedApply(
     }
   }, [actions, baseKey]);
 
-  const handleConfirm = useCallback(async () => {
+  const handleApplyClick = useCallback(() => {
+    setConfirmingApply(true);
+  }, []);
+
+  const handleCancelConfirm = useCallback(() => {
+    setConfirmingApply(false);
+  }, []);
+
+  const handleConfirmApply = useCallback(async () => {
     if (!prepared) return;
-    if (
-      !window.confirm(
-        'Se va a recargar Explore con el cambio aplicado. Si tenías controles editados sin ejecutar en la pantalla, se pierden. ¿Continuar?',
-      )
-    ) {
-      return;
-    }
+    setConfirmingApply(false);
     setBusy(true);
     setError(undefined);
     try {
@@ -243,9 +345,10 @@ function usePreparedApply(
   const handleCancel = useCallback(() => {
     setPrepared(undefined);
     setError(undefined);
+    setConfirmingApply(false);
   }, []);
 
-  return { busy, error, prepared, handlePrepare, handleConfirm, handleCancel };
+  return { busy, error, prepared, confirmingApply, handlePrepare, handleApplyClick, handleConfirmApply, handleCancelConfirm, handleCancel };
 }
 
 function ExploreActionCard({
@@ -261,7 +364,7 @@ function ExploreActionCard({
   const theme = themeNs.useTheme();
   const applicable = isApplicableExploreAction(action);
   const singleAction = useMemo(() => (applicable ? [action] : []), [action, applicable]);
-  const { busy, error, prepared, handlePrepare, handleConfirm, handleCancel } = usePreparedApply(
+  const { busy, error, prepared, confirmingApply, handlePrepare, handleApplyClick, handleConfirmApply, handleCancelConfirm, handleCancel } = usePreparedApply(
     singleAction,
     applicable ? describeExploreAction(action) : '',
     snapshotConversation,
@@ -300,22 +403,33 @@ function ExploreActionCard({
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', paddingLeft: 28 }}>
-        {!prepared ? (
-          <button type="button" disabled={busy} style={buttonGhost(theme)} onClick={() => void handlePrepare()}>
-            {busy ? 'Comprobando…' : 'Ver cambio'}
-          </button>
-        ) : (
-          <>
-            <button type="button" disabled={busy} style={buttonGhost(theme)} onClick={handleCancel}>
-              Cancelar
+      {prepared && confirmingApply && (
+        <ConfirmNotice
+          message="Se va a recargar Explore con el cambio aplicado. Si tenías controles editados sin ejecutar en la pantalla, se pierden."
+          confirmLabel={busy ? 'Aplicando…' : 'Sí, aplicar'}
+          disabled={busy}
+          onConfirm={() => void handleConfirmApply()}
+          onCancel={handleCancelConfirm}
+        />
+      )}
+      {!confirmingApply && (
+        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', paddingLeft: 28 }}>
+          {!prepared ? (
+            <button type="button" disabled={busy} style={buttonGhost(theme)} onClick={() => void handlePrepare()}>
+              {busy ? 'Comprobando…' : 'Ver cambio'}
             </button>
-            <button type="button" disabled={busy} style={buttonPrimary(theme)} onClick={() => void handleConfirm()}>
-              {busy ? 'Aplicando…' : 'Aplicar'}
-            </button>
-          </>
-        )}
-      </div>
+          ) : (
+            <>
+              <button type="button" disabled={busy} style={buttonGhost(theme)} onClick={handleCancel}>
+                Cancelar
+              </button>
+              <button type="button" disabled={busy} style={buttonPrimary(theme)} onClick={handleApplyClick}>
+                Aplicar
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -346,7 +460,7 @@ function ExploreProposalChecklist({
     () => (selected.length === 1 ? describeExploreAction(selected[0]) : truncateText(`${selected.length} cambios: ${selected.map(describeExploreAction).join('; ')}`, 200)),
     [selected],
   );
-  const { busy, error, prepared, handlePrepare, handleConfirm, handleCancel } = usePreparedApply(selected, title, snapshotConversation);
+  const { busy, error, prepared, confirmingApply, handlePrepare, handleApplyClick, handleConfirmApply, handleCancelConfirm, handleCancel } = usePreparedApply(selected, title, snapshotConversation);
 
   // Cambiar la selección invalida cualquier diff ya calculado — hay que
   // pedirlo de nuevo. Más simple que sincronizar `prepared` con la
@@ -395,22 +509,33 @@ function ExploreProposalChecklist({
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', paddingLeft: 28 }}>
-        {!prepared ? (
-          <button type="button" disabled={busy || selected.length === 0} style={buttonGhost(theme)} onClick={() => void handlePrepare()}>
-            {busy ? 'Comprobando…' : 'Ver cambio'}
-          </button>
-        ) : (
-          <>
-            <button type="button" disabled={busy} style={buttonGhost(theme)} onClick={handleCancel}>
-              Cancelar
+      {prepared && confirmingApply && (
+        <ConfirmNotice
+          message="Se va a recargar Explore con el cambio aplicado. Si tenías controles editados sin ejecutar en la pantalla, se pierden."
+          confirmLabel={busy ? 'Aplicando…' : `Sí, aplicar (${selected.length})`}
+          disabled={busy}
+          onConfirm={() => void handleConfirmApply()}
+          onCancel={handleCancelConfirm}
+        />
+      )}
+      {!confirmingApply && (
+        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', paddingLeft: 28 }}>
+          {!prepared ? (
+            <button type="button" disabled={busy || selected.length === 0} style={buttonGhost(theme)} onClick={() => void handlePrepare()}>
+              {busy ? 'Comprobando…' : 'Ver cambio'}
             </button>
-            <button type="button" disabled={busy} style={buttonPrimary(theme)} onClick={() => void handleConfirm()}>
-              {busy ? 'Aplicando…' : `Aplicar (${selected.length})`}
-            </button>
-          </>
-        )}
-      </div>
+          ) : (
+            <>
+              <button type="button" disabled={busy} style={buttonGhost(theme)} onClick={handleCancel}>
+                Cancelar
+              </button>
+              <button type="button" disabled={busy} style={buttonPrimary(theme)} onClick={handleApplyClick}>
+                {`Aplicar (${selected.length})`}
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -782,8 +907,45 @@ export function ExploreAssistantPanel(): React.ReactElement {
     return () => window.clearInterval(id);
   }, [sending]);
 
+  // Confirmación de "hay una propuesta sin aplicar" — pedido del usuario
+  // (2026-10-05), reforzado el mismo día: "que sea del tipo mensaje
+  // emergente del navegador, es posible hacerlos en la interfaz del
+  // chat?". En vez de `window.confirm` (bloqueante, nativo del navegador),
+  // `confirmGenerateReplace` devuelve una Promise que queda pendiente
+  // hasta que el usuario responde en un aviso DENTRO del panel (ver
+  // `ConfirmNotice` más abajo) — `handleSend` espera esa respuesta antes
+  // de seguir, exactamente la misma semántica que el `window.confirm` que
+  // reemplaza (si el usuario cancela, `handleSend` corta ahí, igual que
+  // antes).
+  const [generateConfirmPending, setGenerateConfirmPending] = useState(false);
+  const generateConfirmResolveRef = useRef<((proceed: boolean) => void) | null>(null);
+
+  const confirmGenerateReplace = useCallback(
+    (): Promise<boolean> =>
+      new Promise<boolean>(resolve => {
+        generateConfirmResolveRef.current = resolve;
+        setGenerateConfirmPending(true);
+      }),
+    [],
+  );
+
+  const resolveGenerateConfirm = useCallback((proceed: boolean) => {
+    setGenerateConfirmPending(false);
+    generateConfirmResolveRef.current?.(proceed);
+    generateConfirmResolveRef.current = null;
+  }, []);
+
   const handleSend = useCallback(
     async (overrideText?: string, overrideMode?: ExploreMode) => {
+      // Si hay una propuesta sin aplicar en pantalla, generar una
+      // respuesta nueva la reemplaza — el diff armado (si lo había) se
+      // pierde sin aviso. Solo avisa por acciones APLICABLES: las que no
+      // se pueden aplicar desde acá (add_dataset_metric, preview) nunca
+      // tuvieron nada que "perder".
+      const pendingApplicable = (response?.actions ?? []).some(isApplicableExploreAction);
+      if (pendingApplicable && !(await confirmGenerateReplace())) {
+        return;
+      }
       const effectiveMode = overrideMode ?? mode;
       const text = overrideText ?? (userMessage.trim() || exploreDefaultPromptFor(effectiveMode));
       const baseHistory = historyRef.current;
@@ -833,7 +995,7 @@ export function ExploreAssistantPanel(): React.ReactElement {
         sendStartRef.current = null;
       }
     },
-    [mode, userMessage, conversationKey, sessionId, currentLocation.sliceId],
+    [mode, userMessage, conversationKey, sessionId, currentLocation.sliceId, response, confirmGenerateReplace],
   );
 
   const handleClarificationAnswer = useCallback(
@@ -891,6 +1053,85 @@ export function ExploreAssistantPanel(): React.ReactElement {
     },
     [handleSend, currentLocation.sliceId],
   );
+
+  // Imagen de REFERENCIA adjuntada por el usuario (botón o Ctrl+V) --
+  // pedido 2026-10-05: "adjuntar una imagen... para que el LLM revise y
+  // aplique. Por ejemplo subir un gráfico de ejemplo y pedirle que lo
+  // copie igual". Mismo pipeline de subida que `handleVisualReview`
+  // (mismo endpoint, mismo tool `irex.get_chart_screenshot` del lado del
+  // modelo) -- la única diferencia es que la imagen no se captura del
+  // propio gráfico sino que la trae el usuario, y se convierte a JPEG acá
+  // (`convertImageToJpeg`) porque el endpoint solo acepta ese content-type.
+  const [attachedImage, setAttachedImage] = useState<File | undefined>();
+  const [attachedImagePreviewUrl, setAttachedImagePreviewUrl] = useState<string | undefined>();
+  const [attachImageBusy, setAttachImageBusy] = useState(false);
+  // Sin lectura propia: el error se muestra vía `commandNotice` (mismo
+  // mecanismo que `handleVisualReview`, siempre montado) -- este setter
+  // solo limpia el estado al reintentar.
+  const [, setAttachImageError] = useState<string | undefined>();
+
+  const handleAttachImage = useCallback((file: File) => {
+    setAttachImageError(undefined);
+    setAttachedImage(file);
+    setAttachedImagePreviewUrl(prev => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
+  }, []);
+
+  const handleRemoveAttachedImage = useCallback(() => {
+    setAttachedImage(undefined);
+    setAttachedImagePreviewUrl(prev => {
+      if (prev) URL.revokeObjectURL(prev);
+      return undefined;
+    });
+    setAttachImageError(undefined);
+  }, []);
+
+  // Wrapper de "Generar": si hay una imagen adjunta, la sube PRIMERO (igual
+  // orden que la revisión visual: subir y confirmar antes de mandar el
+  // mensaje) y compone el texto con el `capture_id`; si no hay imagen,
+  // manda tal cual. En los dos casos termina llamando a `handleSend`, así
+  // que la advertencia de "propuesta sin aplicar" (ver más arriba) se
+  // aplica igual.
+  const handleGenerateClick = useCallback(async () => {
+    if (!attachedImage) {
+      void handleSend();
+      return;
+    }
+    setAttachImageBusy(true);
+    setAttachImageError(undefined);
+    try {
+      const context = await readExploreContext(window.location.search);
+      const datasourceRaw = context.formData?.datasource;
+      const ref = typeof datasourceRaw === 'string' ? parseDatasourceRef(datasourceRaw) : undefined;
+      if (!ref || !context.formDataKey) {
+        throw new Error('No se pudo leer el dataset del gráfico actual.');
+      }
+      const jpeg = await convertImageToJpeg(attachedImage);
+      const trimmedText = userMessage.trim();
+      const captureId = await uploadChartScreenshot(jpeg, {
+        sliceId: currentLocation.sliceId,
+        formDataKey: context.formDataKey,
+        datasourceId: ref.id,
+        detail: trimmedText || 'Imagen de referencia para replicar en este gráfico.',
+      });
+      const message = trimmedText
+        ? `Imagen de referencia adjunta (capture_id: ${captureId}). ${trimmedText}`
+        : `Imagen de referencia adjunta (capture_id: ${captureId}). Quiero que este gráfico se parezca a esa imagen -- proponé los cambios de configuración necesarios.`;
+      handleRemoveAttachedImage();
+      await handleSend(message);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setAttachImageError(message);
+      // Mismo motivo que en `handleVisualReview`: `commandNotice` es el
+      // único aviso que siempre está montado, sin depender de que haya
+      // una tarjeta de propuesta en pantalla.
+      setCommandNotice(message);
+    } finally {
+      setAttachImageBusy(false);
+    }
+  }, [attachedImage, userMessage, currentLocation.sliceId, handleSend, handleRemoveAttachedImage]);
 
   const handleNewSession = useCallback(() => {
     pendingRequestRef.current?.abort();
@@ -1047,18 +1288,31 @@ export function ExploreAssistantPanel(): React.ReactElement {
           {fidelityMessage(fidelity)}
         </div>
       </div>
+      {generateConfirmPending && (
+        <ConfirmNotice
+          message="Hay una propuesta sin aplicar en pantalla — generar una respuesta nueva la reemplaza (podés volver a pedirla, pero se pierde lo que tenías armado). ¿Continuar igual?"
+          confirmLabel="Sí, continuar"
+          onConfirm={() => resolveGenerateConfirm(true)}
+          onCancel={() => resolveGenerateConfirm(false)}
+        />
+      )}
       <ExploreConversation
         history={history}
         mode={mode}
         userMessage={userMessage}
         onUserMessageChange={setUserMessage}
-        onSend={() => void handleSend()}
+        onSend={() => void handleGenerateClick()}
         onCommand={handleCommand}
-        sending={sending}
+        sending={sending || attachImageBusy}
+        sendDisabledReason={generateConfirmPending ? 'Respondé el aviso de arriba antes de generar de nuevo.' : undefined}
         progressSteps={progressSteps}
         elapsedSeconds={sending ? elapsedSeconds : undefined}
         diagnostics={diagnostics}
         hasProposal={actions.length > 0}
+        attachedImageName={attachedImage?.name}
+        attachedImagePreviewUrl={attachedImagePreviewUrl}
+        onAttachImage={handleAttachImage}
+        onRemoveAttachedImage={handleRemoveAttachedImage}
       >
         {commandNotice && (
           <div

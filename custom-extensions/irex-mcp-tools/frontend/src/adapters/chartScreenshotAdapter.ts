@@ -108,6 +108,56 @@ export async function captureChartScreenshot(): Promise<Blob> {
   return dataUrlToBlob(dataUrl);
 }
 
+/** Convierte cualquier imagen (PNG, WEBP, JPEG, lo que el usuario adjunte
+ * o pegue del portapapeles con Ctrl+V) a JPEG, reescalando si excede
+ * `maxWidth` -- mismo límite que `MAX_CAPTURE_WIDTH` usa para la captura
+ * del propio gráfico, y mismo content-type que ya acepta
+ * `chart_screenshot_api.py` (`_ALLOWED_CONTENT_TYPES = {"image/jpeg",
+ * "image/jpg"}`) -- así una imagen de REFERENCIA subida por el usuario
+ * (pedido 2026-10-05, "adjuntar una imagen... para que el LLM revise y
+ * aplique") reusa el mismo endpoint de subida sin tocar el backend. */
+export async function convertImageToJpeg(
+  blob: Blob,
+  maxWidth: number = MAX_CAPTURE_WIDTH,
+): Promise<Blob> {
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(blob);
+  } catch {
+    throw new ChartScreenshotError('El archivo no es una imagen válida.');
+  }
+  try {
+    const scale = bitmap.width > maxWidth ? maxWidth / bitmap.width : 1;
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      throw new ChartScreenshotError('No se pudo procesar la imagen en este navegador.');
+    }
+    // Fondo blanco -- igual que `captureChartScreenshot` (`bgcolor:
+    // '#ffffff'`) -- para que un PNG con transparencia no termine con
+    // fondo negro al pasar a JPEG (JPEG no soporta canal alfa).
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        result => {
+          if (result) resolve(result);
+          else reject(new ChartScreenshotError('No se pudo convertir la imagen a JPEG.'));
+        },
+        'image/jpeg',
+        JPEG_QUALITY,
+      );
+    });
+  } finally {
+    bitmap.close();
+  }
+}
+
 export interface UploadChartScreenshotParams {
   sliceId: number | null;
   formDataKey: string;

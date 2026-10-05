@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ExploreAssistantPanel } from '../assistant/ExploreAssistantPanel';
 import { requestExploreAssistant, ExploreBackendError } from '../adapters/exploreBackendAdapter';
 import { readExploreContext, readIsAdminHint, onExploreContextChanged, readExploreFidelity, type ExploreContext } from '../adapters/exploreAdapter';
-import { captureChartScreenshot, uploadChartScreenshot } from '../adapters/chartScreenshotAdapter';
+import { captureChartScreenshot, convertImageToJpeg, uploadChartScreenshot } from '../adapters/chartScreenshotAdapter';
 import type { ExploreAssistantResponse } from '../contracts/exploreAssistant';
 
 jest.mock('../adapters/exploreBackendAdapter', () => {
@@ -24,6 +24,7 @@ jest.mock('../adapters/exploreAdapter', () => {
 
 jest.mock('../adapters/chartScreenshotAdapter', () => ({
   captureChartScreenshot: jest.fn(),
+  convertImageToJpeg: jest.fn(),
   uploadChartScreenshot: jest.fn(),
 }));
 
@@ -34,6 +35,7 @@ const readFidelityMock = readExploreFidelity as jest.MockedFunction<typeof readE
 const onContextChangedMock = onExploreContextChanged as jest.MockedFunction<typeof onExploreContextChanged>;
 const captureScreenshotMock = captureChartScreenshot as jest.MockedFunction<typeof captureChartScreenshot>;
 const uploadScreenshotMock = uploadChartScreenshot as jest.MockedFunction<typeof uploadChartScreenshot>;
+const convertImageMock = convertImageToJpeg as jest.MockedFunction<typeof convertImageToJpeg>;
 
 const VALID_CONTEXT: ExploreContext = {
   sliceId: 7,
@@ -66,6 +68,7 @@ beforeEach(() => {
   onContextChangedMock.mockReset();
   captureScreenshotMock.mockReset();
   uploadScreenshotMock.mockReset();
+  convertImageMock.mockReset();
   baseMocks();
 });
 
@@ -181,6 +184,98 @@ describe('aclaración', () => {
     await screen.findByText(/agrupa por columna/);
     expect(requestMock).toHaveBeenCalledTimes(2);
     expect(requestMock.mock.calls[1][0].user_message).toBe('Último mes');
+  });
+});
+
+describe('confirmación inline de "Aplicar" (2026-10-05, reemplaza window.confirm)', () => {
+  const CURRENT_FORM_DATA = { datasource: '11__table', viz_type: 'table', metrics: ['count'] };
+  let fetchMock: jest.Mock;
+
+  beforeEach(() => {
+    window.history.replaceState({}, '', '/explore/?slice_id=7&form_data_key=key-1');
+    fetchMock = jest.fn((url: string, init?: RequestInit) => {
+      if (url === '/api/v1/explore/form_data/key-1' && !init?.method) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ form_data: JSON.stringify(CURRENT_FORM_DATA) }) } as Response);
+      }
+      if (typeof url === 'string' && url.startsWith('/api/v1/explore/form_data') && init?.method === 'POST') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ key: 'key-applied-1' }) } as Response);
+      }
+      return Promise.reject(new Error(`fetch no mockeado en este test: ${url}`));
+    });
+    (globalThis as unknown as { fetch: typeof fetchMock }).fetch = fetchMock;
+  });
+
+  afterEach(() => {
+    // `recordConversationEntry` (dentro de "Generar") escribe en
+    // localStorage bajo slice_id 7. Y si no se restaura la URL, ese
+    // slice_id=7 le queda pegado a CUALQUIER test posterior que no fije
+    // su propia ubicación (window.location persiste entre tests del mismo
+    // archivo) -- eso fue lo que de verdad rompió el describe de comandos
+    // "/" más abajo: no era este describe el que esperaba 1 entrada, eran
+    // VARIOS tests intermedios heredando este slice_id=7 residual y
+    // grabando de más (hallazgo real al agregar este describe, 2026-10-05).
+    window.localStorage.clear();
+    window.history.replaceState({}, '', '/');
+  });
+
+  function postCalls(): unknown[] {
+    return fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'POST');
+  }
+
+  async function prepareAndClickApply(): Promise<void> {
+    requestMock.mockResolvedValue({
+      ...RESPONSE,
+      actions: [{ type: 'add_adhoc_metric', base_form_data_key: 'key-1', control: 'metrics', label: 'Promedio', expression: 'AVG(precio)' }],
+    });
+    render(<ExploreAssistantPanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Generar' }));
+    await screen.findByText(/Agregar la métrica "Promedio"/);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ver cambio' }));
+    await screen.findByRole('button', { name: 'Aplicar' });
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }));
+  }
+
+  test('"Aplicar" muestra el aviso inline en vez de window.confirm, sin escribir nada todavía', async () => {
+    await prepareAndClickApply();
+
+    expect(await screen.findByText(/Se va a recargar Explore con el cambio aplicado/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sí, aplicar' })).toBeInTheDocument();
+    expect(postCalls()).toHaveLength(0);
+  });
+
+  test('"Cancelar" en el aviso inline descarta solo la confirmación — el diff sigue ahí, se puede volver a tocar "Aplicar"', async () => {
+    await prepareAndClickApply();
+    await screen.findByText(/Se va a recargar Explore con el cambio aplicado/);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+
+    expect(screen.queryByText(/Se va a recargar Explore con el cambio aplicado/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Aplicar' })).toBeInTheDocument();
+    expect(postCalls()).toHaveLength(0);
+  });
+
+  test('"Sí, aplicar" hace el POST real con el form_data combinado', async () => {
+    await prepareAndClickApply();
+    await screen.findByText(/Se va a recargar Explore con el cambio aplicado/);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sí, aplicar' }));
+
+    await waitFor(() => expect(postCalls()).toHaveLength(1));
+  });
+
+  test('es un popup real: clickear el fondo (fuera de la tarjeta) cancela, igual que un modal', async () => {
+    await prepareAndClickApply();
+    await screen.findByText(/Se va a recargar Explore con el cambio aplicado/);
+
+    // El fondo es el propio `role="presentation"`; clickear la tarjeta
+    // (`role="alertdialog"`, un descendiente) no debe cerrar nada.
+    fireEvent.mouseDown(screen.getByRole('alertdialog'));
+    expect(screen.queryByText(/Se va a recargar Explore con el cambio aplicado/)).toBeInTheDocument();
+
+    fireEvent.mouseDown(screen.getByRole('presentation'));
+    expect(screen.queryByText(/Se va a recargar Explore con el cambio aplicado/)).toBeNull();
+    expect(postCalls()).toHaveLength(0);
   });
 });
 
@@ -766,6 +861,194 @@ describe('revisión visual ("ojos" para el LLM, 2026-09-29)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Ejecutar' }));
 
     await waitFor(() => expect(screen.getByText('No se encontró el gráfico renderizado en la página.')).toBeInTheDocument());
+    expect(requestMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('advertencia de propuesta sin aplicar al generar de nuevo (2026-10-05, reforzado el mismo día a aviso inline)', () => {
+  const WARNING_TEXT = /Hay una propuesta sin aplicar en pantalla/;
+
+  test('sin propuesta en pantalla, "Generar" no pregunta nada', async () => {
+    requestMock.mockResolvedValue(RESPONSE); // actions: []
+    render(<ExploreAssistantPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Generar' }));
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+
+    expect(screen.queryByText(WARNING_TEXT)).toBeNull();
+  });
+
+  test('con una propuesta APLICABLE sin aplicar, muestra el aviso inline antes de generar de nuevo; "Cancelar" no manda nada', async () => {
+    requestMock.mockResolvedValue({
+      ...RESPONSE,
+      actions: [{ type: 'add_adhoc_metric', base_form_data_key: 'key-1', control: 'metrics', label: 'Promedio', expression: 'AVG(precio)' }],
+    });
+    render(<ExploreAssistantPanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Generar' }));
+    await screen.findByText(/Agregar la métrica "Promedio"/);
+    requestMock.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Generar' }));
+    expect(await screen.findByText(WARNING_TEXT)).toBeInTheDocument();
+    // Mientras el aviso está en pantalla, "Generar" queda deshabilitado
+    // (no se puede apilar un segundo aviso encima).
+    expect(screen.getByRole('button', { name: 'Generar' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+
+    expect(screen.queryByText(WARNING_TEXT)).toBeNull();
+    expect(requestMock).not.toHaveBeenCalled();
+  });
+
+  test('con una propuesta aplicable sin aplicar, confirmar "Sí, continuar" manda el pedido nuevo', async () => {
+    requestMock.mockResolvedValue({
+      ...RESPONSE,
+      actions: [{ type: 'add_adhoc_metric', base_form_data_key: 'key-1', control: 'metrics', label: 'Promedio', expression: 'AVG(precio)' }],
+    });
+    render(<ExploreAssistantPanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Generar' }));
+    await screen.findByText(/Agregar la métrica "Promedio"/);
+    requestMock.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Generar' }));
+    await screen.findByText(WARNING_TEXT);
+    fireEvent.click(screen.getByRole('button', { name: 'Sí, continuar' }));
+
+    expect(screen.queryByText(WARNING_TEXT)).toBeNull();
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+  });
+
+  test('una propuesta que NO se puede aplicar desde acá (add_dataset_metric) no tenía nada que perder — no muestra el aviso', async () => {
+    requestMock.mockResolvedValue({
+      ...RESPONSE,
+      actions: [{ type: 'add_dataset_metric', dataset_id: 11, label: 'Total', expression: 'SUM(monto)' }],
+    });
+    render(<ExploreAssistantPanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Generar' }));
+    await screen.findByText(/Agregar al dataset la métrica guardada "Total"/);
+    requestMock.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Generar' }));
+
+    expect(screen.queryByText(WARNING_TEXT)).toBeNull();
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+  });
+
+  test('es un popup real: Escape cancela, igual que un modal', async () => {
+    requestMock.mockResolvedValue({
+      ...RESPONSE,
+      actions: [{ type: 'add_adhoc_metric', base_form_data_key: 'key-1', control: 'metrics', label: 'Promedio', expression: 'AVG(precio)' }],
+    });
+    render(<ExploreAssistantPanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Generar' }));
+    await screen.findByText(/Agregar la métrica "Promedio"/);
+    requestMock.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Generar' }));
+    await screen.findByText(WARNING_TEXT);
+
+    fireEvent.keyDown(screen.getByRole('alertdialog'), { key: 'Escape' });
+
+    expect(screen.queryByText(WARNING_TEXT)).toBeNull();
+    expect(requestMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('adjuntar imagen de referencia (2026-10-05)', () => {
+  // jsdom no implementa URL.createObjectURL/revokeObjectURL -- se mockean
+  // acá, solo para este bloque (es lo único que las usa).
+  beforeEach(() => {
+    URL.createObjectURL = jest.fn(() => 'blob:mock-preview');
+    URL.revokeObjectURL = jest.fn();
+  });
+
+  function pngFile(name = 'referencia.png'): File {
+    return new File(['bytes-de-prueba'], name, { type: 'image/png' });
+  }
+
+  test('adjuntar un archivo muestra el chip de preview con el nombre', async () => {
+    render(<ExploreAssistantPanel />);
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [pngFile('grafico-ejemplo.png')] } });
+
+    expect(await screen.findByText('grafico-ejemplo.png')).toBeInTheDocument();
+  });
+
+  test('pegar una imagen desde el portapapeles (Ctrl+V) la adjunta igual que el botón', async () => {
+    render(<ExploreAssistantPanel />);
+    const textarea = screen.getByRole('textbox', { name: 'Instrucciones para el asistente' });
+    const file = pngFile('pegada.png');
+    const clipboardData = {
+      items: [{ type: 'image/png', getAsFile: () => file }],
+    };
+
+    fireEvent.paste(textarea, { clipboardData });
+
+    expect(await screen.findByText('pegada.png')).toBeInTheDocument();
+  });
+
+  test('"Generar" con una imagen adjunta la convierte, la sube y manda el mensaje con el capture_id', async () => {
+    window.history.replaceState({}, '', '/explore/?slice_id=7&form_data_key=key-1');
+    convertImageMock.mockResolvedValue(new Blob(['jpeg-convertido'], { type: 'image/jpeg' }));
+    uploadScreenshotMock.mockResolvedValue('cap-ref-1');
+    requestMock.mockResolvedValue(RESPONSE);
+    render(<ExploreAssistantPanel />);
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = pngFile('grafico-ejemplo.png');
+    fireEvent.change(input, { target: { files: [file] } });
+    await screen.findByText('grafico-ejemplo.png');
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Instrucciones para el asistente' }), {
+      target: { value: 'quiero que se vea así' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Generar' }));
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+    expect(convertImageMock).toHaveBeenCalledWith(file);
+    expect(uploadScreenshotMock).toHaveBeenCalledWith(expect.any(Blob), {
+      sliceId: 7,
+      formDataKey: 'key-1',
+      datasourceId: 11,
+      detail: 'quiero que se vea así',
+    });
+    expect(requestMock.mock.calls[0][0].user_message).toBe(
+      'Imagen de referencia adjunta (capture_id: cap-ref-1). quiero que se vea así',
+    );
+    // se limpia el chip después de mandar
+    expect(screen.queryByText('grafico-ejemplo.png')).toBeNull();
+  });
+
+  test('quitar la imagen con el botón de cerrar antes de generar no la sube', async () => {
+    requestMock.mockResolvedValue(RESPONSE);
+    render(<ExploreAssistantPanel />);
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [pngFile('grafico-ejemplo.png')] } });
+    await screen.findByText('grafico-ejemplo.png');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Quitar imagen adjunta' }));
+    expect(screen.queryByText('grafico-ejemplo.png')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Generar' }));
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+    expect(convertImageMock).not.toHaveBeenCalled();
+    expect(uploadScreenshotMock).not.toHaveBeenCalled();
+  });
+
+  test('si falla la subida de la imagen de referencia, se muestra el error y no se manda el mensaje', async () => {
+    convertImageMock.mockResolvedValue(new Blob(['jpeg-convertido'], { type: 'image/jpeg' }));
+    uploadScreenshotMock.mockRejectedValue(new Error('La captura supera el límite de 3 MB.'));
+    render(<ExploreAssistantPanel />);
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [pngFile('grafico-ejemplo.png')] } });
+    await screen.findByText('grafico-ejemplo.png');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Generar' }));
+
+    await waitFor(() => expect(screen.getByText('La captura supera el límite de 3 MB.')).toBeInTheDocument());
     expect(requestMock).not.toHaveBeenCalled();
   });
 });
