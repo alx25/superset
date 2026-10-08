@@ -1,5 +1,52 @@
 ## Registro de cambios
 
+### 2026-10-08 (SQL Lab: `irex.get_sql_schema_context` devuelve PK, FK, índices y definición/dependencias de vistas — en test)
+
+Cambio realizado: pedido de ampliar la tool para que el asistente conozca la estructura sin ejecutar consultas a `pg_indexes` con EXPLAIN ANALYZE (que devuelve el plan, no los valores). Con `table`, además de columnas y `kind`, ahora devuelve (salvo `include_structure=false`) metadatos estructurados:
+- `primary_key` (nombre, columnas), `foreign_keys` (columnas locales, tabla/columnas referidas, ON DELETE/UPDATE, `referred_accessible` según RBAC del usuario), `indexes` (nombre, unicidad, método, columnas CLAVE en orden con `column` o `expression` y ASC/DESC/NULLS FIRST, columnas INCLUDE, `predicate` de índices parciales, constraint asociada, validez).
+- `view` (solo vistas/materializadas): `definition` SQL (tope 20.000 caracteres, con `definition_truncated`), `depends_on` (relaciones directas) y `base_tables` (tablas físicas finales resolviendo vistas anidadas, con `depth`).
+- Cada sección trae `status` explícito (`ok` / `not_applicable` / `unsupported` / `permission_denied` / `error`) + `detail` + `source`: "no se pudo obtener" nunca equivale a "no existe" (una tabla sin PK da `ok` con `columns: []`). Una sección que falla no tumba las otras ni las columnas.
+- PostgreSQL: índices, definición y dependencias salen de `pg_catalog` con consultas fijas y parámetros enlazados (la reflexión de SQLAlchemy 1.4 pierde las columnas-expresión). Otros motores: inspector genérico; dependencias de vistas por parseo de la definición con sqlglot (mejor-esfuerzo, marcado `parsed_definition`, sin `base_tables`).
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/sql_schema_structure.py` (nuevo)
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/sql_schema_context.py`
+- `custom-extensions/irex-mcp-tools/backend/tests/test_sql_schema_structure.py` (nuevo, 15 tests), `tests/test_sql_schema_context.py` (+3)
+
+Hallazgos:
+- **Bug de Superset**: `Database.get_pk_constraint` pasa cada valor por `json.base_json_conv`, que lanza TypeError con listas/strings y los deja en `None` — devuelve `{name: None, constrained_columns: None}` aunque la PK exista (visto en la base real). La tool lee la PK directo del inspector.
+- Validado contra la base real (database 11, schema `appsheet`) corriendo la tool en un contexto de app: PK/FK con ON DELETE, índices parciales (`WHERE`) con `INCLUDE`, y `vi_plan_ruta_vista` — que SÍ existe como vista real — resuelta a 7 tablas físicas. No había índices sobre expresiones en ese schema, así que esa rama solo está cubierta por pruebas con filas simuladas del catálogo.
+- Verificación: 411 tests backend, 425 frontend; `.supx` de `extensions_test/` reconstruido con `build-extension.sh`. Probado en test por el usuario. **Replicado a producción (2026-10-08)**: `zip -u` de `sql_schema_context.py` y `sql_schema_structure.py` (nuevo) sobre `extensions/irex-mcp-tools-0.1.0.supx` (respaldo previo `/tmp/irex-mcp-tools-prod-backup-202610081527-structure.supx`), copia fuente sincronizada; resto del contenido de `extensions_test/` NO trasladado. Reiniciado (PID 3239744, 15:28:56) y verificado con llamada real a producción: `eva_evaluacion_respuesta` (PK, 2 FK, índices desde `pg_catalog`) y `vi_plan_ruta_vista` (`kind=view`, PK/FK/índices `not_applicable`, definición y 7 tablas físicas base).
+
+### 2026-10-08 (verificación en producción de los límites de respuesta por tool)
+
+Tras el reinicio de `superset_mcp.service` (PID 3202093, 14:31:01) se hicieron llamadas reales a `explain_query` (EXPLAIN sin ANALYZE) por el MCP de producción con respuestas crecientes: una de 78.615 caracteres pasó (por encima del límite general de 25.000 tokens) y las siguientes se rechazaron con `Response too large: ~50,800 tokens (limit: 50,000)` — límite de 50.000 activo para estas tools; el general sigue en 25.000. Observación aparte: la primera llamada tras un rato inactivo falló con `server closed the connection unexpectedly` (conexión vieja del pool hacia Postgres) y la siguiente `get_sql_schema_context` falló con `Can't reconnect until invalid transaction is rolled back`; se recuperó sola en la llamada siguiente. Preexistente, no relacionado con este cambio.
+
+### 2026-10-08 (MCP: límites de respuesta por tool trasladados a producción)
+
+Cambio realizado: traslado a producción de "MCP response limits by tool" (aplicado en test el 2026-10-08). Revisión previa:
+- Producción (`superset_mcp.service`, `.env_superset_mcp`) y test (`.env_superset_mcp_test`) cargan el MISMO árbol, `/home/imercados/superset_proyecto/superset_v6_1_0`; solo difieren en la config: producción `/home/imercados/.superset/superset_config.py`, test `superset_config_test.py`. Por eso el parche de `superset/mcp_service/middleware.py` ya estaba en el árbol (compartido) y no se volvió a aplicar: se verificó que el archivo es equivalente a la salida de `custom-src/MCPResponseSizeGuard/patch_response_size_guard.py` sobre el `middleware.py` de HEAD (solo difiere el formato de 2 comprensiones/llamadas; +31 líneas, nada más tocado en ese archivo). Mientras la config no defina `tool_token_limits` el parche es inerte.
+- Pruebas: `tests/unit_tests/mcp_service/test_middleware.py` (20) + `custom-src/MCPResponseSizeGuard/test_response_size_guard.py` (3: concurrencia, proxy `call_tool` con rechazo por encima de 50.000, valores inválidos) = 23 passed. Ojo: las 3 pruebas canónicas FALLAN si se corren solas (`AttributeError: None does not have the attribute 'log'` — dependen del conftest de `tests/unit_tests/`, que inicializa `event_logger`); hay que correrlas junto con las del middleware.
+
+Archivos afectados:
+- `/home/imercados/.superset/superset_config.py` (producción, fuera del repo): bloque `MCP_RESPONSE_SIZE_CONFIG` con `tool_token_limits` = 50.000 para `extensions.irex.irex-mcp-tools.irex.{get_sql_schema_context,explain_query,check_query_nulls}`, insertado justo después de la config existente, que se preserva (verificado cargando el archivo: `token_limit` 25.000, `excluded_tools` intactos). Respaldo previo: `/tmp/superset_config.prod.backup-<fecha>.py`.
+- Sin cambios en este traslado: `middleware.py` (ya parcheado), `.supx`, autenticación ni controles de lectura SQL.
+
+Pendiente: reiniciar `superset_mcp.service` (requiere sudo) y verificar con una llamada real.
+
+### 2026-10-07 (SQL Lab: `irex.get_sql_schema_context` ahora lista vistas, separadas de las tablas físicas)
+
+Cambio realizado: el usuario preguntó (sesión `sqllab-0238c96522f4263f1709ed681d4601717c611ae95f69f9f9afd16b5c68565713`) si el MCP devuelve vistas o solo tablas físicas, por una vista `vi_plan_ruta_vista` que el asistente no encontró. Confirmado leyendo el código: el listado usaba solo `database.get_all_table_names_in_schema()` → `get_table_names()` ("The physical table names" en `db_engine_specs/base.py`); Superset tiene métodos hermanos para vistas (`get_all_view_names_in_schema`) y vistas materializadas que el tool nunca llamaba. En esa sesión la búsqueda exacta dio vacío y la amplia ("vi_plan") devolvió `vi_plan_ruta_vw`, `vi_plan_ruta_vw_old`, `vi_plan_ruta_vw_vista`, `vi_plan_visita_tb` (todas tablas físicas) — no se puede saber si `vi_plan_ruta_vista` existe como VISTA real hasta probar con este cambio.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/sql_schema_context.py`
+- `custom-extensions/irex-mcp-tools/backend/tests/test_sql_schema_context.py` (+5 tests)
+
+Qué cambia:
+- Respuesta sin `table`: `tables` (físicas, igual que antes) + `views` + `materialized_views` nuevos, aditivos (no rompen al backend del chat, que solo lee `tables`). `search` aplica a las tres; el `limit` es POR categoría (una vista no queda fuera por haber muchas tablas). Listar vistas es mejor-esfuerzo: si el motor no las soporta o falla, el listado de tablas sigue igual.
+- Respuesta con `table`: `table.kind` = `table` / `view` / `materialized_view` para que el modelo sepa qué es. La descripción de la tool aclara que una vista no es tabla física.
+- Verificación: 393 tests backend en verde. Parche puntual a `extensions_test/` (zip -u desde `superset_v6_1_0/irex-mcp-tools`). Confirmado en test por el usuario (2026-10-08: "ya ve las vistas"). **Replicado a producción el mismo día**, solo este archivo: `zip -u` de `sql_schema_context.py` sobre `extensions/irex-mcp-tools-0.1.0.supx` (respaldo previo en `/tmp/irex-mcp-tools-prod-backup-202610080717.supx`), copia fuente sincronizada; el resto de lo que hay en `extensions_test/` (frontend de Explore/SQL Lab) NO se tocó en producción. Falta reiniciar `superset_mcp.service` (requiere sudo).
+
 ### 2026-10-05 (SQL Lab: el diff mostraba "se borra todo, se agrega 1 línea" cuando el modelo propone SQL sin saltos de línea)
 
 Cambio realizado: usuario reportó sobre una sesión real (`sqllab-a14b0f7c3851308373d3402f0d646432167dd16f2220677cdbb2eb6bc3d5acca`)
@@ -5784,3 +5831,109 @@ Verificación:
 - Build completo: 410/410 frontend, 388/388 backend y webpack correcto; paquete generado en `extensions_test/irex-mcp-tools-0.1.0.supx`.
 - `sudo -n` requirió contraseña; el usuario reinició `superset_test.service` a las 15:12. Health de pruebas HTTP 200 y registro de la extensión confirmado. Producción de Superset no se modificó.
 - Regresión adicional tras el build: 12/12 tests de ActionCard (incluye bloqueo de reescritura corta).
+
+### 2026-10-05 (Producción: rol "Auditoria Crear Usuarios" — solo crear/modificar usuarios)
+
+Cambio realizado:
+Rol de auditoría que permite crear y editar usuarios, sin acceso a dashboards, charts, SQL Lab ni roles. Solo puede asignar "Permiso basico" y solo puede editar usuarios cuyos roles sean únicamente "Permiso basico" (antes y después del cambio). Así no puede editar Admins, a sí mismo ni usuarios con otros roles, ni subirse roles.
+
+Cambios en la base de datos de producción (Postgres, `ab_permission_view_role`):
+- Rol id 106 "Auditoria Crear Usuarios": 6 permisos asignados — `can_list`, `can_show`, `can_add`, `can_edit` sobre `UserDBModelView` (pv 26–29) y `menu_access` sobre "List Users" y "Security" (pv 168–169). No se conceden permisos de borrado, reset de contraseñas, API `User`/`Role` ni de roles/datasets/dashboards/SQL Lab.
+
+Archivos afectados:
+- `/home/imercados/.superset/superset_config.py` — nueva clase `AuditUserDBModelView(UserDBModelView)` con validación en `pre_add`/`pre_update` y filtro de roles asignables para el formulario; `CustomSecurityManager.userdbmodelview = AuditUserDBModelView`. Usa `class_permission_name = "UserDBModelView"` para reutilizar los permisos existentes.
+- Respaldo previo: `scratchpad/superset_config.before_auditoria.py` (sesión c0a76c02...).
+
+Verificación:
+- `py_compile` del config sin errores. `superset.service` reiniciado a las 16:08 por el usuario; health HTTP 200.
+- Permisos de `UserDBModelView` sin cambios (10 filas, igual que antes) y sin permisos nuevos con nombre de la clase de auditoría (total 802, igual).
+- Log: aparece `Failed to sync configuration to database ... circular import 'BaseCommand'` en cada arranque, también antes de este cambio (4, 9 y 15 de octubre). No lo causa este cambio; queda pendiente de investigar.
+- Pendiente: prueba funcional con un usuario del rol (ej. `orlando.madrigal`): crear usuario con "Permiso basico" OK; intentar asignar Admin o editar `admin` debe fallar con mensaje.
+
+### 2026-10-05 (Producción: acceso al menú "Listar usuarios" y corrección de "Permiso basico")
+
+Cambio realizado:
+1. Rol "Auditoria Crear Usuarios" (106): se concede `can_read` sobre `security` (permission_view 818). Esto abre la ruta `/users/` (menú "Listar usuarios") y también las vistas de solo lectura de Logs, Roles, Grupos y registros de usuarios.
+2. Rol "Permiso basico" (54): se quitan `can_edit` y `can_show` sobre `UserDBModelView` (permission_view 26 y 27). Antes, cualquier usuario con ese rol podía abrir `/users/edit/<id>` y cambiar los roles de otros usuarios, incluido Admin. Se conservan `can_userinfo`, `resetmypassword` y `userinfoedit`.
+
+Archivos afectados:
+- Base de datos de producción, tabla `ab_permission_view_role`: 1 fila insertada (rol 106, pv 818) y 2 filas eliminadas (rol 54, pv 26 y 27).
+- Respaldo previo: `scratchpad/ab_permission_view_role.before2.csv` (sesión c0a76c02...).
+
+Verificación:
+- Consulta de permisos: el rol 106 tiene `can_read|security` y los cuatro permisos sobre `UserDBModelView`; el rol 54 ya no tiene `can_edit` ni `can_show` sobre `UserDBModelView`.
+- Pendiente: probar con `irexti` que "Listar usuarios" abre la lista, y con un usuario normal de "Permiso basico" que `/users/edit/<id>` ya no permite editar.
+
+### 2026-10-05 (Producción: enlace de menú "Listar usuarios" solo para el rol de auditoría)
+
+Motivo: la página React `/users/` de Superset solo se registra para Admin (`isAdmin` en `superset-frontend/src/views/routes.tsx`). Para el rol de auditoría quedaba en blanco y no hacía peticiones. La vista de FAB `/users/list/` sí funciona, con la restricción de roles.
+
+Cambios realizados:
+1. `/home/imercados/.superset/superset_config.py` — en `CustomSecurityManager.register_views` se agrega `appbuilder.add_link("Listar usuarios", href="/users/list/", category="Security")`. FAB crea un permiso `menu_access` propio para este enlace. Respaldo previo: `scratchpad/superset_config.before_menu_link.py`.
+2. Base de datos de producción, rol "Auditoria Crear Usuarios" (106): se revocan `can_read` sobre `security` (pv 818), que daba acceso a Logs, Roles y Grupos, y `menu_access` sobre "List Users" (pv 169), que llevaba a la página en blanco. Quedan `can_list`, `can_show`, `can_add`, `can_edit` sobre `UserDBModelView` y `menu_access` sobre "Security".
+
+Pendiente:
+- Reiniciar `superset.service` para cargar el enlace nuevo.
+- Conceder `menu_access` sobre "Listar usuarios" al rol 106 (después del reinicio, cuando FAB haya creado el permiso).
+- Probar con `irexti`: el menú debe mostrar "Listar usuarios" y abrir `/users/list/`.
+
+Seguimiento (mismo día, tras reiniciar `superset.service` a las 16:37):
+- `add_link` no crea el permiso del menú; FAB solo agrega el enlace. Se creó manualmente en la base: `ab_view_menu` "Listar usuarios", `ab_permission_view` (menu_access + "Listar usuarios") y la concesión al rol 106.
+- Verificado: el rol 106 tiene `menu_access|Listar usuarios`, `menu_access|Security`, y los cuatro permisos sobre `UserDBModelView`.
+- Un traceback en el arranque (16:37:49) es un 404 de un archivo estático, no relacionado.
+- Pendiente: probar con `irexti` que el menú muestra "Listar usuarios" y abre `/users/list/`.
+
+### 2026-10-05 (Corrección de la restricción de auditoría: error al guardar y selector de roles)
+
+Problema reportado por `irexti` al inactivar a `pabloTest` (id 133):
+- Error al guardar: `'AppBuilder' object has no attribute 'get_session'`. La consulta de roles usaba un atributo que no existe en FAB.
+- El selector de roles mostraba solo "Permiso basico", porque el filtro de asignables también se aplicaba al editar. Al guardar, los roles no listados se perderían.
+
+Verificación en base: `pabloTest` conserva sus roles (`Permiso basico`, `Ver Data Scanner`) y sigue activo; el fallo ocurrió antes de escribir.
+
+Cambios en `/home/imercados/.superset/superset_config.py`:
+- `_roles_en_bd`: `self.appbuilder.get_session` → `self.datamodel.session`.
+- Se quita `edit_form_query_rel_fields`; el filtro de asignables queda solo para alta. La protección al editar sigue en `pre_update`.
+- `pre_update`: si la validación rechaza el cambio, se hace `rollback()` de la sesión antes de lanzar el error.
+
+Verificación: `py_compile` sin errores. Pendiente: reiniciar `superset.service` y probar con `irexti` (inactivar a `pabloTest` debe mostrar el mensaje de restricción y no cambiar nada).
+
+### 2026-10-05 (Rol de auditoría: gestión completa de usuarios y roles, sin restricción)
+
+Decisión del usuario: el rol de auditoría debe poder crear y modificar usuarios (incluidos los Admin), crear y modificar roles, y ver todos los roles. No se le da ningún menú adicional.
+
+Consecuencia de seguridad: quien tenga este rol puede asignarse el rol Admin o modificar los permisos del rol Admin, es decir, equivale a Admin en gestión de usuarios y roles.
+
+Cambios en la base de producción (rol 106 "Auditoria Crear Usuarios", `ab_permission_view_role`):
+- Se agregan: `RoleModelView` `can_list`, `can_show`, `can_add`, `can_edit` (pv 37, 36, 38, 35); `UserDBModelView` `resetpasswords` (pv 33); `ResetPasswordView` `can_this_form_get` y `can_this_form_post` (pv 20 y 21).
+- No se agregan: borrado de usuarios o roles, menús nuevos.
+
+Cambios en `/home/imercados/.superset/superset_config.py`:
+- Se elimina la restricción de roles: la clase `AuditUserDBModelView`, el filtro `FiltroRolesAsignables`, sus constantes, la línea `userdbmodelview` y el bloque de comentarios asociado. Vuelve la vista estándar de FAB.
+- Se agrega un `before_request` en `register_views`: si un usuario autenticado sin rol Admin entra a `/users`, se redirige a `/users/list/`. Motivo: la página React `/users/` solo se renderiza para Admin.
+- Import: `current_user` de `flask_login`.
+- Respaldo previo: `scratchpad/superset_config.before_simplify.py`.
+
+Pendiente: reiniciar `superset.service` y probar con `irexti`: entrar a `/users` (debe redirigir a `/users/list/`), editar a `pabloTest` y a `admin`, y ver la lista de roles en `/roles/list/`.
+
+
+## 2026-10-08 - SQL Lab: MCP responses up to 50,000 tokens in test
+
+- Canonical files: `custom-src/MCPResponseSizeGuard/patch_response_size_guard.py`
+  and `test_response_size_guard.py`; migration step 18 in `migrate-plugins.sh`.
+- Applied generated patch to `superset_v6_1_0/superset/mcp_service/middleware.py`:
+  configuration-owned per-tool limits, including proxy resolution, without
+  mutating the shared middleware or changing its 25,000-token default.
+- `superset_config_test.py`: 50,000 tokens for `get_sql_schema_context`,
+  `explain_query` and `check_query_nulls`; no production override or restart.
+- Validation: existing guard tests plus regressions for concurrent chat/SQL Lab,
+  proxy, the 50,000-token ceiling and invalid limits: 23 passed.
+- Documentation: `PLUGINS.md`. No extension package rebuilt or promoted.
+
+### Verificacion real del limite SQL Lab (2026-10-08)
+
+Tras reiniciar solo superset_mcp_test.service, el mismo SQL de la sesion original
+se verifico directamente sin llamar a un LLM. El middleware registro ~41.127
+tokens (82% del limite activo de 50.000), y devolvio el plan ejecutado sin retirar
+fuentes de la consulta. Las pruebas del guard siguen en 23 passed; ruff pasa.
+No se reiniciaron servicios ni se cambio la configuracion de produccion.

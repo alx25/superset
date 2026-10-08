@@ -54,6 +54,21 @@ class FakeDatabase:
         return self._tables
 
 
+class FakeDatabaseWithViews(FakeDatabase):
+    """Como Superset real: tablas, vistas (tuplas) y vistas materializadas (objetos con .table)."""
+
+    def __init__(self, tables=None, views=None, mviews=None):
+        super().__init__(tables=tables)
+        self._views = views or set()
+        self._mviews = mviews or set()
+
+    def get_all_view_names_in_schema(self, catalog, schema):
+        return self._views
+
+    def get_all_materialized_view_names_in_schema(self, catalog, schema):
+        return [types.SimpleNamespace(table=n) for n in self._mviews]
+
+
 def _install_superset_stubs(
     database=None,
     can_access_database=True,
@@ -233,3 +248,96 @@ class TestTableColumns:
         dumped = response.model_dump()
         assert "sqlalchemy_uri" not in dumped
         assert "password" not in str(dumped).lower()
+
+
+class TestViews:
+    """Pedido del usuario 2026-10-07: el listado omitía las vistas (solo
+    `get_table_names()`, tablas físicas) -- una vista real nunca se
+    descubría. Ahora van aparte, para que el modelo sepa que NO es tabla."""
+
+    def _db(self):
+        return FakeDatabaseWithViews(
+            tables={("vi_plan_visita_tb", "appsheet", None)},
+            views={("vi_plan_ruta_vista", "appsheet", None)},
+            mviews={"mv_resumen"},
+        )
+
+    def test_lists_views_and_materialized_views_separately(self):
+        _install_superset_stubs(database=self._db())
+        response = get_sql_schema_context(_base_request())
+        assert response.tables == ["vi_plan_visita_tb"]
+        assert response.views == ["vi_plan_ruta_vista"]
+        assert response.materialized_views == ["mv_resumen"]
+
+    def test_search_applies_to_views(self):
+        _install_superset_stubs(database=self._db())
+        response = get_sql_schema_context(_base_request(search="ruta_vista"))
+        assert response.tables == []
+        assert response.views == ["vi_plan_ruta_vista"]
+
+    def test_limit_is_per_category_so_views_are_not_pushed_out_by_tables(self):
+        db = FakeDatabaseWithViews(
+            tables={(f"t_{i}", "s", None) for i in range(5)},
+            views={("v_unica", "s", None)},
+        )
+        _install_superset_stubs(database=db)
+        response = get_sql_schema_context(_base_request(limit=2))
+        assert len(response.tables) == 2
+        assert response.views == ["v_unica"]
+        assert response.truncated is True
+
+    def test_view_listing_failure_does_not_break_table_listing(self):
+        class NoViews(FakeDatabaseWithViews):
+            def get_all_view_names_in_schema(self, catalog, schema):
+                raise RuntimeError("motor sin vistas")
+
+        _install_superset_stubs(database=NoViews(tables={("a", "s", None)}))
+        response = get_sql_schema_context(_base_request())
+        assert response.success is True
+        assert response.tables == ["a"]
+        assert response.views == []
+
+    def test_table_lookup_reports_kind(self):
+        meta = {"name": "x", "columns": [{"name": "c", "type": "int"}]}
+        _install_superset_stubs(database=self._db(), table_metadata={**meta, "name": "vi_plan_ruta_vista"})
+        assert get_sql_schema_context(_base_request(table="vi_plan_ruta_vista")).table.kind == "view"
+        _install_superset_stubs(database=self._db(), table_metadata={**meta, "name": "mv_resumen"})
+        assert get_sql_schema_context(_base_request(table="mv_resumen")).table.kind == "materialized_view"
+        _install_superset_stubs(database=self._db(), table_metadata={**meta, "name": "vi_plan_visita_tb"})
+        assert get_sql_schema_context(_base_request(table="vi_plan_visita_tb")).table.kind == "table"
+
+
+class TestStructureInResponse:
+    """Pedido 2026-10-08: PK/FK/índices/vista como metadatos estructurados."""
+
+    _META = {"name": "x", "columns": [{"name": "c", "type": "int"}]}
+
+    def _db(self):
+        return FakeDatabaseWithViews(
+            tables={("t", "appsheet", None)}, views={("v", "appsheet", None)}
+        )
+
+    def test_include_structure_false_returns_only_columns(self):
+        _install_superset_stubs(database=self._db(), table_metadata=self._META)
+        response = get_sql_schema_context(_base_request(table="t", include_structure=False))
+        assert response.table.primary_key is None and response.table.indexes is None
+
+    def test_section_failures_are_explicit_not_fatal(self):
+        # FakeDatabase no implementa get_inspector: cada sección falla por separado
+        # y lo dice en su `status`, sin tumbar las columnas.
+        _install_superset_stubs(database=self._db(), table_metadata=self._META)
+        response = get_sql_schema_context(_base_request(table="t"))
+        assert response.success is True and response.table.columns
+        assert response.table.primary_key.status == "error"
+        assert response.table.foreign_keys.status == "error"
+        assert response.table.indexes.status == "error"
+        assert response.table.view is None
+
+    def test_view_gets_not_applicable_for_keys_and_a_view_section(self):
+        _install_superset_stubs(database=self._db(), table_metadata=self._META)
+        response = get_sql_schema_context(_base_request(table="v"))
+        assert response.table.kind == "view"
+        assert response.table.primary_key.status == "not_applicable"
+        assert response.table.foreign_keys.status == "not_applicable"
+        assert response.table.indexes.status == "not_applicable"
+        assert response.table.view is not None

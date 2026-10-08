@@ -1260,3 +1260,6 @@ echo "  npm run build   (o para debug: npm run dev-server)"
 echo ""
 echo "  Backend: reiniciar Superset para aplicar cambios Python"
 echo "  Debug:   superset run -p 9050 -h 0.0.0.0 --with-threads --reload --debugger"
+
+# 18. MCP: trusted per-tool response limits
+python3 "$CUSTOM_SRC/MCPResponseSizeGuard/patch_response_size_guard.py" "$TARGET"

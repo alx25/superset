@@ -373,3 +373,15 @@ Explore" (ver `docs/explore-assistant-contract.md` de `irex-mcp-tools` y la entr
 
 | `superset/mcp_service/chart/tool/list_charts.py` | Tag `"irex"` sumado a `tags=["core"]` — sin esto, `MCP_FACTORY_CONFIG(include_tags=["irex"])` de `superset_config_test.py`/prod lo oculta de `tools/list` por completo (sigue siendo llamable por nombre exacto, pero el modelo no lo ve). |
 | `superset/mcp_service/chart/tool/get_chart_info.py` | Mismo motivo — tag `"irex"` sumado a `tags=["discovery"]`. |
+
+
+### MCP response limits by tool (2026-10-08)
+
+Canonical patch: `custom-src/MCPResponseSizeGuard/patch_response_size_guard.py`.
+Step 18 of `migrate-plugins.sh` adds `tool_token_limits` to the response-size guard.
+The configuration owns the override; client metadata cannot increase it. Each
+request uses an independent guard so concurrent tools retain their own limits.
+Test config sets 50,000 tokens for SQL Lab schema, EXPLAIN and null-profile tools;
+the global 25,000-token default and production configuration are unchanged.
+Tests: `custom-src/MCPResponseSizeGuard/test_response_size_guard.py` plus the
+existing `tests/unit_tests/mcp_service/test_middleware.py` (23 passed).

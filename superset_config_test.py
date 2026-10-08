@@ -2878,3 +2878,16 @@ MCP_EXPORT_BASE_URL = "http://192.168.76.11"
 #     if env_var in os.environ:
 #         config_var = env_var.replace("SUPERSET__", "")
 #         globals()[config_var] = os.environ[env_var]
+
+# IREX SQL Lab response limits (2026-10-08)
+# Trusted per-tool limits; the default response guard stays at 25,000 tokens.
+MCP_RESPONSE_SIZE_CONFIG = {
+    **MCP_RESPONSE_SIZE_CONFIG,
+    "tool_token_limits": {
+        **MCP_RESPONSE_SIZE_CONFIG.get("tool_token_limits", {}),
+        **{
+            f"extensions.irex.irex-mcp-tools.irex.{name}": 50_000
+            for name in ("get_sql_schema_context", "explain_query", "check_query_nulls")
+        },
+    },
+}
