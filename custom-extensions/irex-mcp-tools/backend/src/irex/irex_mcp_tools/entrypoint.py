@@ -44,6 +44,7 @@ from . import rank_partitions  # noqa: F401,E402
 from . import sql_schema_context  # noqa: F401,E402
 from . import get_explore_state  # noqa: F401,E402
 from . import get_dataset_catalog  # noqa: F401,E402
+from . import resolve_temporal_expression  # noqa: F401,E402
 from . import get_viz_controls  # noqa: F401,E402
 from . import validate_expression  # noqa: F401,E402
 from . import validate_calculated_column_formula  # noqa: F401,E402

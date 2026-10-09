@@ -726,3 +726,80 @@ explícito, la MISMA configuración puede verse distinta en la próxima
 carga (hallazgo real, ver `Registro de cambios.md` — bug de matriz
 marca×mes). La revisión visual complementa la verificación de la consulta,
 nunca la reemplaza.
+
+## Agrupación temporal: `query_capabilities` + `irex.resolve_temporal_expression` (2026-10-09)
+
+Objetivo: que el modelo agrupe una columna temporal con lo que Superset y el
+motor realmente soportan, sin que nadie (ni el modelo ni esta extensión)
+mantenga funciones SQL de fecha por base de datos. Ejemplos reales completos:
+`docs/explore-temporal-examples.json`.
+
+### `irex.get_dataset_catalog` → nueva sección `query_capabilities`
+
+Aditiva: `form_data_key`, `slice_id`, `datasource`, `state_kind`, `columns`,
+`metrics` y `truncated` no cambian. Si la sección falla, solo ella lleva el
+error; columnas y métricas se devuelven igual.
+
+```json
+"query_capabilities": {
+  "status": "ok | unsupported | permission_denied | error",
+  "detail": "solo si status != ok",
+  "database": {"id": 2, "name": "Cubo PSQL"},
+  "engine": "postgresql",
+  "engine_name": "PostgreSQL",
+  "backend": "postgresql",
+  "sqlglot_dialect": "postgres",
+  "time_grains": [{"id": "P1D", "label": "Day"}, {"id": "P1M", "label": "Month"}],
+  "source": "db_engine_spec.get_time_grains"
+}
+```
+
+`time_grains` es la misma lista que el selector "Time grain" de Explore
+(`db_engine_spec.get_time_grains()`, con `TIME_GRAIN_ADDONS` y sin
+`TIME_GRAIN_DENYLIST`). No incluye URI, usuario ni host. No expone las
+plantillas SQL de cada granularidad a propósito: la expresión se pide a la tool.
+
+### `irex.resolve_temporal_expression`
+
+Entrada (no acepta SQL):
+
+| campo | tipo | descripción |
+|---|---|---|
+| `form_data_key` | string (1–256) | revisión actual del gráfico; se verifica con `verified_explore_state` (acceso a Explore, gráfico y dataset) |
+| `column_name` | string (1–256) | nombre exacto de una columna activa del dataset |
+| `time_grain` | string (1–64) | un `id` de `query_capabilities.time_grains` |
+
+Salida con `status: "generated"`:
+
+```json
+{
+  "status": "generated",
+  "detail": "Expresión generada por Superset para este motor; todavía no se ejecutó ni se validó.",
+  "resolution": {"generated": true, "executed": false, "validated": false,
+                 "method": "TableColumn.get_timestamp_expression -> db_engine_spec.get_timestamp_expr"},
+  "expression": "toStartOfMonth(toDateTime(`fecha_id`))",
+  "next_step": {"tool": "irex.validate_expression",
+                "arguments": {"dataset_id": 5, "expression": "...", "kind": "column"}},
+  "form_data_key": "...", "slice_id": 35, "state_kind": "last_persisted",
+  "dataset": {"id": 5, "name": "Corte Ventas Clickhouse", "schema": "default", "database_id": 3},
+  "engine": "clickhousedb",
+  "column": {"name": "fecha_id", "type": "Nullable(DateTime64(6))", "is_temporal": true,
+             "is_calculated": false, "expression": "(solo calculadas)", "python_date_format": "(si existe)"},
+  "time_grain": {"id": "P1M", "label": "Month"}
+}
+```
+
+Otros `status` (siempre con `detail` y `resolution.generated=false`, sin
+`expression`): `column_not_found`, `column_not_temporal` (columna sin
+`is_dttm`), `time_grain_not_supported` (trae `supported_time_grains`),
+`unsupported` (el motor no declara granularidades o Superset lanza
+`NotImplementedError`), `invalid_revision` (key vencida/inexistente, estado
+inválido o dataset borrado), `permission_denied`, `error`.
+
+`generated` no significa válida: el modelo debe llamar a
+`irex.validate_expression` con `next_step.arguments` (eso sí ejecuta, con
+`row_limit=1` y RLS) antes de proponer el cambio. La expresión se compila con
+el dialecto de la base (`database.get_dialect()`, `literal_binds`) a partir de
+`TableColumn.get_timestamp_expression` — para una columna calculada envuelve su
+`expression` (plantillas Jinja procesadas con el template processor del
+dataset); para `python_date_format` epoch aplica la conversión del motor.

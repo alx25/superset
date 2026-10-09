@@ -2818,6 +2818,7 @@ MCP_TOOL_SEARCH_CONFIG = {
         "extensions.irex.irex-mcp-tools.irex.check_query_nulls",
         "extensions.irex.irex-mcp-tools.irex.get_explore_state",
         "extensions.irex.irex-mcp-tools.irex.get_dataset_catalog",
+        "extensions.irex.irex-mcp-tools.irex.resolve_temporal_expression",
         "extensions.irex.irex-mcp-tools.irex.explain_chart",
         "extensions.irex.irex-mcp-tools.irex.preview_chart",
         "extensions.irex.irex-mcp-tools.irex.get_viz_controls",

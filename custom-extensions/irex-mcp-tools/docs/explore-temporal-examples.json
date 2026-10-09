@@ -1,0 +1,532 @@
+{
+  "_nota": "Respuestas reales de test (2026-10-09), metadata de test (sqlite) y bases reales; form_data_key temporales ya borradas. 'then_irex.validate_expression' NO es parte de la respuesta de resolve_temporal_expression: es la llamada siguiente que la verifica.",
+  "get_dataset_catalog.query_capabilities (PostgreSQL, borrador slice_id=null)": {
+    "form_data_key": "irex-e2e-ba35Rt1J5no",
+    "slice_id": null,
+    "datasource": {
+      "id": 10,
+      "type": "table"
+    },
+    "state_kind": "last_persisted",
+    "query_capabilities": {
+      "status": "ok",
+      "database": {
+        "id": 2,
+        "name": "Cubo PSQL"
+      },
+      "engine": "postgresql",
+      "engine_name": "PostgreSQL",
+      "backend": "postgresql",
+      "sqlglot_dialect": "postgres",
+      "time_grains": [
+        {
+          "id": "PT1S",
+          "label": "Second"
+        },
+        {
+          "id": "PT5S",
+          "label": "5 second"
+        },
+        {
+          "id": "PT30S",
+          "label": "30 second"
+        },
+        {
+          "id": "PT1M",
+          "label": "Minute"
+        },
+        {
+          "id": "PT5M",
+          "label": "5 minute"
+        },
+        {
+          "id": "PT10M",
+          "label": "10 minute"
+        },
+        {
+          "id": "PT15M",
+          "label": "15 minute"
+        },
+        {
+          "id": "PT30M",
+          "label": "30 minute"
+        },
+        {
+          "id": "PT1H",
+          "label": "Hour"
+        },
+        {
+          "id": "P1D",
+          "label": "Day"
+        },
+        {
+          "id": "P1W",
+          "label": "Week"
+        },
+        {
+          "id": "P1M",
+          "label": "Month"
+        },
+        {
+          "id": "P3M",
+          "label": "Quarter"
+        },
+        {
+          "id": "P1Y",
+          "label": "Year"
+        }
+      ],
+      "source": "db_engine_spec.get_time_grains"
+    },
+    "columns_sample": [
+      {
+        "name": "fecha_id",
+        "type": "DATETIME",
+        "is_temporal": true
+      }
+    ]
+  },
+  "get_dataset_catalog.query_capabilities (ClickHouse, gráfico guardado)": {
+    "form_data_key": "irex-e2e-M9XD9xcGIbM",
+    "slice_id": 35,
+    "datasource": {
+      "id": 5,
+      "type": "table"
+    },
+    "state_kind": "last_persisted",
+    "query_capabilities": {
+      "status": "ok",
+      "database": {
+        "id": 3,
+        "name": "ClickHouse Connet 192(docker)"
+      },
+      "engine": "clickhousedb",
+      "engine_name": "ClickHouse",
+      "backend": "clickhousedb",
+      "sqlglot_dialect": "clickhouse",
+      "time_grains": [
+        {
+          "id": "PT1M",
+          "label": "Minute"
+        },
+        {
+          "id": "PT5M",
+          "label": "5 minute"
+        },
+        {
+          "id": "PT10M",
+          "label": "10 minute"
+        },
+        {
+          "id": "PT15M",
+          "label": "15 minute"
+        },
+        {
+          "id": "PT30M",
+          "label": "30 minute"
+        },
+        {
+          "id": "PT1H",
+          "label": "Hour"
+        },
+        {
+          "id": "P1D",
+          "label": "Day"
+        },
+        {
+          "id": "P1W",
+          "label": "Week"
+        },
+        {
+          "id": "P1M",
+          "label": "Month"
+        },
+        {
+          "id": "P3M",
+          "label": "Quarter"
+        },
+        {
+          "id": "P1Y",
+          "label": "Year"
+        }
+      ],
+      "source": "db_engine_spec.get_time_grains"
+    },
+    "columns_sample": [
+      {
+        "name": "fecha_id",
+        "type": "Nullable(DateTime64(6))",
+        "is_temporal": true
+      }
+    ]
+  },
+  "resolve (PostgreSQL, columna física, gráfico guardado, P1D)": {
+    "response": {
+      "status": "generated",
+      "detail": "Expresión generada por Superset para este motor; todavía no se ejecutó ni se validó.",
+      "resolution": {
+        "generated": true,
+        "executed": false,
+        "validated": false,
+        "method": "TableColumn.get_timestamp_expression -> db_engine_spec.get_timestamp_expr"
+      },
+      "expression": "DATE_TRUNC('day', fecha_id)",
+      "next_step": {
+        "tool": "irex.validate_expression",
+        "arguments": {
+          "dataset_id": 10,
+          "expression": "DATE_TRUNC('day', fecha_id)",
+          "kind": "column"
+        }
+      },
+      "form_data_key": "irex-e2e-g4b7p3rC4rk",
+      "slice_id": 75,
+      "state_kind": "last_persisted",
+      "dataset": {
+        "id": 10,
+        "name": "Devoluciones",
+        "schema": "dbo",
+        "database_id": 2
+      },
+      "engine": "postgresql",
+      "column": {
+        "name": "fecha_id",
+        "type": "DATETIME",
+        "is_temporal": true,
+        "is_calculated": false
+      },
+      "time_grain": {
+        "id": "P1D",
+        "label": "Day"
+      }
+    },
+    "then_irex.validate_expression (ejecutado aparte, row_limit=1)": {
+      "valid": true,
+      "dataset_id": 10,
+      "expression": "DATE_TRUNC('day', fecha_id)"
+    }
+  },
+  "resolve (PostgreSQL, columna física, borrador slice_id=null, P1M)": {
+    "response": {
+      "status": "generated",
+      "detail": "Expresión generada por Superset para este motor; todavía no se ejecutó ni se validó.",
+      "resolution": {
+        "generated": true,
+        "executed": false,
+        "validated": false,
+        "method": "TableColumn.get_timestamp_expression -> db_engine_spec.get_timestamp_expr"
+      },
+      "expression": "DATE_TRUNC('month', fecha_id)",
+      "next_step": {
+        "tool": "irex.validate_expression",
+        "arguments": {
+          "dataset_id": 10,
+          "expression": "DATE_TRUNC('month', fecha_id)",
+          "kind": "column"
+        }
+      },
+      "form_data_key": "irex-e2e-ba35Rt1J5no",
+      "slice_id": null,
+      "state_kind": "last_persisted",
+      "dataset": {
+        "id": 10,
+        "name": "Devoluciones",
+        "schema": "dbo",
+        "database_id": 2
+      },
+      "engine": "postgresql",
+      "column": {
+        "name": "fecha_id",
+        "type": "DATETIME",
+        "is_temporal": true,
+        "is_calculated": false
+      },
+      "time_grain": {
+        "id": "P1M",
+        "label": "Month"
+      }
+    },
+    "then_irex.validate_expression (ejecutado aparte, row_limit=1)": {
+      "valid": true,
+      "dataset_id": 10,
+      "expression": "DATE_TRUNC('month', fecha_id)"
+    }
+  },
+  "resolve (PostgreSQL, columna calculada, P1M)": {
+    "response": {
+      "status": "generated",
+      "detail": "Expresión generada por Superset para este motor; todavía no se ejecutó ni se validó.",
+      "resolution": {
+        "generated": true,
+        "executed": false,
+        "validated": false,
+        "method": "TableColumn.get_timestamp_expression -> db_engine_spec.get_timestamp_expr"
+      },
+      "expression": "DATE_TRUNC('month', make_date(anio_id, mes_id, 1))",
+      "next_step": {
+        "tool": "irex.validate_expression",
+        "arguments": {
+          "dataset_id": 12,
+          "expression": "DATE_TRUNC('month', make_date(anio_id, mes_id, 1))",
+          "kind": "column"
+        }
+      },
+      "form_data_key": "irex-e2e-qsicA5Wt5Rc",
+      "slice_id": 91,
+      "state_kind": "last_persisted",
+      "dataset": {
+        "id": 12,
+        "name": "matriz_cobertura",
+        "schema": "dbo",
+        "database_id": 2
+      },
+      "engine": "postgresql",
+      "column": {
+        "name": "Fecha",
+        "type": null,
+        "is_temporal": true,
+        "is_calculated": true,
+        "expression": "make_date(anio_id, mes_id, 1)"
+      },
+      "time_grain": {
+        "id": "P1M",
+        "label": "Month"
+      }
+    },
+    "then_irex.validate_expression (ejecutado aparte, row_limit=1)": {
+      "valid": true,
+      "dataset_id": 12,
+      "expression": "DATE_TRUNC('month', make_date(anio_id, mes_id, 1))"
+    }
+  },
+  "resolve (ClickHouse, columna física, P1D)": {
+    "response": {
+      "status": "generated",
+      "detail": "Expresión generada por Superset para este motor; todavía no se ejecutó ni se validó.",
+      "resolution": {
+        "generated": true,
+        "executed": false,
+        "validated": false,
+        "method": "TableColumn.get_timestamp_expression -> db_engine_spec.get_timestamp_expr"
+      },
+      "expression": "toStartOfDay(toDateTime(`fecha_id`))",
+      "next_step": {
+        "tool": "irex.validate_expression",
+        "arguments": {
+          "dataset_id": 5,
+          "expression": "toStartOfDay(toDateTime(`fecha_id`))",
+          "kind": "column"
+        }
+      },
+      "form_data_key": "irex-e2e-M9XD9xcGIbM",
+      "slice_id": 35,
+      "state_kind": "last_persisted",
+      "dataset": {
+        "id": 5,
+        "name": "Corte Ventas Clickhouse",
+        "schema": "default",
+        "database_id": 3
+      },
+      "engine": "clickhousedb",
+      "column": {
+        "name": "fecha_id",
+        "type": "Nullable(DateTime64(6))",
+        "is_temporal": true,
+        "is_calculated": false
+      },
+      "time_grain": {
+        "id": "P1D",
+        "label": "Day"
+      }
+    },
+    "then_irex.validate_expression (ejecutado aparte, row_limit=1)": {
+      "valid": true,
+      "dataset_id": 5,
+      "expression": "toStartOfDay(toDateTime(`fecha_id`))"
+    }
+  },
+  "resolve (ClickHouse, columna física, P1M)": {
+    "response": {
+      "status": "generated",
+      "detail": "Expresión generada por Superset para este motor; todavía no se ejecutó ni se validó.",
+      "resolution": {
+        "generated": true,
+        "executed": false,
+        "validated": false,
+        "method": "TableColumn.get_timestamp_expression -> db_engine_spec.get_timestamp_expr"
+      },
+      "expression": "toStartOfMonth(toDateTime(`fecha_id`))",
+      "next_step": {
+        "tool": "irex.validate_expression",
+        "arguments": {
+          "dataset_id": 5,
+          "expression": "toStartOfMonth(toDateTime(`fecha_id`))",
+          "kind": "column"
+        }
+      },
+      "form_data_key": "irex-e2e-M9XD9xcGIbM",
+      "slice_id": 35,
+      "state_kind": "last_persisted",
+      "dataset": {
+        "id": 5,
+        "name": "Corte Ventas Clickhouse",
+        "schema": "default",
+        "database_id": 3
+      },
+      "engine": "clickhousedb",
+      "column": {
+        "name": "fecha_id",
+        "type": "Nullable(DateTime64(6))",
+        "is_temporal": true,
+        "is_calculated": false
+      },
+      "time_grain": {
+        "id": "P1M",
+        "label": "Month"
+      }
+    },
+    "then_irex.validate_expression (ejecutado aparte, row_limit=1)": {
+      "valid": true,
+      "dataset_id": 5,
+      "expression": "toStartOfMonth(toDateTime(`fecha_id`))"
+    }
+  },
+  "resolve: column_not_found": {
+    "response": {
+      "status": "column_not_found",
+      "detail": "El dataset no tiene una columna activa llamada 'no_existe' (el nombre es exacto, sensible a mayúsculas: ver irex.get_dataset_catalog).",
+      "resolution": {
+        "generated": false,
+        "executed": false,
+        "validated": false,
+        "method": null
+      },
+      "form_data_key": "irex-e2e-gjM1Lf-da2w",
+      "slice_id": 148,
+      "state_kind": "last_persisted",
+      "dataset": {
+        "id": 16,
+        "name": "Bot Teams",
+        "schema": "public",
+        "database_id": 4
+      },
+      "engine": "postgresql"
+    }
+  },
+  "resolve: column_not_temporal": {
+    "response": {
+      "status": "column_not_temporal",
+      "detail": "La columna no está marcada como temporal en el dataset (is_dttm); Superset no le aplica granularidad. Elegir una columna temporal del catálogo o marcarla temporal en el dataset.",
+      "resolution": {
+        "generated": false,
+        "executed": false,
+        "validated": false,
+        "method": null
+      },
+      "form_data_key": "irex-e2e-gjM1Lf-da2w",
+      "slice_id": 148,
+      "state_kind": "last_persisted",
+      "dataset": {
+        "id": 16,
+        "name": "Bot Teams",
+        "schema": "public",
+        "database_id": 4
+      },
+      "engine": "postgresql",
+      "column": {
+        "name": "anio_id",
+        "type": "FLOAT",
+        "is_temporal": false,
+        "is_calculated": false
+      }
+    }
+  },
+  "resolve: time_grain_not_supported (ClickHouse no admite PT1S)": {
+    "response": {
+      "status": "time_grain_not_supported",
+      "detail": "'PT1S' no es una granularidad admitida por este motor.",
+      "resolution": {
+        "generated": false,
+        "executed": false,
+        "validated": false,
+        "method": null
+      },
+      "supported_time_grains": [
+        {
+          "id": "PT1M",
+          "label": "Minute"
+        },
+        {
+          "id": "PT5M",
+          "label": "5 minute"
+        },
+        {
+          "id": "PT10M",
+          "label": "10 minute"
+        },
+        {
+          "id": "PT15M",
+          "label": "15 minute"
+        },
+        {
+          "id": "PT30M",
+          "label": "30 minute"
+        },
+        {
+          "id": "PT1H",
+          "label": "Hour"
+        },
+        {
+          "id": "P1D",
+          "label": "Day"
+        },
+        {
+          "id": "P1W",
+          "label": "Week"
+        },
+        {
+          "id": "P1M",
+          "label": "Month"
+        },
+        {
+          "id": "P3M",
+          "label": "Quarter"
+        },
+        {
+          "id": "P1Y",
+          "label": "Year"
+        }
+      ],
+      "form_data_key": "irex-e2e-M9XD9xcGIbM",
+      "slice_id": 35,
+      "state_kind": "last_persisted",
+      "dataset": {
+        "id": 5,
+        "name": "Corte Ventas Clickhouse",
+        "schema": "default",
+        "database_id": 3
+      },
+      "engine": "clickhousedb",
+      "column": {
+        "name": "fecha_id",
+        "type": "Nullable(DateTime64(6))",
+        "is_temporal": true,
+        "is_calculated": false
+      }
+    }
+  },
+  "resolve: invalid_revision": {
+    "response": {
+      "status": "invalid_revision",
+      "detail": "form_data_key no encontrada o vencida",
+      "form_data_key": "no-existe-xyz"
+    }
+  },
+  "resolve: permission_denied (usuario Gamma 'test')": {
+    "response": {
+      "status": "permission_denied",
+      "detail": "Acceso al dataset o gráfico denegado",
+      "form_data_key": "irex-e2e-g4b7p3rC4rk"
+    }
+  }
+}

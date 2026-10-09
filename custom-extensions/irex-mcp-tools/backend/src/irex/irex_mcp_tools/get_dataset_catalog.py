@@ -33,6 +33,7 @@ from superset_core.mcp.decorators import tool
 
 from .explore_dataset_catalog_core import dataset_catalog
 from .explore_state_core import verified_explore_state
+from .explore_temporal_core import query_capabilities
 
 
 class GetDatasetCatalogRequest(BaseModel):
@@ -58,7 +59,13 @@ class GetDatasetCatalogRequest(BaseModel):
         "guarda nada: nunca devuelve filas, y state_kind sigue siendo "
         "last_persisted. Si 'truncated'=true, la lista de columnas o "
         "métricas está incompleta — no asumir que un nombre no existe "
-        "solo porque no aparece."
+        "solo porque no aparece. 'query_capabilities' informa la base "
+        "(id, motor, dialecto) y las granularidades temporales que Superset "
+        "admite para ese motor (id ISO 8601 + etiqueta, ej. P1D, P1M): usar "
+        "esos ids con irex.resolve_temporal_expression para obtener la "
+        "expresión de agrupación temporal, en vez de escribir funciones SQL "
+        "de fecha a mano. Si su 'status' no es 'ok', columnas y métricas "
+        "siguen siendo válidas."
     ),
     tags=["irex", "explore", "chart", "dataset", "read_only"],
     class_permission_name="Chart",
@@ -119,4 +126,7 @@ def get_dataset_catalog(request: GetDatasetCatalogRequest) -> dict[str, Any]:
         "datasource": verified["datasource"],
         "state_kind": verified["state_kind"],
         **dataset_catalog(columns, metrics),
+        # Si falla, `query_capabilities` lo dice en su `status`; nunca
+        # impide devolver columnas y métricas.
+        "query_capabilities": query_capabilities(dataset.database),
     }

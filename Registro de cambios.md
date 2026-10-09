@@ -1,5 +1,33 @@
 ## Registro de cambios
 
+### 2026-10-09 (Explore: granularidades temporales reales del motor + `irex.resolve_temporal_expression` — solo test)
+
+Cambio realizado: que el copiloto de Explore descubra cómo agrupar una columna temporal con las capacidades reales de Superset y del motor, sin funciones SQL fijadas por base.
+
+Archivos afectados:
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/explore_temporal_core.py` (nuevo): `query_capabilities` y núcleo de resolución.
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/resolve_temporal_expression.py` (nuevo): tool `irex.resolve_temporal_expression`.
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/get_dataset_catalog.py`: sección aditiva `query_capabilities`.
+- `custom-extensions/irex-mcp-tools/backend/src/irex/irex_mcp_tools/entrypoint.py`: registro de la tool.
+- `superset_config_test.py`: tool agregada a `always_visible` (respaldo previo en `/tmp/superset_config_test.backup-*.py`). Producción NO tocada.
+- `custom-extensions/irex-mcp-tools/backend/tests/test_explore_temporal_core.py` (nuevo, 14 tests).
+- `custom-extensions/irex-mcp-tools/docs/explore-assistant-contract.md` (esquemas) y `docs/explore-temporal-examples.json` (respuestas reales).
+
+Qué hace:
+- `query_capabilities`: base (id, nombre), motor, backend, dialecto sqlglot y `time_grains` [{id, label}] de `db_engine_spec.get_time_grains()` — sin URI ni credenciales. Falla aislada con `status`.
+- `resolve_temporal_expression(form_data_key, column_name, time_grain)`: verifica la revisión con `verified_explore_state`, comprueba columna activa, `is_dttm` y granularidad admitida, y genera la expresión con `TableColumn.get_timestamp_expression` → `db_engine_spec.get_timestamp_expr`, compilada con el dialecto de la base. `status="generated"` + `resolution {generated: true, executed: false, validated: false}` + `next_step` hacia `irex.validate_expression`. No recibe SQL, no guarda ni ejecuta.
+
+Verificación (test, en proceso con la config de test — metadata sqlite propia, bases reales):
+- PostgreSQL "Cubo PSQL", dataset 10, columna física `fecha_id`: gráfico guardado (slice 75) y borrador (`slice_id=null`), P1D → `DATE_TRUNC('day', fecha_id)` y P1M → `DATE_TRUNC('month', fecha_id)`; las cuatro `validate_expression` `valid=true` contra datos reales.
+- PostgreSQL, dataset 12, columna CALCULADA `Fecha` (`make_date(anio_id, mes_id, 1)`): P1M/P1D `valid=true`.
+- ClickHouse, dataset 5, `fecha_id`: P1D → ``toStartOfDay(toDateTime(`fecha_id`))``, P1M → ``toStartOfMonth(...)``, ambas `valid=true`.
+- Estados: `column_not_found`, `column_not_temporal`, `time_grain_not_supported` (ClickHouse no admite PT1S), `invalid_revision`, `permission_denied` (usuario Gamma `test`) — todos reales.
+- Simulado (sin caso real en test): motor sin granularidades (`unsupported`), `NotImplementedError` de Superset, error de compilación y `query_capabilities` con error/permiso — solo con dobles en pruebas unitarias.
+- Hallazgos: (1) en PostgreSQL `TimeGrain.duration` es un StrEnum; se normaliza a string. (2) La base "Bot Irex" (dataset 16) falla al conectar en test (`password authentication failed`) — no relacionado; por eso los casos PostgreSQL físicos se corrieron sobre "Cubo PSQL". (3) `irex.validate_expression` devuelve el mensaje crudo del driver en `error`, que puede incluir host y usuario de la base: preexistente, sin cambiar aquí.
+- 425 tests backend, 425 frontend; `.supx` de `extensions_test/` reconstruido con `build-extension.sh`. Reiniciado `superset_mcp_test.service` (PID 3789331, 2026-10-09 07:37) y verificado por el MCP real de test (puerto 5009): la tool aparece en `tools/list`; `get_dataset_catalog` devuelve `query_capabilities` (ClickHouse, borrador); `resolve_temporal_expression` genera P1D/P1M en PostgreSQL (gráfico guardado) y P1M en ClickHouse (borrador), y las tres pasan `validate_expression`; `PT1S` en ClickHouse → `time_grain_not_supported`; usuario Gamma → `permission_denied`. Keys de prueba borradas.
+
+**Promovido a producción (2026-10-09)** tras validación del usuario en test: se verificó que la fuente es idéntica a lo validado en `extensions_test/` y que las dependencias (`explore_state_core.py`, `sql_schema_structure.py`) ya estaban en producción; `zip -u` de `explore_temporal_core.py`, `resolve_temporal_expression.py` (nuevos), `get_dataset_catalog.py` y `entrypoint.py` sobre `extensions/irex-mcp-tools-0.1.0.supx` (copia fuente sincronizada) y `resolve_temporal_expression` agregado a `always_visible` en `/home/imercados/.superset/superset_config.py` (config verificada cargando el archivo; límites de respuesta intactos). Respaldos: `/tmp/irex-mcp-tools-prod-backup-202610091002-temporal.supx` y `/tmp/superset_config.prod.backup-202610091002-temporal.py`. Reiniciado `superset_mcp.service` (PID 3881412, 10:05:11) y verificado por el MCP real de producción (puerto 5008) con revisiones temporales (borradas al terminar): la tool aparece en `tools/list`; `query_capabilities` ok en PostgreSQL ("Cubo PSQL", 14 granularidades) y ClickHouse (11); P1D y P1M generadas para gráfico guardado y borrador en ambos motores — 8 de 8 pasan `validate_expression`. Incluye una columna física con espacios (`"FECHA ENVIO A CREDITO Y COBRO"`), que Superset citó correctamente.
+
 ### 2026-10-08 (SQL Lab: `irex.get_sql_schema_context` devuelve PK, FK, índices y definición/dependencias de vistas — en test)
 
 Cambio realizado: pedido de ampliar la tool para que el asistente conozca la estructura sin ejecutar consultas a `pg_indexes` con EXPLAIN ANALYZE (que devuelve el plan, no los valores). Con `table`, además de columnas y `kind`, ahora devuelve (salvo `include_structure=false`) metadatos estructurados:
