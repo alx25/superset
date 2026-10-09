@@ -1,0 +1,27 @@
+# Archivos de Superset que irex modifica y que se instalan como copia completa
+# ("overlay") porque no tienen un paso de parche propio en migrate-plugins.sh.
+# Una línea por ruta, relativa a la raíz de Superset. Ver README.md.
+#
+# Exportación CSV/Excel de pivot_table_rx1 (el parche 8b no aplica en 6.1.0)
+superset/common/query_context_processor.py
+# get_dashboard_info: description/default_value de filtros nativos (el paso 14 no aplica en 6.1.0)
+superset/mcp_service/dashboard/schemas.py
+# Tag "irex" para que list_charts/get_chart_info aparezcan con include_tags=["irex"]
+superset/mcp_service/chart/tool/list_charts.py
+superset/mcp_service/chart/tool/get_chart_info.py
+# Filtros malformados no tumban la consulta del gráfico
+superset/models/helpers.py
+# Barra de filtros: respetar la selección del usuario (requiredFirst, defaults)
+superset-frontend/src/dashboard/components/nativeFilters/dependencyGraph.ts
+superset-frontend/src/dashboard/components/nativeFilters/FilterBar/FilterControls/FilterValue.tsx
+superset-frontend/src/dashboard/components/nativeFilters/FilterBar/FilterControls/state.ts
+superset-frontend/src/dashboard/components/nativeFilters/FilterBar/FilterControls/state.test.ts
+superset-frontend/src/dashboard/components/nativeFilters/FilterBar/index.tsx
+superset-frontend/src/filters/components/Select/SelectFilterPlugin.tsx
+# Tests del sync de calculated_columns (el reducer lo parchea el paso 15)
+superset-frontend/src/explore/reducers/exploreReducer.test.ts
+# CSS/JS globales de la interfaz Irex
+superset/templates/head_custom_extra.html
+superset/templates/tail_js_custom_extra.html
+# Traducciones al español propias
+superset/translations/es/LC_MESSAGES/messages.po

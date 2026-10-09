@@ -1,5 +1,28 @@
 ## Registro de cambios
 
+### 2026-10-09 (instalación completa en un servidor nuevo: script, overlay, plantilla de config y verificación)
+
+Cambio realizado: validar que un Superset 6.1.0 limpio + `migrate-plugins.sh` reproduzca todo `superset_v6_1_0`. Prueba real: tag oficial `6.1.0` exportado a un temporal, script corrido, comparación archivo por archivo contra el árbol (AST para `.py`). Antes del cambio quedaban sin reproducir: exportación CSV/Excel de pivot Rx1, opciones de pivot Rx1 en dashboard/reportes/alertas, `description`/`default_value` de filtros en el MCP, tag `irex` de `list_charts`/`get_chart_info`, mejoras de la barra de filtros, el arreglo de filtros malformados en `models/helpers.py`, `head/tail_js_custom_extra.html`, `static/custom_spinner/`, la traducción es, `--experimental-global-webcrypto` del build y todo lo de entorno en `superset/config.py`. Hoy `tools/verify_clean_install.sh` termina en OK (60 rutas idénticas, solo diferencias aceptadas y explicadas).
+
+Archivos afectados:
+- `migrate-plugins.sh`: `patch_file` corregido (con `grep -qF` un patrón de varias líneas daba `[skip]` falso: por eso el paso 5 no aplicaba nada en 6.1.0); pasos 8b y 14 delegados al overlay; nuevos pasos 18 (reubicado, antes corría después del resumen), 19 overlay, 20 `custom_spinner`, 21 `package.json`, 22 compilación de `.mo`; contador de fallas y `exit 1` si alguno no se aplica.
+- `custom-src/upstream-overlay/` (nuevo): `overlay.py` (build/apply/check), `FILES`, `manifest.json`, `files/` con 15 archivos, README. Solo copia sobre el original exacto de 6.1.0 (sha256); si encuentra otra cosa, falla.
+- `custom-src/static/custom_spinner/` (nuevo).
+- `config-templates/` (nuevo): `build_template.py` genera `superset_config.template.py` desde la config real de producción con secretos (`SUPERSET_DB_URI`, `GLOBAL_ASYNC_QUERIES_JWT_SECRET`, `MCP_JWT_SECRET`, `CHAT_BACKEND_SECRET`) y datos del servidor (URLs del widget/MCP, `EXTENSIONS_PATH`, URLs de webdriver y export) desde variables de entorno obligatorias, más `FAB_INDEX_VIEW`/`MCP_DEV_USERNAME`, que solo estaban en el `config.py` del núcleo. Falla si queda un secreto conocido. Verificado: con las variables tomadas de producción, las 357 variables de config dan lo mismo que la config de producción (solo cambian identidades de objetos). `superset.env.example`, README.
+- `requirements-irex.txt` (nuevo): fastmcp, clickhouse-connect, lz4, pymssql, playwright, gevent, flower — instalados en el venv pero fuera de `requirements/base.txt`.
+- `systemd-new/celery-async.service` (nuevo) y `systemd-new/deploy-services.sh` (lo incluye).
+- `tools/verify_clean_install.sh`, `tools/compare_customized_tree.py` (nuevos), `PLUGINS.md` (sección de instalación completa).
+- `INSTALACION_SERVIDOR_NUEVO.md` (nuevo): manual paso a paso para un servidor nuevo.
+- `systemd-new/deploy-services.sh`: el MCP de test pasa a ser opcional (solo si existe `.env_superset_mcp_test`) y las unidades se habilitan para el arranque; `celery-async.service` toma `.env_superset` como `EnvironmentFile` (la plantilla de config lee los secretos del entorno).
+- `config-templates/nginx-superset.conf.example` (nuevo).
+
+Hallazgos que NO se cambiaron en este servidor:
+- `celery-async.service` en producción corre desde el árbol viejo `superset_v6`, no desde `superset_v6_1_0`, y no estaba versionado. La versión de `systemd-new/` apunta a `superset_v6_1_0`; correr `deploy-services.sh` en este servidor la instalaría (cambio de producción a probar antes).
+- Secretos commiteados: `superset_config_test.py`, `extensions/backups/superset_config.py.20260923-pre-fix-sync` y el `superset/config.py` de `superset_v6_1_0` (`SMTP_PASSWORD`, `GLOBAL_ASYNC_QUERIES_JWT_SECRET`) tienen valores reales, y ambos repos tienen remoto en GitHub.
+- `superset_v6_1_0` no desciende del tag `6.1.0` (su historia arranca en un snapshot sobre 6.0.0rc4); su contenido sí es 6.1.0 + las personalizaciones.
+- En el venv hay `celery-beat` 0.1.0, un paquete "guardián" de PyPI (nombre que se instala por error, el real es django-celery-beat): no se usa. `messages.mo` del español es de junio, más viejo que el `.po` de agosto: las traducciones del backend no están compiladas al día.
+- No se probó `npm install`/`npm run build` sobre la copia limpia.
+
 ### 2026-10-09 (Explore: granularidades temporales reales del motor + `irex.resolve_temporal_expression` — solo test)
 
 Cambio realizado: que el copiloto de Explore descubra cómo agrupar una columna temporal con las capacidades reales de Superset y del motor, sin funciones SQL fijadas por base.

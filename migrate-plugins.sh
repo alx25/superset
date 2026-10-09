@@ -55,8 +55,20 @@
 #       16b. Patch RootContextProviders.tsx: import + montaje de <ThemeAgentBridge />
 #  17.  Widget de chat (mcp_widget.py):
 #       17a. Symlink mcp_widget.py → superset/security/
-#       17b. Recordatorio: registrar mcp_widget_bp + inject_chat_widget en el
-#            superset_config.py de PRODUCCIÓN (fuera de este repo, ver CLAUDE.md)
+#       17b. Recordatorio: mcp_widget_bp + inject_chat_widget se registran en
+#            superset_config.py (ya incluidos en config-templates/)
+#  18.  MCP: límites de respuesta por tool (ResponseSizeGuardMiddleware)
+#  19.  Overlay de archivos completos de Superset sin paso de parche propio
+#       (custom-src/upstream-overlay/FILES): exportación pivot Rx1, schemas MCP
+#       de dashboards, tag "irex" en list_charts/get_chart_info, filtros,
+#       models/helpers.py, plantillas head/tail, traducción es (.po)
+#  20.  Estáticos: static/custom_spinner/
+#  21.  package.json: --experimental-global-webcrypto en el build
+#  22.  Compilación de traducciones (.mo) si hay pybabel
+#
+# Sale con error (exit 1) si algún paso no se pudo aplicar.
+# Configuración del servidor: config-templates/ (no se toca superset/config.py
+# salvo HTML_SANITIZATION y el login).
 
 set -euo pipefail
 
@@ -78,6 +90,10 @@ FRONTEND="$TARGET/superset-frontend"
 [[ -d "$CUSTOM_SRC" ]] || { echo "Error: directorio custom-src no encontrado"; exit 1; }
 
 echo "=== Migrando plugins personalizados irex a: $TARGET ==="
+
+# Pasos que no pudieron aplicarse. Al final, si hay alguno, el script sale
+# con error en vez de terminar "bien" con avisos que nadie lee.
+FAILURES=0
 
 # ── 1. Symlinks de plugins ───────────────────────────────────────────────────
 echo "[1] Enlazando plugins..."
@@ -230,19 +246,31 @@ fi
 echo "[5] Parcheando archivos src para PivotTableRx1..."
 
 patch_file() {
+  # El chequeo de "ya aplicado" se hace con el texto COMPLETO en Python:
+  # `grep -qF` con un patrón de varias líneas toma cada línea como un patrón
+  # aparte, y bastaba con que una sola existiera (ej. "VizType.PivotTable,")
+  # para marcar [skip] sin aplicar nada (hallazgo 2026-10-09 en 6.1.0 limpio).
   local file="$1" search="$2" replace="$3" label="$4"
-  [[ -f "$file" ]] || { echo "  [warn] no encontrado: $file"; return; }
-  if grep -qF "$replace" "$file"; then
-    echo "  [skip] $label"
-  elif grep -qF "$search" "$file"; then
-    python3 - <<PYEOF
-with open('$file') as f: c = f.read()
-open('$file', 'w').write(c.replace('''$search''', '''$replace''', 1))
-print('  [ok] $label')
+  [[ -f "$file" ]] || { echo "  [error] no encontrado: $file"; FAILURES=$((FAILURES+1)); return; }
+  local result
+  result=$(PF_FILE="$file" PF_SEARCH="$search" PF_REPLACE="$replace" python3 - <<'PYEOF'
+import os
+f, search, replace = os.environ["PF_FILE"], os.environ["PF_SEARCH"], os.environ["PF_REPLACE"]
+c = open(f).read()
+if replace in c:
+    print("skip")
+elif search in c:
+    open(f, "w").write(c.replace(search, replace, 1))
+    print("ok")
+else:
+    print("missing")
 PYEOF
-  else
-    echo "  [warn] $label: patrón no encontrado, revisar manualmente"
-  fi
+)
+  case "$result" in
+    ok)   echo "  [ok] $label" ;;
+    skip) echo "  [skip] $label (ya aplicado)" ;;
+    *)    echo "  [error] $label: patrón no encontrado, revisar manualmente"; FAILURES=$((FAILURES+1)) ;;
+  esac
 }
 
 patch_file \
@@ -391,12 +419,10 @@ else:
 PYEOF
 fi
 
-# 8b. query_context_processor.py
-if grep -q "_get_pivot_rx1_export_formulas" "$QCP_FILE" 2>/dev/null; then
-  echo "  [skip] 8b query_context_processor.py"
-else
-  python3 "$SCRIPT_DIR/custom-src/patch_8b_qcp.py" "$QCP_FILE"
-fi
+# 8b. query_context_processor.py — se instala como copia completa en el paso 19
+#     (overlay). El parche por anclas (`custom-src/patch_8b_qcp.py`) no encuentra
+#     `get_data` en 6.1.0.
+echo "  [info] 8b query_context_processor.py: lo instala el paso 19 (overlay)"
 # 8c. client_processing.py
 if grep -q '"pivot_table_rx1": pivot_table_rx1' "$CLIENT_PROC" 2>/dev/null; then
   echo "  [skip] 8c client_processing.py"
@@ -934,61 +960,10 @@ PYEOF
 fi
 
 echo "[14] MCP: campo 'description' en filtros nativos de get_dashboard_info..."
-MCP_DASHBOARD_SCHEMAS="$TARGET/superset/mcp_service/dashboard/schemas.py"
-
-if [[ ! -f "$MCP_DASHBOARD_SCHEMAS" ]]; then
-  echo "  [warn] 14 no encontrado: $MCP_DASHBOARD_SCHEMAS (¿esta versión no tiene MCP service?)"
-elif grep -q 'description=f.get("description")' "$MCP_DASHBOARD_SCHEMAS" 2>/dev/null; then
-  echo "  [skip] 14 ya parcheado"
-else
-  python3 - "$MCP_DASHBOARD_SCHEMAS" <<'PYEOF'
-import sys
-f = sys.argv[1]
-c = open(f).read()
-
-old_field = '''    id: str | None = Field(None, description="Filter ID")
-    name: str | None = Field(None, description="Filter display name")
-    filter_type: str | None = Field('''
-new_field = '''    id: str | None = Field(None, description="Filter ID")
-    name: str | None = Field(None, description="Filter display name")
-    description: str | None = Field(
-        None,
-        description=(
-            "Descripción configurada por el creador del filtro (ej. "
-            "explicación de códigos de valores como 'Cjs=Cajas, Col=Colones'). "
-            "None si el filtro no tiene descripción configurada."
-        ),
-    )
-    filter_type: str | None = Field('''
-
-old_construct = '''        summaries.append(
-            NativeFilterSummary(
-                id=f.get("id"),
-                name=f.get("name"),
-                filter_type=f.get("filterType"),
-                targets=targets,
-                default_value=default_value,
-            )
-        )'''
-new_construct = '''        summaries.append(
-            NativeFilterSummary(
-                id=f.get("id"),
-                name=f.get("name"),
-                description=f.get("description"),
-                filter_type=f.get("filterType"),
-                targets=targets,
-                default_value=default_value,
-            )
-        )'''
-
-if old_field in c and old_construct in c:
-    c = c.replace(old_field, new_field, 1).replace(old_construct, new_construct, 1)
-    open(f, 'w').write(c)
-    print("  [ok] 14 schemas.py (dashboard) parcheado")
-else:
-    print("  [warn] 14 schemas.py: patrones no encontrados, verificar manualmente")
-PYEOF
-fi
+# Se instala como copia completa en el paso 19 (overlay): el parche por anclas
+# no aplicaba en 6.1.0, y además el archivo lleva `default_value` y
+# `str(perm)` que este paso nunca cubrió.
+echo "  [info] 14: lo instala el paso 19 (overlay)"
 
 # ── 15. exploreReducer.ts: sincronizar calculated_columns con column_config/column_order ──
 echo "[15] Parcheando exploreReducer.ts (sync de Calculated columns al renombrar)..."
@@ -1246,20 +1221,96 @@ fi
 # el after-request inject_chat_widget se registran a mano en el
 # superset_config.py de PRODUCCIÓN (/home/imercados/.superset/, fuera de
 # este repo) junto con MCP_JWT_SECRET, CHAT_WIDGET_URL, etc. Ver CLAUDE.md.
-echo "  [reminder] Falta registrar mcp_widget_bp + inject_chat_widget y sus"
-echo "             variables (MCP_JWT_SECRET, CHAT_WIDGET_URL, ...) en el"
-echo "             superset_config.py de producción — no lo hace este script."
+echo "  [reminder] mcp_widget_bp + inject_chat_widget y sus variables se"
+echo "             registran en superset_config.py: ya vienen en"
+echo "             config-templates/superset_config.template.py."
+
+# ── 18. MCP: límites de respuesta por tool ──────────────────────────────────
+echo "[18] MCP: límites de respuesta por tool (ResponseSizeGuardMiddleware)..."
+python3 "$CUSTOM_SRC/MCPResponseSizeGuard/patch_response_size_guard.py" "$TARGET" \
+  || { echo "  [error] 18 patch_response_size_guard.py"; FAILURES=$((FAILURES+1)); }
+
+# ── 19. Overlay: archivos de Superset modificados sin paso de parche propio ──
+# Copia completa, solo si el destino es exactamente el original de la versión
+# para la que se armó (ver custom-src/upstream-overlay/README.md).
+echo "[19] Overlay de archivos de Superset (custom-src/upstream-overlay)..."
+python3 "$CUSTOM_SRC/upstream-overlay/overlay.py" apply "$TARGET" \
+  || { echo "  [error] 19 overlay: hay archivos sin aplicar (ver arriba)"; FAILURES=$((FAILURES+1)); }
+
+# ── 20. Estáticos de la interfaz Irex fuera del login ────────────────────────
+# El tema (THEME_DEFAULT.brandSpinnerUrl) apunta a /static/custom_spinner/.
+echo "[20] Estáticos: custom_spinner..."
+mkdir -p "$TARGET/superset/static/custom_spinner"
+cp -f "$CUSTOM_SRC/static/custom_spinner/"* "$TARGET/superset/static/custom_spinner/" \
+  && echo "  [ok] superset/static/custom_spinner" \
+  || { echo "  [error] 20 custom_spinner"; FAILURES=$((FAILURES+1)); }
+
+# ── 21. package.json: NODE_OPTIONS del build ─────────────────────────────────
+# --experimental-global-webcrypto: el build de producción lo necesita con el
+# Node del servidor (globalThis.crypto).
+echo "[21] package.json: --experimental-global-webcrypto en build/build-instrumented..."
+python3 - "$FRONTEND/package.json" <<'PYEOF' || FAILURES=$((FAILURES+1))
+import json, sys
+f = sys.argv[1]
+pkg = json.load(open(f))
+scripts = pkg["scripts"]
+wanted = {
+    "build": 'cross-env NODE_OPTIONS="--max_old_space_size=8192 --experimental-global-webcrypto" NODE_ENV=production BABEL_ENV="${BABEL_ENV:=production}" webpack --color --mode production',
+    "build-instrumented": "cross-env NODE_OPTIONS=--experimental-global-webcrypto NODE_ENV=production BABEL_ENV=instrumented webpack --mode=production --color",
+}
+original = {
+    "build": 'cross-env NODE_OPTIONS=--max_old_space_size=8192 NODE_ENV=production BABEL_ENV="${BABEL_ENV:=production}" webpack --color --mode production',
+    "build-instrumented": "cross-env NODE_ENV=production BABEL_ENV=instrumented webpack --mode=production --color",
+}
+changed = False
+for name, value in wanted.items():
+    if scripts.get(name) == value:
+        continue
+    if scripts.get(name) != original[name]:
+        print(f"  [error] 21 scripts.{name} no es el original esperado, revisar a mano")
+        sys.exit(1)
+    scripts[name] = value
+    changed = True
+if changed:
+    with open(f, "w") as out:
+        json.dump(pkg, out, indent=2, ensure_ascii=False)
+        out.write("\n")
+print("  [ok] package.json scripts" + ("" if changed else " (ya aplicado)"))
+PYEOF
+
+# ── 22. Traducciones compiladas (backend) ────────────────────────────────────
+# El .po en español lo instala el paso 19; el .mo (backend) se compila acá si
+# hay pybabel; el .json (frontend) lo genera `npm run build-translation`.
+echo "[22] Traducciones: compilar .mo..."
+PYBABEL="$TARGET/.venv/bin/pybabel"
+command -v "$PYBABEL" >/dev/null 2>&1 || PYBABEL="$(command -v pybabel || true)"
+if [[ -n "$PYBABEL" ]]; then
+  "$PYBABEL" compile -d "$TARGET/superset/translations" -l es >/dev/null 2>&1 \
+    && echo "  [ok] superset/translations/es/LC_MESSAGES/messages.mo" \
+    || { echo "  [error] 22 pybabel compile"; FAILURES=$((FAILURES+1)); }
+else
+  echo "  [pendiente] sin pybabel: correr 'pybabel compile -d superset/translations -l es' con el venv de Superset"
+fi
 
 echo ""
-echo "=== Migración completada ==="
+if [[ "$FAILURES" -gt 0 ]]; then
+  echo "=== Migración INCOMPLETA: $FAILURES paso(s) con error (ver [error] arriba) ==="
+else
+  echo "=== Migración completada ==="
+fi
 echo ""
 echo "Próximos pasos:"
 echo "  cd $FRONTEND"
 echo "  npm install"
+echo "  npm run build-translation   (traducciones del frontend)"
 echo "  npm run build   (o para debug: npm run dev-server)"
 echo ""
+echo "  Config: partir de config-templates/superset_config.template.py y"
+echo "          config-templates/superset.env.example (ver config-templates/README.md)."
+echo "  Extensión MCP: copiar extensions/irex-mcp-tools-0.1.0.supx a EXTENSIONS_PATH."
 echo "  Backend: reiniciar Superset para aplicar cambios Python"
 echo "  Debug:   superset run -p 9050 -h 0.0.0.0 --with-threads --reload --debugger"
+echo ""
+echo "  Verificación: python3 custom-src/upstream-overlay/overlay.py check $TARGET"
 
-# 18. MCP: trusted per-tool response limits
-python3 "$CUSTOM_SRC/MCPResponseSizeGuard/patch_response_size_guard.py" "$TARGET"
+[[ "$FAILURES" -eq 0 ]] || exit 1

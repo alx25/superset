@@ -1,0 +1,26 @@
+[Unit]
+Description=Celery Async SQL Worker for Superset (gevent, queue=sql)
+After=network.target
+
+[Service]
+Type=simple
+User=imercados
+Group=imercados
+WorkingDirectory=/home/imercados/superset_proyecto/superset_v6_1_0
+Environment="PATH=/home/imercados/superset_proyecto/superset_v6_1_0/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+# SUPERSET_CONFIG_PATH y las variables que lee superset_config.py (secretos,
+# IREX_*) vienen del mismo archivo que usan superset/celery/celery-beat.
+EnvironmentFile=/home/imercados/superset_proyecto/.env_superset
+Environment="PYTHONPATH=/home/imercados/.superset:/home/imercados/superset_proyecto/superset_v6_1_0:/home/imercados/superset_proyecto/superset_v6_1_0/superset"
+Environment="ASYNC_SQL_WORKER=1"
+
+ExecStartPre=/usr/bin/test -x /home/imercados/superset_proyecto/superset_v6_1_0/.venv/bin/python
+ExecStartPre=/home/imercados/superset_proyecto/superset_v6_1_0/.venv/bin/python -c "import celery, gevent"
+
+# TODO: UNA SOLA LÍNEA
+ExecStart=/home/imercados/superset_proyecto/superset_v6_1_0/.venv/bin/python -m celery --app=superset.tasks.celery_app:app worker --pool=gevent -O fair -Q sql -c 180 --prefetch-multiplier=1 --max-memory-per-child=1024000 --loglevel=INFO --hostname=async-sql@%H
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

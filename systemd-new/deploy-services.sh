@@ -2,7 +2,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SERVICES=(superset.service celery.service celery-beat.service flower.service superset_mcp.service superset_mcp_test.service)
+SERVICES=(superset.service celery.service celery-async.service celery-beat.service flower.service superset_mcp.service)
+# El MCP de test es opcional: solo se despliega si existe su archivo de entorno.
+if [[ -f "/home/imercados/superset_proyecto/.env_superset_mcp_test" ]]; then
+    SERVICES+=(superset_mcp_test.service)
+fi
 
 echo "=== Desplegando servicios de producción ==="
 echo ""
@@ -18,8 +22,7 @@ done
 # Verificar que los archivos de entorno existen
 for env_file in \
     "/home/imercados/superset_proyecto/.env_superset" \
-    "/home/imercados/superset_proyecto/.env_superset_mcp" \
-    "/home/imercados/superset_proyecto/.env_superset_mcp_test"; do
+    "/home/imercados/superset_proyecto/.env_superset_mcp"; do
     if [[ ! -f "$env_file" ]]; then
         echo "ERROR: No se encuentra $env_file"
         exit 1
@@ -35,6 +38,10 @@ done
 echo ""
 echo "  Recargando systemd..."
 sudo systemctl daemon-reload
+# Arranque automático al reiniciar el servidor (en un servidor nuevo no lo estaban).
+for svc in "${SERVICES[@]}"; do
+    sudo systemctl enable "$svc" >/dev/null 2>&1 || echo "  [warn] no se pudo habilitar $svc"
+done
 
 echo ""
 echo "=== Reiniciando servicios ==="

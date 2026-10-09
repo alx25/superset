@@ -385,3 +385,35 @@ Test config sets 50,000 tokens for SQL Lab schema, EXPLAIN and null-profile tool
 the global 25,000-token default and production configuration are unchanged.
 Tests: `custom-src/MCPResponseSizeGuard/test_response_size_guard.py` plus the
 existing `tests/unit_tests/mcp_service/test_middleware.py` (23 passed).
+
+
+## Instalación completa en un servidor nuevo (2026-10-09)
+
+Un Superset 6.1.0 limpio + `migrate-plugins.sh` reproduce el árbol de
+`superset_v6_1_0`; se comprueba de punta a punta con:
+
+    tools/verify_clean_install.sh            # tag 6.1.0 → temp → script → comparación
+
+Debe terminar en `OK`. Las únicas diferencias aceptadas (formato, orden,
+`package-lock.json`, valores de entorno que pasaron a `config-templates/`, y
+artefactos de desarrollo) están listadas con su motivo en `ACCEPTED` de
+`tools/compare_customized_tree.py`. Correrla después de cualquier cambio en el
+árbol, en `custom-*/` o en el script: si se modifica un archivo de Superset
+nuevo, hay que darle un paso de parche o sumarlo a
+`custom-src/upstream-overlay/FILES` y regenerar el overlay.
+
+Piezas:
+- `migrate-plugins.sh` — pasos 1–22; sale con error si alguno no se aplica.
+- `custom-src/upstream-overlay/` — archivos de Superset instalados como copia
+  completa, solo sobre el original exacto de 6.1.0 (ver su README).
+- `config-templates/` — `superset_config.py` de producción sin secretos ni datos
+  del servidor, más `superset.env.example` (ver su README).
+- `requirements-irex.txt` — paquetes de Python además de `requirements/base.txt`
+  (fastmcp, drivers ClickHouse/SQL Server, playwright, gevent, flower).
+- `systemd-new/` — unidades de systemd (incluye `celery-async.service`).
+- `extensions/irex-mcp-tools-0.1.0.supx` — la extensión MCP.
+
+Pasos manuales que siguen fuera del script: `npm install`,
+`npm run build-translation`, `npm run build`, `pybabel compile` si el venv no
+estaba al correr el script, `playwright install`, el video de 90 MB del login,
+`superset db upgrade`/`superset init` y crear los archivos `.env`.

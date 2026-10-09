@@ -1,0 +1,252 @@
+{#
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements.  See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership.  The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License.  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied.  See the License for the
+    specific language governing permissions and limitations
+    under the License.
+  #}
+
+  {#
+    This file may be overridden in your custom deployment.
+    It will be included in every view in superset and is a
+    good place to include your custom frontend code, such as
+    scripts to initialize google analytics, intercom, segment, etc.
+  #}
+
+<style>
+  #zoom-suggestion-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(135deg, #20a7c9 0%, #1f7a8c 100%);
+    color: white;
+    padding: 14px 24px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+    animation: slideDown 0.3s ease-out;
+    border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  @keyframes slideDown {
+    from {
+      transform: translateY(-100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+  
+  #zoom-suggestion-banner .banner-content {
+    max-width: 1400px;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+  }
+  
+  #zoom-suggestion-banner .banner-text {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  
+  #zoom-suggestion-banner .icon {
+    font-size: 22px;
+    flex-shrink: 0;
+  }
+  
+  #zoom-suggestion-banner .message {
+    flex: 1;
+    line-height: 1.6;
+  }
+  
+  #zoom-suggestion-banner .message strong {
+    font-weight: 600;
+    font-size: 15px;
+    display: block;
+    margin-bottom: 4px;
+  }
+  
+  #zoom-suggestion-banner .message small {
+    opacity: 0.95;
+    font-size: 13px;
+    display: block;
+  }
+  
+  #zoom-suggestion-banner .kbd {
+    background: rgba(0, 0, 0, 0.25);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: monospace;
+    font-size: 11px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    font-weight: 600;
+  }
+  
+  #zoom-suggestion-banner .banner-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  
+  #zoom-suggestion-banner button {
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    color: white;
+    padding: 6px 16px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+  }
+  
+  #zoom-suggestion-banner button:hover {
+    background: rgba(255, 255, 255, 0.25);
+    transform: translateY(-1px);
+    border-color: rgba(255, 255, 255, 0.4);
+  }
+  
+  #zoom-suggestion-banner .close-btn {
+    background: transparent;
+    border: none;
+    font-size: 18px;
+    padding: 4px 8px;
+    opacity: 0.8;
+  }
+  
+  #zoom-suggestion-banner .close-btn:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.15);
+  }
+  
+  @media (max-width: 768px) {
+    #zoom-suggestion-banner {
+      padding: 10px 15px;
+    }
+    
+    #zoom-suggestion-banner .banner-content {
+      flex-direction: column;
+      gap: 12px;
+    }
+    
+    #zoom-suggestion-banner .banner-actions {
+      width: 100%;
+      justify-content: flex-end;
+    }
+  }
+</style>
+
+<script>
+  (function() {
+    // Check if the banner has been dismissed for today
+    const STORAGE_KEY = 'superset_zoom_banner_dismissed';
+    const AUTO_HIDE_MS = 10000; // Ocultar automáticamente a los 10s
+
+    function getTodayKey() {
+      const now = new Date();
+      return now.getFullYear() + '-' + (now.getMonth() + 1) + '-' + now.getDate();
+    }
+
+    if (localStorage.getItem(STORAGE_KEY) === getTodayKey()) {
+      return; // Ya se ocultó hoy, no volver a mostrar hasta el día siguiente
+    }
+    
+    // Detect browser zoom level
+    function getZoomLevel() {
+      // Method 1: Using devicePixelRatio (most reliable)
+      const zoom = Math.round((window.devicePixelRatio || 1) * 100);
+      
+      // Method 2: Alternative using screen width comparison
+      // This helps detect zoom changes more accurately
+      const screenCssWidth = document.documentElement.clientWidth;
+      const screenPhysicalWidth = window.screen.width;
+      const zoomAlt = Math.round((screenPhysicalWidth / screenCssWidth) * 100);
+      
+      // Use devicePixelRatio method as primary, but validate with alternative
+      return zoom;
+    }
+    
+    // Only show banner if zoom is >= 100%
+    const currentZoom = getZoomLevel();
+    if (currentZoom < 100) {
+      return; // Don't show banner if zoom is already less than 100%
+    }
+    
+    // Create the banner
+    const banner = document.createElement('div');
+    banner.id = 'zoom-suggestion-banner';
+    banner.innerHTML = `
+      <div class="banner-content">
+        <div class="banner-text">
+          <span class="icon">🔎</span>
+          <div class="message">
+            <strong>💡 Sugerencia de visualización</strong>
+            <small>
+              Para mejor visualización de gráficos y dashboards, ajusta el zoom al 80-90%: 
+              <span class="kbd">Ctrl</span> <span class="kbd">+</span> o <span class="kbd">Ctrl</span> <span class="kbd">−</span>
+              o <span class="kbd">Ctrl</span> <span class="kbd">+</span> <span class="kbd">Rueda del ratón</span>
+            </small>
+          </div>
+        </div>
+        <div class="banner-actions">
+          <button onclick="dismissZoomBanner()">Entendido</button>
+          <button class="close-btn" onclick="dismissZoomBanner()" title="Cerrar">✕</button>
+        </div>
+      </div>
+    `;
+    
+    let autoHideTimer = null;
+
+    // Add the banner to the page when DOM is ready
+    function addBanner() {
+      document.body.insertBefore(banner, document.body.firstChild);
+      // Add padding to body to prevent content from being hidden
+      document.body.style.paddingTop = banner.offsetHeight + 'px';
+      // Ocultar automáticamente si el usuario no interactúa
+      autoHideTimer = setTimeout(window.dismissZoomBanner, AUTO_HIDE_MS);
+    }
+
+    // Dismiss function
+    window.dismissZoomBanner = function() {
+      if (autoHideTimer) {
+        clearTimeout(autoHideTimer);
+        autoHideTimer = null;
+      }
+      localStorage.setItem(STORAGE_KEY, getTodayKey());
+      banner.style.animation = 'slideDown 0.3s ease-out reverse';
+      setTimeout(function() {
+        banner.remove();
+        document.body.style.paddingTop = '0';
+      }, 300);
+    };
+    
+    // Wait for DOM to be ready
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', addBanner);
+    } else {
+      addBanner();
+    }
+  })();
+</script>

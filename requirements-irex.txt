@@ -1,0 +1,20 @@
+# Paquetes de Python que este proyecto necesita además de
+# superset_v6_1_0/requirements/base.txt (versiones = las del servidor original,
+# 2026-10-09). Instalar en el venv de Superset:
+#   pip install -r superset_v6_1_0/requirements/base.txt -r requirements-irex.txt
+#   playwright install --with-deps chromium     # capturas, thumbnails y reportes
+#
+# MCP service (superset mcp run) e irex-mcp-tools — en Superset es un extra de
+# desarrollo (requirements/development.txt), acá es obligatorio.
+fastmcp==3.1.0
+# Driver ClickHouse (bases "ClickHouse Connet") y su compresión
+clickhouse-connect==1.1.1
+lz4==4.4.5
+# Driver SQL Server
+pymssql==2.3.13
+# Capturas de gráficos/dashboards (PLAYWRIGHT_REPORTS_AND_THUMBNAILS)
+playwright==1.60.0
+# Worker Celery async (celery-async.service usa el pool gevent)
+gevent==24.2.1
+# Monitoreo de Celery (flower.service)
+flower==2.0.1

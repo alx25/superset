@@ -1,0 +1,26 @@
+# Sitio de nginx para Superset (copia de referencia del servidor original,
+# sin los alias de otras aplicaciones). Copiar a /etc/nginx/sites-available/,
+# reemplazar SERVER_NAME, enlazar en sites-enabled y `sudo nginx -t && sudo systemctl reload nginx`.
+server {
+    listen 80;
+    server_name SERVER_NAME;
+
+    access_log /var/log/nginx/superset_access.log;
+    error_log /var/log/nginx/superset_error.log;
+
+    location = / {
+        return 302 /dashboard/list/?pageIndex=0&sortColumn=dashboard_title&sortOrder=asc&viewMode=card;
+    }
+
+    location / {
+        proxy_buffers 32 4k;
+        proxy_buffer_size 8k;
+        proxy_pass http://localhost:8088;
+        proxy_set_header Host $http_host;
+        # Streaming del widget de chat
+        proxy_http_version 1.1;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

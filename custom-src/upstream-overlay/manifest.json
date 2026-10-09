@@ -1,0 +1,65 @@
+{
+  "superset_version": "6.1.0",
+  "files": {
+    "superset/common/query_context_processor.py": {
+      "upstream_sha256": "7e7fa5c32bc7308a0037e5d0aa05223da25527a296d9de424a88f93c4f19f881",
+      "overlay_sha256": "92ffa935443e9a3fe93d8e09c7d04fd0403ffcced6e735bc60310c5b6d2e9d59"
+    },
+    "superset/mcp_service/dashboard/schemas.py": {
+      "upstream_sha256": "870aabef0d37ffd2b660828990cb15cc2241e20813562a7372fac6a9e0b583d6",
+      "overlay_sha256": "a26369c8acfc585012471b232dc370d9a19f58a544edba83e35d5d0d12067876"
+    },
+    "superset/mcp_service/chart/tool/list_charts.py": {
+      "upstream_sha256": "14952fb031c8c9b9ed57813718bca6a15df44a15a10a97b88afb1d766e64479a",
+      "overlay_sha256": "4f30ed24bfdac6fb114d928ffe0a7f18790b92cbafc7bb7aa841377ca920325c"
+    },
+    "superset/mcp_service/chart/tool/get_chart_info.py": {
+      "upstream_sha256": "c3fd50e499f188b832f0aa256876ac313e277cb73b659ca3edd3615b15da06ca",
+      "overlay_sha256": "921e5f068991a9c247fe73a19c4ba29ee65d0e9dd7102047d9f2243594974df5"
+    },
+    "superset/models/helpers.py": {
+      "upstream_sha256": "ed4b39907289a70b5e54e4afc9f4721006be396a07a8c6bb5bd8a16afdcec1d7",
+      "overlay_sha256": "1113793df493bbb0060d7b833baebd0627bd347221047519a0587a1bdb116fdb"
+    },
+    "superset-frontend/src/dashboard/components/nativeFilters/dependencyGraph.ts": {
+      "upstream_sha256": "57e1e5e610035346cda34ec64afdc7116ce91c190c914f43c69aba7ead19ccee",
+      "overlay_sha256": "50844fe0ffe9e4a70ceb4afa0ee9384acfef82fef4494d2ecebc1637308cd171"
+    },
+    "superset-frontend/src/dashboard/components/nativeFilters/FilterBar/FilterControls/FilterValue.tsx": {
+      "upstream_sha256": "993d65b57b971ddcf6155d8d054b876d967860cbed95cf0bf85465c77fe492fa",
+      "overlay_sha256": "be6eeabd0c3ead37da27d9e42310784abd5774242e8092bb4294eff26bcae7ed"
+    },
+    "superset-frontend/src/dashboard/components/nativeFilters/FilterBar/FilterControls/state.ts": {
+      "upstream_sha256": "dd3c78e39a4a48bc7feeda92e07ebad64e7d127a03de7b71b54f04289d99f0c8",
+      "overlay_sha256": "c60f287bff543f7dab520dae63b9d58ab149a10cc91614574072cd6b19432617"
+    },
+    "superset-frontend/src/dashboard/components/nativeFilters/FilterBar/FilterControls/state.test.ts": {
+      "upstream_sha256": "5b8b5860bd29eafe1f92bc2fbb5659bd6fccc62754f8b53b85ee5045f14b88e1",
+      "overlay_sha256": "a107d1607a94da5fb42757ecb7d6dbefa91ef9056258d36ff4a9303b01545d4a"
+    },
+    "superset-frontend/src/dashboard/components/nativeFilters/FilterBar/index.tsx": {
+      "upstream_sha256": "6d00917c10ed1aa3836ca1bfa3a6770b4c7f27fc9c15414ee41d10a63beb591b",
+      "overlay_sha256": "f65fe56659a4f47b24b92997fdac92ee368dd6fb1474a5dce0367d7fd5788107"
+    },
+    "superset-frontend/src/filters/components/Select/SelectFilterPlugin.tsx": {
+      "upstream_sha256": "aac2e67a51b1e42788ce669ceb4c80cf954a7a778eb25c9faef5b1d00029fca7",
+      "overlay_sha256": "947c71d2f0c55d69e3311dd67050e56514fafec0036e3c0921d7d2fbfe4eef97"
+    },
+    "superset-frontend/src/explore/reducers/exploreReducer.test.ts": {
+      "upstream_sha256": "2e3cf809989c3731a6bd9c6d88477f98e71745dae16b99b9fcf3040bfa03ccb8",
+      "overlay_sha256": "932412d8e113c601ae1384ebb450de334be8cc66d50aa5f8a33e2504a1a9ff7c"
+    },
+    "superset/templates/head_custom_extra.html": {
+      "upstream_sha256": "ab4c5bb16b521fa8c4075d85825b455f58e6d3e931f7c629833a1822c6ccfda8",
+      "overlay_sha256": "c7d5025900b61ada1bf2e131ce094725e603be117d62328a10e9b62b1ae21668"
+    },
+    "superset/templates/tail_js_custom_extra.html": {
+      "upstream_sha256": "ab4c5bb16b521fa8c4075d85825b455f58e6d3e931f7c629833a1822c6ccfda8",
+      "overlay_sha256": "2ffd7c0273e225a13c6b162e87ba3f2dbca8203c637121fb5b717dc3dd58c537"
+    },
+    "superset/translations/es/LC_MESSAGES/messages.po": {
+      "upstream_sha256": "1f3f04f603c41b409607dc15c67cd79ac889324d250f6276f132f784ad474b6d",
+      "overlay_sha256": "4e6feab7a45343d571da71cb400df1fefe7e929b24f2578ba572ae0a24bb0841"
+    }
+  }
+}
